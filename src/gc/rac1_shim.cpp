@@ -163,6 +163,19 @@ void Shim::reset() {
         gc_shim_item_record[i] = static_cast<unsigned char>(i);
     }
     gc_shim_options[3] = m_pause ? 1 : 0;
+    // The spiral's: closed, no slow-down (the port resets its stretch with the level too).
+    m_wheel.close();
+    m_armed = false;
+    m_toggle_released = false;
+    m_committing = false;
+    m_cancelled = false;
+    m_ramp_record = false;
+    if (m_ramp != Ramp::None || m_stretch != 1.0f) {
+        m_ramp = Ramp::None;
+        set_stretch(1.0f);
+    }
+    m_ramp_elapsed = 0.0f;
+    publish();
 }
 
 void Shim::log_once(const std::string& key, const std::string& line, bool warning) {
@@ -424,13 +437,20 @@ void* Shim::resolve_handle(std::int32_t handle) const {
 // Commando's menu_set_mode does not pause the music for mode 7, Ratchet & Clank's mode_freeze_init
 // does: the music is unpaused after it.
 void Shim::begin_paused(int arg) {
+    // The slow-down's end: the world holds now, the game's time at its own pace again.
+    const bool after_ramp = m_ramp == Ramp::Down;
+    if (after_ramp) {
+        m_ramp = Ramp::None;
+        set_stretch(1.0f);
+    }
     game.mode_freeze_init(kFreezeKind, 0, 0);
     menu_set_mode(kModalQuickSelect, arg);
     game.music_unpause();
     m_entered = true;
     m_freeze_ticks = 0;
     m_draws_since_update = 0;
-    m_record_opened = false;
+    // The wheel's record opened in the slow-down, in play: the same record goes on in the freeze.
+    m_record_opened = after_ramp && m_ramp_record;
 }
 
 // request_end_slot(0, 0): back to the mode the freeze was entered from (as update_mode_freeze's
@@ -444,6 +464,13 @@ void Shim::end_paused(const char* reason) {
     menu_end();
     std::memset(gc_shim_modal_state + kModalPhase, 0, sizeof(std::int32_t));
     m_entered = false;
+    m_ramp_record = false;
+    // "Ease back on close": the game's time back up the way it slowed down.
+    if (reason == nullptr && m_wheel_options.ease_back && m_wheel_options.ramp_frames > 0) {
+        m_ramp = Ramp::Up;
+        m_ramp_elapsed = 0.0f;
+        set_stretch(kStretchMax);
+    }
     if (reason != nullptr && game.log) {
         char line[200];
         std::snprintf(line, sizeof line, "the paused quick select ended by its watchdog: %s", reason);
@@ -589,72 +616,6 @@ void Shim::show_counters_bolts(int frames_shown) {
     game.hud_keep_visible(handle, ticks(frames_shown));
 }
 
-// Going Commando's ring (weapon_wheel_draw's lines 44-55) is its resident HUD's labels, which
-// Ratchet & Clank does not have. Its own ring in their place, as draw_hud_item_selector_panel draws
-// it (games/rac1/decomp weapon_hud_and_counters.c:1303-1360, reimplemented): the four mirrored panel
-// quarters (sprite 0xE934) at quick_select_width x quick_select_height, the items' icons on the ring
-// (quick_select_center_x/y, ring_radius, ring_aspect; a gold weapon's frame 4), the unselected ones
-// at quick_select_unselected_alpha_scale, and the marker (0xE99C) at the selection, pulsing as
-// Ratchet & Clank's does (its alpha times 0.875 + 0.125 * sin over quick_select_pulse_period ticks).
-// The alpha is Going Commando's (fade[0] / 8 * 128). The ring is centred on Going Commando's panel
-// (its 210 x 200 from menu_init_panel_layout, at the record's place as Ratchet & Clank's
-// hud_screen_position puts it; its middle, x + 105, is where Going Commando's text is centred): where
-// Ratchet & Clank draws its own ring when the record's anchor centres it.
-void Shim::draw_ring(std::uint8_t* menu, int x, int y, int alpha) {
-    const Memory& m = game.memory;
-    const Disc& a = m_level.at;
-    const std::uint32_t record = guest(menu);
-    const Memory rec{menu};
-    const int width = m.read<std::int32_t>(a.width);
-    const int height = m.read<std::int32_t>(a.height);
-    const int rx = x + (rec.read<std::int32_t>(kRecordWidth) - width) / 2;
-    const int ry = y + (rec.read<std::int32_t>(kRecordHeight) - height) / 2;
-    const int half_w = width / 2;
-    const int half_h = height / 2;
-    const int panel = game.get_icon_frame(kPanelSprite, 0);
-    game.draw_hud_sprite(panel, rx, ry, half_w, half_h, alpha);
-    game.draw_hud_sprite(panel, rx + width, ry + height, -half_w, -half_h, alpha);
-    game.draw_hud_sprite(panel, rx + width, ry, -half_w, half_h, alpha);
-    game.draw_hud_sprite(panel, rx, ry + height, half_w, -half_h, alpha);
-
-    const int count = m.read<std::int32_t>(a.slot_count);
-    const int page = m.read<std::int32_t>(a.page);
-    if (page < 0 || static_cast<std::size_t>(page) >= kPages || gc_shim_pages[page] == nullptr) {
-        return;
-    }
-    const Memory entries{static_cast<std::uint8_t*>(gc_shim_pages[page])};
-    const int selected = rec.read<std::int32_t>(kRecordSelected);
-    const float radius = m.read<float>(a.ring_radius);
-    const float aspect = m.read<float>(a.ring_aspect);
-    const float unselected = m.read<float>(a.unselected_alpha);
-    const int cx = m.read<std::int32_t>(a.center_x);
-    const int cy = m.read<std::int32_t>(a.center_y);
-    for (int i = 0; i < count && i < 8; ++i) {
-        const float angle = math_add_rots((static_cast<float>(i) + static_cast<float>(i)) * kPi / static_cast<float>(count) - kPi,
-                                          1.5707964f);
-        const int icon_x = rx + cx + static_cast<int>(radius * math_cos(angle) * aspect);
-        const int icon_y = ry + cy + static_cast<int>(radius * math_sin(angle));
-        const std::int32_t icon = entries.read<std::int32_t>(static_cast<std::uint32_t>(i) * 28);
-        const std::int32_t item = entries.read<std::int32_t>(static_cast<std::uint32_t>(i) * 28 + 0x18);
-        if (icon == 0) {
-            continue;
-        }
-        if (selected == i) {
-            const int pulse = std::max(1, m.read<std::int32_t>(a.pulse_period));
-            float phase = math_int_to_float(m.read<std::int32_t>(a.level_frame_counter) % pulse);
-            phase /= math_int_to_float(pulse);
-            phase *= 6.28318f;
-            const float wave = math_sin(phase - 3.14159f) * 0.125f + 0.875f;
-            const int marker_alpha = math_float_to_int(static_cast<float>(alpha) * wave);
-            game.draw_hud_sprite(game.get_icon_frame(kMarkerSprite, 0), icon_x - 0x13, icon_y - 0x13, 0x26, 0x26,
-                                 marker_alpha);
-        }
-        const int icon_alpha = i != selected ? math_float_to_int(static_cast<float>(alpha) * unselected) : alpha;
-        const bool gold = item > 0 && item < 256 && m.read<std::uint8_t>(a.gold + static_cast<std::uint32_t>(item)) != 0;
-        game.hud_frame(record, game.get_icon_frame(icon, gold ? 4 : 0), icon_x, icon_y, 1, icon_alpha);
-    }
-}
-
 // --- The hook points ---
 
 // rac1.level.update_play (handle_pause_input, game mode 0's tick): Going Commando's gate first
@@ -665,6 +626,18 @@ void Shim::update_play(const std::function<void()>& original) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     ++m_play_ticks;
+    // The slow-down: its tick; at its end the pause, which takes this tick as the gate's does.
+    if (m_ramp != Ramp::None) {
+        ramp_tick();
+        if (m_ramp == Ramp::Down && m_ramp_elapsed >= static_cast<float>(m_wheel_options.ramp_frames)) {
+            if (paused_open_refusal() == nullptr) {
+                begin_paused(0);
+                return;
+            }
+            end_ramp(false);
+            close_wheel();
+        }
+    }
     const bool pressed = ((m.read<std::uint32_t>(a.pad + kPadPressed) |
                            m.read<std::uint32_t>(a.pad + kPadPressedUnmasked)) & kTriangle) != 0;
     std::string gate;
@@ -872,6 +845,11 @@ void Shim::selector_init(std::uint32_t record) {
         log_once("record in freeze", "the paused quick select's HUD record opened");
         return;
     }
+    if (m_ramp == Ramp::Down) {
+        m_ramp_record = true;
+        log_once("record ramp", "the wheel's HUD record opened as the game slows down");
+        return;
+    }
     if (!pause()) {
         log_once("record hud", "the game's Triangle opened the quick select over the running game (\"Pause while open\" off)");
         return;
@@ -880,7 +858,7 @@ void Shim::selector_init(std::uint32_t record) {
     log_once("record refused", "the game's own quick select refused (\"Pause while open\" on: the paused one opens on a held Triangle)");
 }
 
-// rac1.hud.quick_select.update: Going Commando's weapon_wheel_update_select (a refused record is
+// rac1.hud.quick_select.update: the spiral's update (rac1_spiral.cpp; a refused record is
 // closed at once, as the quick select closes itself).
 void Shim::selector_update(std::uint32_t record) {
     const Memory& m = game.memory;
@@ -893,10 +871,10 @@ void Shim::selector_update(std::uint32_t record) {
     CopyScope scope(*this);
     rebuild_pages();
     fill_weapon_table();
-    weapon_wheel_update_select(m.at(record));
+    spiral_update(m.at(record));
 }
 
-// rac1.hud.quick_select.draw: Going Commando's weapon_wheel_draw.
+// rac1.hud.quick_select.draw: the spiral's draw (rac1_spiral.cpp).
 int Shim::selector_draw(std::uint32_t record) {
     const Memory& m = game.memory;
     if (std::find(m_refused.begin(), m_refused.end(), record) != m_refused.end()) {
@@ -904,7 +882,7 @@ int Shim::selector_draw(std::uint32_t record) {
     }
     rebuild_pages();
     fill_weapon_table();
-    return weapon_wheel_draw(reinterpret_cast<char*>(m.at(record)));
+    return spiral_draw(m.at(record));
 }
 
 // --- Math: Ratchet & Clank's own by name, or a faithful stand-in ---
@@ -978,10 +956,6 @@ int gc_shim_gate_window(int frames) {
 
 void gc_shim_item_0x18(void) {
     mem().write<std::uint8_t>(shim().level().at.hero + gcw::kHeroItem18, 1);
-}
-
-void gc_shim_draw_ring(char* menu, int x, int y, int alpha) {
-    shim().draw_ring(reinterpret_cast<std::uint8_t*>(menu), x, y, alpha);
 }
 
 int gc_shim_selector_open_allowed(void) { return shim().selector_open_allowed() ? 1 : 0; }
@@ -1091,9 +1065,14 @@ int gc_shim_text_draw_centered_small(int x, int y, unsigned int colour, char* te
 
 // request_begin_slot(4, 1, 7, ...): the paused quick select (Shim::begin_paused); anything else is
 // refused (-1), as Going Commando refuses a request it cannot take.
+// With "Slow-down before pausing" the game slows first (Shim::begin_ramp): refused here (-1, the
+// gate's tick goes on, the world with it, slower), and the layer enters the pause when it ends.
 int gc_shim_request_begin_slot(int index, int, int arg_a, int arg_b, void*) {
     Shim& s = shim();
     if (index != gcw::gc::kModeFreeze || arg_a != gcw::gc::kModalQuickSelect || s.paused_open_refusal() != nullptr) {
+        return -1;
+    }
+    if (s.ramping() || s.begin_ramp()) {
         return -1;
     }
     s.begin_paused(arg_b);

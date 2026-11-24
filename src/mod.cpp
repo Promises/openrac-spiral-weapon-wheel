@@ -1,37 +1,57 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Going Commando weapon wheel: Going Commando's weapon quick select in Ratchet & Clank, running
-// Going Commando's own code.
+// Spiral Weapon Wheel: a weapon wheel for Ratchet & Clank in the style of Prey (2017)'s favourites
+// wheel, after "Prey Menu" (KerosenileArsonist's Fallout: New Vegas mod: its spiral and its art,
+// with its author's credit as its Nexus permissions ask), on the pause and timing of Going
+// Commando's weapon quick select, whose code it runs (the mod it grew from, "Going Commando weapon
+// wheel").
 //
-// The quick select is Going Commando's, copied (src/gc/*.c, from rac2-decomp): its update (the
-// stick's sectors, the d-pad's neighbours, the click, the commit as Triangle is let go), its draw
-// (the selected weapon's ammo and name; Ratchet & Clank's own ring), its init, and its pause: Triangle
-// pressed in play opens Going Commando's game mode 4 with modal mode 7 (the gate, then
-// UpdateModalState's case 7 and gfx_render_frame_extra_layers), which here runs in Ratchet & Clank's
-// game mode 4, the freeze mode, with a freeze kind of the mod's own. The translation layer
-// (src/gc/rac1_shim.hpp) runs it on Ratchet & Clank's memory and functions.
+// The pause, the hold before it and the double tap are Going Commando's own code (src/gc/*.c,
+// copied from rac2-decomp) through the translation layer (src/gc/rac1_shim.*). The wheel is the
+// spiral (src/spiral/, game-agnostic): every owned weapon and gadget of the hand, the stick turning
+// the pointer around the loops. Its pictures (sectors, borders, pointer, the info bar, the quick
+// select's numbers) are drawn by the mod's overlay under the game's HUD (interface 1.40's pictures
+// and OPENRAC_OVERLAY_UNDER_HUD); the items' icons and the text are the game's own, drawn through
+// the quick select's HUD record. Before the pause the game slows down for a moment (the port's
+// time_stretch), as Prey's wheel eases time down.
 //
 // Six hook points:
-//   rac1.level.update_play          game mode 0's tick: Going Commando's gate before it; when the
-//                                   gate opens the quick select, the tick is skipped (the world held)
+//   rac1.level.update_play          game mode 0's tick: Going Commando's gate before it, and the
+//                                   slow-down's tick; when the pause opens, the tick is skipped
 //   rac1.freeze.update              the freeze mode's tick: the mod's kind runs UpdateModalState
 //                                   (case 7), then the game's (the sound)
-//   rac1.freeze.draw                the freeze mode's picture: the mod's kind draws Going Commando's
-//                                   (the world and its HUD, no dialog)
-//   rac1.hud.quick_select.init      the quick select's HUD record: Going Commando's init,
-//   rac1.hud.quick_select.update    update and draw, paused or not ("Pause while open" off: Ratchet &
-//   rac1.hud.quick_select.draw      Clank's own Triangle opens it, Going Commando's code runs it)
-// The first three need OpenRAC with mod interface 1.39 and those hook points (sdk.lock's commit).
+//   rac1.freeze.draw                the freeze mode's picture: the world and its HUD, no dialog
+//   rac1.hud.quick_select.init      the quick select's HUD record: Going Commando's init, the
+//   rac1.hud.quick_select.update    spiral's update and draw
+//   rac1.hud.quick_select.draw
+// The first three need OpenRAC with those hook points; the pictures need mod interface 1.40.
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "openrac/games/rac1.hpp"
 #include "openrac/mod.hpp"
 
 #include "gc/rac1_shim.hpp"
 #include "layout.hpp"
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#include "third_party/stb_image.h"
 
 namespace {
 
@@ -43,7 +63,141 @@ openrac::Mod* g_mod = nullptr;
 
 gc::Shim& layer() { return gc::shim(); }
 
-// "Hold before pausing": the HUD-open request's countdown, Going Commando's 4 frames or longer.
+constexpr const char* kName = "Spiral Weapon Wheel";
+constexpr float kPi = 3.14159265358979f;
+
+// --- The pictures (assets/spiral-wheel/, Prey Menu's art) ---
+
+struct Art {
+    int sector = 0, border = 0, border_eq = 0, border_hot = 0, border_eq_hot = 0, pointer = 0, info = 0;
+    int badge[9] = {};
+    bool any = false;
+};
+Art g_art;
+
+// The folder the mod's library is in (its package's folder).
+std::string own_folder() {
+#if defined(_WIN32)
+    HMODULE module = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&own_folder), &module) == 0) {
+        return "";
+    }
+    wchar_t path[2048];
+    const DWORD n = GetModuleFileNameW(module, path, 2048);
+    if (n == 0 || n >= 2048) {
+        return "";
+    }
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(n), nullptr, 0, nullptr, nullptr);
+    std::string out(static_cast<std::size_t>(bytes), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(n), out.data(), bytes, nullptr, nullptr);
+    const std::size_t cut = out.find_last_of("\\/");
+    return cut == std::string::npos ? "" : out.substr(0, cut);
+#else
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<void*>(&own_folder), &info) == 0 || info.dli_fname == nullptr) {
+        return "";
+    }
+    const std::string path = info.dli_fname;
+    const std::size_t cut = path.find_last_of('/');
+    return cut == std::string::npos ? "" : path.substr(0, cut);
+#endif
+}
+
+// A PNG of the mod's assets as an overlay picture; 0 when it cannot be read.
+int load_picture(openrac::Mod& mod, const std::string& folder, const char* name) {
+    const std::string path = folder + "/assets/spiral-wheel/" + name;
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        mod.warn(std::string(kName) + ": no picture " + path);
+        return 0;
+    }
+    const std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    int width = 0, height = 0, channels = 0;
+    unsigned char* rgba = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width, &height, &channels, 4);
+    if (rgba == nullptr) {
+        mod.warn(std::string(kName) + ": cannot read " + path);
+        return 0;
+    }
+    const int id = mod.overlay_image_create(width, height, rgba, true);
+    stbi_image_free(rgba);
+    if (id == 0) {
+        mod.warn(std::string(kName) + ": the port refused the picture " + path);
+    }
+    return id;
+}
+
+// The package's folder: the library is in its lib/<platform>/ (the SDK's package layout), else
+// beside it; without either, the plugins folder's spiral-weapon-wheel/.
+std::string package_folder(openrac::Mod& mod) {
+    const std::string library = own_folder();
+    for (const std::string& folder : {library + "/../..", library}) {
+        if (!library.empty() && std::ifstream(folder + "/assets/spiral-wheel/sector.png", std::ios::binary)) {
+            return folder;
+        }
+    }
+    return mod.plugins_folder() + "/spiral-weapon-wheel";
+}
+
+void load_art(openrac::Mod& mod) {
+    const std::string folder = package_folder(mod);
+    g_art.sector = load_picture(mod, folder, "sector.png");
+    g_art.border = load_picture(mod, folder, "border.png");
+    g_art.border_eq = load_picture(mod, folder, "borderEq.png");
+    g_art.border_hot = load_picture(mod, folder, "borderHot.png");
+    g_art.border_eq_hot = load_picture(mod, folder, "borderEqHot.png");
+    g_art.pointer = load_picture(mod, folder, "pointer.png");
+    g_art.info = load_picture(mod, folder, "info.png");
+    for (int n = 1; n <= 8; ++n) {
+        char name[32];
+        std::snprintf(name, sizeof name, "hotkey%d.png", n);
+        g_art.badge[n] = load_picture(mod, folder, name);
+    }
+    g_art.any = g_art.sector != 0 || g_art.border != 0 || g_art.pointer != 0;
+}
+
+int picture_for(const spiral::Sprite& s) {
+    switch (s.art) {
+        case spiral::Art::Sector: return g_art.sector;
+        case spiral::Art::Border: return g_art.border;
+        case spiral::Art::BorderEq: return g_art.border_eq;
+        case spiral::Art::BorderHot: return g_art.border_hot;
+        case spiral::Art::BorderEqHot: return g_art.border_eq_hot;
+        case spiral::Art::Pointer: return g_art.pointer;
+        case spiral::Art::Info: return g_art.info;
+        case spiral::Art::Badge: return s.badge >= 1 && s.badge <= 8 ? g_art.badge[s.badge] : 0;
+    }
+    return 0;
+}
+
+// The overlay's call under the game's 2D: the wheel's pictures. Its places are the screen's heights
+// from the middle; the overlay's are 512 x 448 units over the whole frame (a unit across is aspect *
+// 448 / 512 of one down), sizes in units down.
+void draw_overlay(void*, const openrac_overlay* overlay) {
+    if (!g_art.any || openrac::overlay_layer(overlay) != OPENRAC_OVERLAY_LAYER_UNDER_HUD) {
+        return;
+    }
+    const gc::WheelPicture picture = layer().picture();
+    if (!picture.shown) {
+        return;
+    }
+    const float aspect = overlay->aspect > 0.0f ? overlay->aspect : 4.0f / 3.0f;
+    for (const spiral::Sprite& s : picture.frame.sprites) {
+        const int id = picture_for(s);
+        if (id == 0 || s.alpha <= 0.0f) {
+            continue;
+        }
+        const float x = 256.0f + s.x * 512.0f / aspect;
+        const float y = 224.0f + s.y * 448.0f;
+        const auto grey = static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(s.grey, 0.0f), 1.0f) * 255.0f));
+        const auto alpha = static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(s.alpha, 0.0f), 1.0f) * 255.0f));
+        const std::uint32_t rgba = (grey << 24) | (grey << 16) | (grey << 8) | alpha;
+        openrac::overlay_image(overlay, id, x, y, s.w * 448.0f, s.h * 448.0f, s.angle_deg * kPi / 180.0f, rgba);
+    }
+}
+
+// --- The settings ---
+
 int open_delay_frames(const std::string& choice) {
     if (choice == "going_commando") {
         return gc::kGcOpenDelay;
@@ -54,9 +208,28 @@ int open_delay_frames(const std::string& choice) {
     return gc::kOpenDelayLittleLonger;
 }
 
+int ramp_frames(const std::string& choice) {
+    if (choice == "off") {
+        return gc::kRampOff;
+    }
+    if (choice == "prey") {
+        return gc::kRampPrey;
+    }
+    return gc::kRampShort;
+}
+
 void read_settings(openrac::Mod& mod) {
     layer().set_options(mod.setting<bool>("pause"), mod.setting<bool>("click"),
                         open_delay_frames(mod.setting<std::string>("open_delay")));
+    gc::WheelOptions w;
+    w.look.scale = static_cast<float>(mod.setting<double>("scale"));
+    w.look.spiral.start_deg = static_cast<float>(mod.setting<int>("start_angle"));
+    w.look.spiral.clockwise = mod.setting<bool>("clockwise");
+    w.look.spiral.depth = static_cast<float>(mod.setting<double>("depth"));
+    w.toggle = mod.setting<std::string>("mode") == "toggle";
+    w.ramp_frames = ramp_frames(mod.setting<std::string>("slowdown"));
+    w.ease_back = mod.setting<bool>("ease_back");
+    layer().set_wheel_options(w);
 }
 
 void connect() { layer().connect(g_mod->loaded_level()); }
@@ -144,6 +317,8 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     g.draw_debug_profiler = mod.required_function<V>(n.draw_debug_profiler);
     const auto bank = mod.required_function<int (*)(int, int, int)>(n.play_bank_sound);
     g.play_click = [bank] { bank(0, 1, 0); };
+    // The slow-down before the pause: the port's slow motion (interface 1.35).
+    g.time_stretch = [m](float stretch) { m->time_stretch(stretch); };
 
     // The math: Ratchet & Clank's own where its build has them by these names.
     if (const auto f = optional_function<float (*)(float)>(mod, n.square_root)) g.square_root = f;
@@ -157,8 +332,8 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     if (const auto f = optional_function<float (*)(int)>(mod, n.int_to_float)) g.int_to_float = f;
     if (const auto f = optional_function<int (*)(float)>(mod, n.float_to_int)) g.float_to_int = f;
 
-    g.log = [m](const char* what) { m->warn(std::string("Going Commando weapon wheel: ") + what); };
-    g.info = [m](const char* what) { m->info(std::string("Going Commando weapon wheel: ") + what); };
+    g.log = [m](const char* what) { m->warn(std::string(kName) + ": " + what); };
+    g.info = [m](const char* what) { m->info(std::string(kName) + ": " + what); };
 }
 
 void load(openrac::Mod& mod) {
@@ -169,9 +344,13 @@ void load(openrac::Mod& mod) {
     if (!ntsc && mod.version() != "pal") {
         throw openrac::Error("this mod knows the PAL and NTSC-U discs only");
     }
+    if (!mod.has_overlay_images()) {
+        throw openrac::Error("this mod needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay)");
+    }
     g_mod = &mod;
     connect_game(mod, ntsc);
     read_settings(mod);
+    load_art(mod);
 
     mod.hook<rac1::Level_UpdatePlay>([](auto original) {
         connect();
@@ -203,13 +382,16 @@ void load(openrac::Mod& mod) {
         first("rac1.hud.quick_select.draw");
         return layer().selector_draw(record);
     });
+    // The pictures, under the game's HUD, in play and in the pause (the freeze mode is a menu's phase).
+    mod.on_overlay_phases(draw_overlay, nullptr, OPENRAC_OVERLAY_PLAYING | OPENRAC_OVERLAY_MENU | OPENRAC_OVERLAY_UNDER_HUD);
 
     if (mod.has_settings_set()) {
         mod.on_settings([] { read_settings(*g_mod); });
     }
-    mod.info("Going Commando weapon wheel: Going Commando's quick select on Triangle (its own code)");
+    mod.info(std::string(kName) + ": the spiral on Triangle (Going Commando's pause, Prey Menu's spiral)" +
+             (g_art.any ? "" : "; its pictures were not found"));
 }
 
 }  // namespace
 
-OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.7", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.0.0", load)

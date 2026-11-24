@@ -1,9 +1,69 @@
 # Third-party notices
 
-Going Commando weapon wheel is licensed under the GNU General Public License version 3
+Spiral Weapon Wheel's **code** is licensed under the GNU General Public License version 3
 ([LICENSE](LICENSE)). The mod's own files are GPL-3.0-or-later; the files copied from Going
-Commando's decompilation are under that project's license, the GPL version 3 (it names no later
-version, so they are GPL-3.0-only). Each file says which in its `SPDX-License-Identifier` line.
+Commando's decompilation, and `src/gc/rac1_spiral.cpp`, which follows two of its functions, are
+under that project's license, the GPL version 3 (it names no later version, so they are
+GPL-3.0-only). Each file says which in its `SPDX-License-Identifier` line.
+
+**The art is not under the GPL.** The pictures in `assets/spiral-wheel/` are Prey Menu's, by
+KerosenileArsonist, used under its author's Nexus permissions (below), which forbid use in anything
+sold. The GPL covers the code only, not these files.
+
+## Prey Menu (Fallout: New Vegas), by KerosenileArsonist
+
+- Source: <https://www.nexusmods.com/newvegas/mods/94499>, "Prey Menu" by KerosenileArsonist.
+- Its Nexus "Permissions and credits": the assets are the author's own or from free-to-use modders'
+  resources; upload, modification and conversion to other games are allowed, crediting the author
+  as the creator; asset use is allowed without asking, with credit; use in mods or files that are
+  sold (for money, on the Steam Workshop or other platforms) is not allowed; earning donation
+  points is allowed.
+
+**The art** (© KerosenileArsonist, from Prey Menu, <https://www.nexusmods.com/newvegas/mods/94499>,
+used under the author's Nexus permissions: free to use, modify and convert with credit; not for use
+in anything sold). Converted from the mod's DDS textures (`textures/interface/PreyMenu/`) to PNG at
+their own sizes, unchanged otherwise:
+
+| File here | Prey Menu's |
+|---|---|
+| `assets/spiral-wheel/sector.png` | `sector.dds` (1024 x 1024) |
+| `assets/spiral-wheel/border.png` | `border.dds` (1024 x 1024) |
+| `assets/spiral-wheel/borderEq.png` | `borderEq.dds` (1024 x 1024) |
+| `assets/spiral-wheel/borderHot.png` | `borderHot.dds` (1024 x 1024) |
+| `assets/spiral-wheel/borderEqHot.png` | `borderEqHot.dds` (1024 x 1024) |
+| `assets/spiral-wheel/pointer.png` | `pointer.dds` (1024 x 1024) |
+| `assets/spiral-wheel/info.png` | `info.dds` (512 x 8) |
+| `assets/spiral-wheel/hotkey1.png` ... `hotkey8.png` | `hotkeys/1.dds` ... `hotkeys/8.dds` (32 x 32) |
+| `docs/mockup.png` | a picture of the wheel made from the files above |
+
+**The spiral's design** (the same credit and permissions: modification and conversion with credit).
+`src/spiral/spiral.cpp` and `src/spiral/wheel.cpp` port the spiral's logic from the mod's menu and
+scripts, each function naming the trait or script it follows:
+`menus/prefabs/PreyMenu/PreyMenu.xml` (the pointer's index, its wrap and angle; each slot's angle,
+distance from the pointer, size, fade and highlight; the art's sizes, radii and colours),
+`NVSE/plugins/scripts/ln_PreyMenu.txt` (the direction's sign and the depth's shallowness),
+`NVSE/user_defined_functions/PreyMenu/UpdatePointer.gek` (the stick turning the pointer),
+`UpdateMenu.gek` (the pointer on the equipped item, the opening's zoom) and `config/PreyMenu.ini`
+(the settings and their defaults). No script is copied: the code is this mod's own, written from
+them. The mod's tests (`src/spiral_test.cpp`) write the XML's formulas out as it evaluates them and
+check the port against them.
+
+## stb_image
+
+`src/third_party/stb_image.h`: stb_image v2.34 by Sean Barrett and contributors
+(<https://github.com/nothings/stb>, commit `6b5799bae8a1fe3792691ef4b72ae26434c3e799`), unchanged.
+It reads the art's PNGs. Public domain, or the MIT License (its own notice, at the file's end, gives
+both).
+
+## Prey (2017)
+
+Nothing of Prey's is copied: no code, art or data. Its favourites wheel's behaviour (a time scale
+that eases the game's time to a target over a duration, separate time scales for the world and the
+player, a weapons menu and a powers menu) was read from the class layouts of Chairloader's headers
+(<https://github.com/thelivingdiamond/Chairloader>, `Common/Prey/GameDll/ark/ArkTimeScaler.h`,
+`ark/player/ArkFocusModeComponent.h`, `ark/ui/ArkFocusModeUIComponent.h`,
+`ark/player/ArkQuickSelectComponent.h`), and from footage of the game. Prey is a trademark of
+ZeniMax Media; this mod is not affiliated with or endorsed by it.
 
 ## Going Commando's decompilation: OpenRAC/rac2-decomp
 
@@ -18,12 +78,18 @@ version, so they are GPL-3.0-only). Each file says which in its `SPDX-License-Id
 - Target: Ratchet & Clank: Going Commando, USA v1.01.
 
 Copied, unchanged but for the lines marked `(gc-weapon-wheel)` (each file's header lists the exact
-lines and says what the marked ones do):
+lines and says what the marked ones do). They are the pause, the hold before it and the double tap
+of the mod this one grew from, Going Commando weapon wheel; its two files of the quick select's own
+update and draw (`weapon_wheel_update_select`, `src/game/0028BE00-g8.c`, and `weapon_wheel_draw`,
+`src/game/0028BDB0-wheel-g8.c`) are not copied here. `src/gc/rac1_spiral.cpp` takes their place
+under their names: it keeps their frame (the HUD-open request and mode 7's timer kept while the
+wheel is up, the record's timeout and slide, the open and selection fades, the pick as Triangle is
+let go once the open fade has run down, item 0x18's rule, the usage statistics, the ammo held to its
+most, mode 7 moved on or the request cleared, the record closed, the name and ammo text in Going
+Commando's colours) around the spiral, and is GPL-3.0-only for that reason.
 
 | File here | Function(s) | rac2-decomp file and lines | USA v1.01 |
 |---|---|---|---|
-| `src/gc/weapon_wheel_update_select.c` | `weapon_wheel_update_select` | `src/game/0028BE00-g8.c`: 1-186 (2 lines marked: the timeout in ticks, item 0x18's rule) | `func_0028BE00` |
-| `src/gc/weapon_wheel_draw.c` | `weapon_wheel_draw` | `src/game/0028BDB0-wheel-g8.c`: 1-43, 56-102 (the ring, 44-55, replaced by Ratchet & Clank's) | `func_0028C6D0` |
 | `src/gc/menu_init_panel_layout.c` | `menu_init_panel_layout` | `src/game/0028BDB0.c`: 1-19 (1 line marked: the countdown in ticks) | `func_0028BDB0` |
 | `src/gc/weapon_menu_init_slots.c` | `weapon_menu_init_slots` | `src/game/0028BCE8-g8.c`: 1-40 | `func_0028BCE8` |
 | `src/gc/UpdateModalState.c` | `UpdateModalState`, its prologue and mode 7 | `src/game/00286738-g8.c`: 1-177, 593-661, 765-767 | `func_00286738` |
@@ -54,7 +120,7 @@ functions share (gp-0x5C80, gp-0x5C84 in USA v2.00's level programs), that
 of `UpdateModalState` calls `hero_update_button_hold_timers` where the C calls `stub_empty_20`, were
 read from their instructions, not copied.
 
-The translation layer (`src/gc/rac1_shim.cpp`) reimplements, for its polyfills, what these
+The translation layer (`src/gc/rac1_shim.cpp`, `src/gc/rac1_spiral.cpp`) reimplements, for its polyfills, what these
 rac2-decomp functions do: `request_begin_slot` and `request_end_slot` (mode 4 entered and left),
 `pad_clear_port_state`, `FastDecTimer`; each polyfill's comment cites its source.
 
@@ -62,12 +128,13 @@ rac2-decomp functions do: `request_begin_slot` and `request_end_slot` (mode 4 en
 
 - Source: <https://github.com/OpenRAC/OpenRAC>, `games/rac1/decomp` (GNU GPL version 3), and the
   NTSC decomp (`games/rac1/ntsc-decomp`, GPL-3.0) for the NTSC-U addresses.
-- The translation layer reimplements, after it: `draw_hud_item_selector_panel`'s ring
-  (`src/overlays/shared/weapon_hud_and_counters.c`:1303-1360: the panel quarters, the icons on the
-  ring, the marker), the quick swap of `hero_update_transitions`
+- The translation layer reimplements, after it: the quick swap of `hero_update_transitions`
   (`src/overlays/shared/hero_item_input_and_hud.c`:152-168) and its Triangle conditions (110-116),
   and `scale_ticks`. It follows the field layouts of `include/structs/hero.h` and `pad.h` in
-  `src/layout.hpp` and `src/gc/rac1_shim.hpp`. No code is copied from it.
+  `src/layout.hpp` and `src/gc/rac1_shim.hpp`, and reads the items owned (`item_available`) and each
+  item's equipment slot (`item_info_table` + 8, as the pause menu's grid reads it:
+  `src/game/ui/pause.c`:1789-1807; the NTSC-U addresses from `config/names_ntsc.tsv`). No code is
+  copied from it.
 
 ## The OpenRAC mod SDK
 
@@ -103,4 +170,5 @@ SOFTWARE.
 Ratchet & Clank and Ratchet & Clank: Going Commando are trademarks of Sony Interactive
 Entertainment, developed by Insomniac Games. This mod is not affiliated with or endorsed by
 either, and contains none of their code or assets: the decompiled code it copies is the
-decompilation projects' reconstruction, and the game runs from the player's own disc.
+decompilation projects' reconstruction, and the game runs from the player's own disc. The items'
+icons, names and font the wheel shows are read from the player's game as it runs.

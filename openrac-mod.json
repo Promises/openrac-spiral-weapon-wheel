@@ -1,19 +1,20 @@
 {
   "format": 2,
-  "id": "gc-weapon-wheel",
-  "name": "Going Commando weapon wheel",
-  "version": "1.0.7",
+  "id": "spiral-weapon-wheel",
+  "name": "Spiral Weapon Wheel",
+  "version": "1.0.0",
   "author": "Henning Berge",
-  "description": "Going Commando's weapon quick select in Ratchet & Clank, running Going Commando's own copied code: hold Triangle and the world holds (Going Commando's pause, no freeze dialog) while the stick or the d-pad picks a weapon on the ring, with Going Commando's ammo and name text; let go to equip it. A double tap is the quick swap. Ratchet & Clank's own ring, icons, names and slots, read from the game. Going Commando's black bars are left out, and by default Triangle is held a little longer than in Going Commando before the pause (a setting). Needs OpenRAC with mod interface 1.39 and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet).",
-  "license": "GPL-3.0-or-later AND GPL-3.0-only",
-  "homepage": "https://github.com/Promises/rac1-gc-weapon-wheel",
-  "api": "1.39",
+  "description": "A weapon wheel in the style of Prey (2017)'s favourites wheel: hold Triangle and the game slows down for a moment, then holds (Going Commando's own pause, run from its copied code), while every weapon and gadget you own lies on a spiral that the stick turns through, loop after loop, twelve to a loop. The one in hand and the ones on your quick select are marked (with their quick select number); its name and ammo show in the middle; let go of Triangle to equip it. A double tap is the quick swap. Ratchet & Clank's own icons, names and font. Settings: size, start angle, direction, the spiral's depth, hold or toggle, the hold before the pause, the slow-down and the ease back. Needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay) and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet). Wheel art and spiral design from Prey Menu by KerosenileArsonist.",
+  "license": "GPL-3.0-or-later AND GPL-3.0-only AND LicenseRef-Prey-Menu-Art",
+  "homepage": "https://github.com/Promises/rac1-spiral-weapon-wheel",
+  "api": "1.40",
   "games": {
     "rac1": [
       "pal",
       "ntsc"
     ]
   },
+  "assets": "assets",
   "hooks": [
     "rac1.level.update_play",
     "rac1.freeze.update",
@@ -23,6 +24,14 @@
     "rac1.hud.quick_select.draw"
   ],
   "conflicts": [
+    {
+      "id": "gc-weapon-wheel",
+      "reason": "both replace the quick select (rac1.hud.quick_select.*) and pause the game while it is open"
+    },
+    {
+      "id": "weapon-wheel-pause",
+      "reason": "both replace the quick select (rac1.hud.quick_select.*) and pause the game while it is open"
+    },
     {
       "id": "pause-weapon-wheel",
       "reason": "both replace the quick select (rac1.hud.quick_select.*) and pause the game while it is open, each its own way"
@@ -34,7 +43,52 @@
       "name": "Pause while open",
       "type": "bool",
       "default": true,
-      "description": "Going Commando's option: the world holds while the quick select is open (its game mode 4). Off: it opens over the running game, from Ratchet & Clank's own Triangle."
+      "description": "On: the world holds while the wheel is open (Going Commando's pause, after the slow-down). Off: the wheel opens over the running game, from Ratchet & Clank's own Triangle."
+    },
+    {
+      "key": "slowdown",
+      "name": "Slow-down before pausing",
+      "type": "choice",
+      "default": "short",
+      "choices": [
+        {
+          "value": "off",
+          "name": "Off"
+        },
+        {
+          "value": "short",
+          "name": "Short"
+        },
+        {
+          "value": "prey",
+          "name": "Prey-like"
+        }
+      ],
+      "description": "As the wheel opens the game's time eases down to an eighth of its speed, then the pause holds it, as Prey's wheel does. Short: about 0.15 s of game time; Prey-like: about 0.3 s; Off: the pause at once."
+    },
+    {
+      "key": "ease_back",
+      "name": "Ease back on close",
+      "type": "bool",
+      "default": false,
+      "description": "On: as the wheel closes, the game's time eases back up the way it slowed down (an eighth of its speed to full). Off: it goes on at full speed at once."
+    },
+    {
+      "key": "mode",
+      "name": "Open and close",
+      "type": "choice",
+      "default": "hold",
+      "choices": [
+        {
+          "value": "hold",
+          "name": "Hold"
+        },
+        {
+          "value": "toggle",
+          "name": "Toggle"
+        }
+      ],
+      "description": "Hold: let go of Triangle to equip. Toggle: the wheel stays up when Triangle is let go; press Triangle again to equip. Circle closes it with nothing picked, either way."
     },
     {
       "key": "open_delay",
@@ -55,14 +109,50 @@
           "name": "Longer"
         }
       ],
-      "description": "How long Triangle is held before the quick select pauses the game. Going Commando: its own 4 frames (a 15th of a second); a natural tap is often that long, so running and double-tap swapping pause briefly. A little longer (the default, longer than Going Commando's): 8 frames, so taps and double taps usually do not pause. Longer: 12 frames. On PAL each is scaled to its 50 ticks a second (3, 7, 10)."
+      "description": "How long Triangle is held before the wheel opens. Going Commando: its own 4 frames; a natural tap is often that long. A little longer (the default): 8 frames, so taps and double taps usually do not open it. Longer: 12 frames. On PAL each is scaled to its 50 ticks a second (3, 7, 10)."
+    },
+    {
+      "key": "scale",
+      "name": "Size",
+      "type": "float",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 1.5,
+      "step": 0.05,
+      "description": "The wheel's size: 1 is two thirds of the screen's height (Prey Menu's)."
+    },
+    {
+      "key": "start_angle",
+      "name": "Start angle",
+      "type": "int",
+      "default": 90,
+      "min": -180,
+      "max": 180,
+      "description": "Where the spiral starts, in degrees counter-clockwise from 3 o'clock: 90 is 12 o'clock, 0 is 3 o'clock, -90 is 6 o'clock. \"None\" (the wrench) sits there, the first item one slot on."
+    },
+    {
+      "key": "clockwise",
+      "name": "Clockwise",
+      "type": "bool",
+      "default": false,
+      "description": "Off: the spiral turns counter-clockwise (Prey Menu's default). On: clockwise."
+    },
+    {
+      "key": "depth",
+      "name": "Spiral depth",
+      "type": "float",
+      "default": 0.75,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "description": "Prey Menu's fDepth: each slot behind the pointer is drawn 0.9 + 0.0666 * depth times as large as the one after it. A lower value spreads the loops further apart; a higher one keeps them closer."
     },
     {
       "key": "click",
       "name": "Click sound",
       "type": "bool",
       "default": false,
-      "description": "A sound as the selection moves, where Going Commando clicks. Ratchet & Clank's quick select is silent and has no UI click: on, it plays the level's sound bank's first entry (the one a help message opens with), a stand-in, not Going Commando's sound. Off (the default) keeps Ratchet & Clank's silence."
+      "description": "A sound as the pointer moves to another item. Ratchet & Clank's quick select is silent and has no UI click: on, it plays a stand-in (the sound a help message opens with)."
     }
   ]
 }

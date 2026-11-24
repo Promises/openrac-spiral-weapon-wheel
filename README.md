@@ -1,128 +1,118 @@
-# Going Commando weapon wheel
+# Spiral Weapon Wheel
 
-A native mod for [OpenRAC](https://github.com/OpenRAC/OpenRAC)'s port of Ratchet & Clank: Going
-Commando's **weapon quick select**, running **Going Commando's own code**, copied from its
-decompilation.
+A native mod for [OpenRAC](https://github.com/OpenRAC/OpenRAC)'s port of Ratchet & Clank: a weapon
+wheel in the style of Prey (2017)'s favourites wheel. Its spiral and art come from
+[Prey Menu](https://www.nexusmods.com/newvegas/mods/94499) by KerosenileArsonist, a Fallout: New
+Vegas mod. The pause and the timing come from Going Commando's own quick select, whose decompiled code
+it runs.
 
-- **Hold Triangle**: the world holds (Going Commando's pause, no freeze dialog, no dimming) and the
-  quick select opens. Pick a weapon with the stick (Going Commando's sectors, hysteresis and
-  snapping) or the d-pad; Going Commando's ammo and name text shows under the ring. Let go of
-  Triangle and the weapon is equipped.
-- **Double tap Triangle**: the quick swap to your previous weapon, as in Going Commando, without
-  opening the quick select.
-- The ring, its icons, the slots and their neighbours, the names and the ammo format are Ratchet &
-  Clank's own, read from your game.
+![The wheel, a mock-up](docs/mockup.png)
+
+*A mock-up made from the mod's art, with placeholder icons. In the game the icons, names and font
+are Ratchet & Clank's own.*
+
+- **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
+  freeze dialog and no dimming).
+- **The spiral.** Every weapon and gadget you own lies on a spiral, twelve to a loop. Turn the stick
+  around and the pointer goes round and round through the loops: items you have passed shrink
+  inward and fade, and the ones ahead come out. The d-pad steps one item at a time.
+- **What it shows.** The item in hand has the thick corners. Items on your quick select have a
+  filled corner with their quick select number. The pointed-at item's name and ammo are in the
+  middle.
+- **Picking.** Let go of Triangle to equip the pointed-at item. **None**, where the spiral starts,
+  is the wrench. Circle closes the wheel without picking anything.
+- **Double tap Triangle** for the quick swap to your previous weapon, as before.
 
 ## Settings
 
-- **Pause while open** (on): Going Commando's option. On, the world holds while the quick select is
-  open. Off, it opens over the running game, from Ratchet & Clank's own Triangle, as Going Commando
-  does with the option off.
-- **Hold before pausing** (A little longer): how long Triangle is held before the pause.
-  - *Going Commando*: its own 4 frames (a 15th of a second).
-  - *A little longer*, **the default, longer than Going Commando's**: 8 frames. A natural tap is
-    often 4 or 5 frames long, so with Going Commando's 4, running and double-tap swapping pause the
-    game for a moment before the swap; at 8 they usually do not.
-  - *Longer*: 12 frames.
-
-  On PAL each is scaled to 50 ticks a second (3, 7, 10).
-- **Click sound** (off): a sound as the selection moves, where Going Commando clicks. Ratchet &
-  Clank's quick select is silent and has no UI click: on, it plays a stand-in (the sound a help
-  message opens with), not Going Commando's.
+| Setting | Default | What it does |
+|---|---|---|
+| Pause while open | on | On, the world holds while the wheel is open. Off, the wheel opens over the running game. |
+| Slow-down before pausing | Short | As the wheel opens, the game's time eases down to an eighth of its speed, then the pause holds it, as Prey's wheel does. *Short* is about 0.15 s of game time, *Prey-like* about 0.3 s, *Off* pauses at once. |
+| Ease back on close | off | On, the game's time eases back up as the wheel closes, the way it slowed down. |
+| Open and close | Hold | *Hold*: let go of Triangle to pick. *Toggle*: the wheel stays up when you let go; press Triangle again to pick. |
+| Hold before pausing | A little longer | How long Triangle is held before the wheel opens. *Going Commando* is its own 4 frames, *A little longer* 8 frames (so taps and double taps don't open it), *Longer* 12. On PAL: 3, 7, 10. |
+| Size | 1 | 1 is two thirds of the screen's height. |
+| Start angle | 90 | Where the spiral starts, in degrees counter-clockwise from 3 o'clock (90 is 12 o'clock). |
+| Clockwise | off | Which way the spiral turns. |
+| Spiral depth | 0.75 | Prey Menu's: how much smaller each slot behind the pointer is. Lower spreads the loops further apart. |
+| Click sound | off | A sound as the pointer moves to another item (Ratchet & Clank's quick select is silent; this is a stand-in). |
 
 ## Requirements
 
-**OpenRAC with mod interface 1.39 and three new hook points**, `rac1.level.update_play`,
-`rac1.freeze.update` and `rac1.freeze.draw`, which are not in an OpenRAC release yet:
-TODO: link the OpenRAC pull request(s) adding them, and the first dev build that has them.
-A game without them refuses the mod and says why. Until then, `sdk.lock` pins the SDK of the branch
-`rac1-freeze-mode-hooks` of [Promises/OpenRAC](https://github.com/Promises/OpenRAC) (commit
-`dae54f21`).
+**OpenRAC with mod interface 1.40 and three hook points**, none of them in a release yet:
+
+- the overlay pictures and the layer under the HUD:
+  [OpenRAC#865](https://github.com/OpenRAC/OpenRAC/pull/865);
+- the hook points `rac1.level.update_play`, `rac1.freeze.update` and `rac1.freeze.draw`:
+  [OpenRAC#863](https://github.com/OpenRAC/OpenRAC/pull/863);
+- and, so the Field of View stays as it is while the world holds,
+  [OpenRAC#862](https://github.com/OpenRAC/OpenRAC/pull/862).
+
+A game without them refuses the mod and says why. Until they are merged, `sdk.lock` pins the SDK of
+the branch `spiral-wheel-test` of [Promises/OpenRAC](https://github.com/Promises/OpenRAC), which
+merges the three.
 
 Ratchet & Clank PAL and NTSC-U.
 
-## Differences from Going Commando
-
-- **No black bars**: Going Commando draws black bars at the top and bottom while the quick select
-  is open. They are left out on purpose: Ratchet & Clank's letterbox changes its viewport, so the
-  frozen world would zoom.
-- **A longer hold before the pause** by default (above); "Going Commando" restores its own.
-- **Where Going Commando's code is silent, Ratchet & Clank's behaviour is kept**, never a guess at
-  Going Commando's:
-  - the quick select's place on the screen (Going Commando's is in its disc's HUD data);
-  - the ring, icons and selection marker (Going Commando's are its resident HUD's art): Ratchet &
-    Clank's sprites, layout, faded unselected icons and pulsing marker, at Going Commando's fades;
-  - the weapon names (the gold name for a gold weapon) and the ammo format;
-  - the quick swap's rule (to the weapon held before, or with the wrench in hand the last weapon)
-    and the usage statistics;
-  - the silence (see Click sound);
-  - no class preload, scripted-sequence hold or hit-streak input block (Ratchet & Clank has none).
-
 ## Compatibility
 
-- **Pause Weapon Wheel** (`pause-weapon-wheel`): conflicts (both replace the quick select and
-  pause the game). The manifest says so.
-- **Gadget Quick Use**: untested together. It reads Triangle at pads, faucets and the Swingshot. A
-  press it takes out of the pad report never reaches this mod; a press it leaves in may do both.
-- **Enhanced Movement**: while the paused quick select is open the right-stick camera does not
-  move (the world is held); with the pause off it does, as in Going Commando.
-- **Going Commando Magneboots**, **Rumble**: no clash expected (a pick goes through the game's own
-  change of weapon; the rumble goes quiet while the world is held).
-
-## The log
-
-In the game's log (`openrac-rac1-*.log`, lines `[mod gc-weapon-wheel]`): once at load and each
-level, whether the hook points and the quick select's functions were found; then at most one line
-per Triangle press (why it did not open, or the hold's trace: asked, counted, opened or cancelled)
-and one per double-tap swap (or why a second tap did not swap). A warning if the pause ever had to
-be ended by its watchdog.
+- **Going Commando weapon wheel**, **Weapon Wheel Pause** (`weapon-wheel-pause`, `pause-weapon-wheel`):
+  these conflict, because all of them replace the quick select. The manifest says so.
+- **Gadget Quick Use** has not been tested together with this mod. It reads Triangle at pads,
+  faucets and the Swingshot.
+- **Enhanced Movement**: while the world holds, the camera does not move.
 
 ## How it works
 
-The quick select is Going Commando's, copied from its decompilation
-([rac2-decomp](https://github.com/OpenRAC/rac2-decomp), GPL-3.0, at `4ea93cea`) into `src/gc/`,
-unchanged but for the lines marked `(gc-weapon-wheel)` ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-lists every file and line):
+- **The pause** is Going Commando weapon wheel's, unchanged:
+  - Going Commando's quick select gate and mode 7, copied from
+    [rac2-decomp](https://github.com/OpenRAC/rac2-decomp) into `src/gc/`;
+  - run on Ratchet & Clank by a translation layer (`src/gc/rac1_shim.*`) in its freeze mode, through
+    the three hook points;
+  - with its hold before the pause, its double tap (the double tap's timers also run in the pause),
+    its 50/60 Hz scaling and its watchdogs.
+  - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists every file and line copied.
+- **The wheel** replaces the quick select's update and draw (`src/gc/rac1_spiral.cpp`):
+  - It keeps their frame: the fades, the pick as Triangle is let go, the usage statistics, item
+    0x18's rule.
+  - In place of the eight-slot ring, it uses the spiral (`src/spiral/`, game-agnostic), ported from
+    Prey Menu's menu and scripts:
+    - the pointer's angle grows by the stick's turn;
+    - the spiral wraps through blank slots and "None";
+    - each slot's angle, size (`0.9 + 0.0666 * depth` to the power of its distance from the
+      pointer) and fade (full within six slots, gone at twelve);
+    - the art's sizes and colours.
+- **The items** are every owned item of the hand, in item order: Ratchet & Clank's `item_available`,
+  and the equipment slot the pause menu reads from `item_info_table`.
+- **The pictures** are drawn under the game's HUD by the mod's overlay (interface 1.40). The icons
+  and text are drawn on top, through the game's own HUD calls.
+- **The slow-down** uses the port's slow motion (`time_stretch`). The game's time scale goes down
+  evenly from 1 to an eighth over the setting's length, then Going Commando's pause begins.
 
-- `weapon_wheel_update_select`, `weapon_wheel_draw` (its text; Ratchet & Clank's ring in place of
-  Going Commando's), `menu_init_panel_layout`, `weapon_menu_init_slots`: the quick select itself;
-- the pause: `level_update_game_frame_input` (the gate: a Triangle press asks for the HUD-open
-  request, `hud_request_open`; `level_update_countdown_state_machine` counts it while Triangle is
-  held; then `request_begin_slot(4, 1, 7)`), `UpdateModalState` (mode 7's four phases),
-  `menu_set_mode`, `menu_end`, `menu_set_state_word_three`, `menu_advance_state_in_mode_seven`,
-  `menu_is_state_seven`, `gfx_render_frame_extra_layers`, `func_0029CE38`, `hud_clear_flag_a/_b`;
-- the input: `PadPressedWithin`, the press window (`hero_update_hit_streak_effect`'s first block)
-  and Triangle's double tap (`hero_update_button_hold_timers`).
+### Where each behaviour comes from
 
-A translation layer (`src/gc/rac1_shim.*`, `src/gc/shim/common.h`) runs it on Ratchet & Clank, whose
-quick select is Going Commando's ancestor, record for record: the same 0x90-byte HUD record and
-pad, read straight from game memory; copies of what Ratchet & Clank keeps at other offsets (the
-hero's item, pending item, mode and timers; the usage entry; a weapon table filled from
-`item_defs` and `item_price_table`); Ratchet & Clank's own functions by name for Going Commando's
-(each polyfill says what differs). Going Commando's game mode 4 with modal mode 7 runs in Ratchet &
-Clank's game mode 4, the freeze mode, its ancestor, with a freeze kind of the mod's own; the three
-new hook points let the gate run before the level's tick (skipping it when the pause opens, as
-Going Commando returns before its world update), and the freeze's tick and picture run Going
-Commando's. Going Commando counts 60 frames a second: on PAL the copied frame counts are scaled as
-its own PAL build scales them, `(n * 5 + 2) / 6`.
+| Behaviour | From |
+|---|---|
+| The spiral: 12 a loop, the pointer turning with the stick, the wrap, sizes, fades, the art's states, the settings and their defaults | Prey Menu's scripts and menu |
+| Every owned weapon and gadget, like Prey's favourites | the mod's own choice |
+| The quick select's items marked with their number, as Prey Menu marks hotkeys | the mod's own choice |
+| "None" is the wrench | the mod's own choice (Prey Menu's "None" unequips) |
+| The slow-down, then the pause | Prey's wheel as seen in its footage; the ramp is the mod's own (Prey's time scaler eases to a target over a duration) |
+| The pause, the hold before it, the double tap, the fades, the pick on release | Going Commando, from its decompilation |
+| The stick's rest (0.5) and the wait for it before the stick picks | Going Commando |
+| The d-pad stepping one slot, Circle cancelling, the toggle mode's second press | the mod's own choice |
+| No background blur, no categories | not done (no blur in the port's API; Ratchet & Clank has one kind of item to pick) |
 
-Read from Going Commando's own program (USA v2.00), where the decompilation's C is the executable's
-and the game runs a level's copy: mode 7 runs the double tap's timers (`hero_update_button_hold_timers`
-where the C calls an empty stub), and `menu_set_state_word_three` sets mode 7's timer, which keeps
-the pause as long as the quick select is open. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-gives the addresses.
+## The log
 
-The mod's own parts, marked: the gate's hero conditions are Ratchet & Clank's (the item slot not
-locked, no timed HUD, the item locks, on foot); the gate also checks the pause can be entered; the
-press window is long enough for a longer "Hold before pausing"; watchdogs end the pause if anything
-goes wrong (a freeze with no quick select, missing functions, or a port whose freeze tick does not
-run).
+The game's log (`openrac-rac1-*.log`, lines `[mod spiral-weapon-wheel]`) shows:
 
-## Placeholder art
-
-[docs/placeholder-art.md](docs/placeholder-art.md): how to make a private texture pack of Going
-Commando's quick select pictures under Ratchet & Clank's, on your own machine from your own two
-discs, with `tools/placeholder_art.py`. None of it is in this repository.
+- at load and in each level, whether the hook points, the quick select's functions and the
+  pictures were found;
+- one line per Triangle press, giving why the wheel did not open or the trace of the hold;
+- one line per double-tap swap;
+- a warning if the pause ever had to be ended by its watchdog.
 
 ## Build
 
@@ -130,28 +120,45 @@ discs, with `tools/placeholder_art.py`. None of it is in this repository.
 python3 tools/fetch_sdk.py          # the SDK sdk.lock pins, into .sdk/
 cmake -S . -B build -G Ninja
 cmake --build build && ctest --test-dir build
-python3 .sdk/openrac-mod-sdk-*/tools/package_mod.py build/package/gc_weapon_wheel
+python3 .sdk/openrac-mod-sdk-*/tools/package_mod.py build/package/spiral_weapon_wheel
 ```
 
-The test (`src/gc_weapon_wheel_test.cpp`) runs the copied code and the layer on a fake game: the
-selection, the d-pad, the commit, the draw, the pause from the hold to the release, the gate's
-conditions, the taps, double taps and holds at each "Hold before pausing", wheel picks followed by
-double taps, the 50/60 Hz scaling, each level's functions, and the watchdogs.
+The tests:
+
+- `src/spiral_test.cpp` checks the spiral against Prey Menu's own formulas, written out as its XML
+  evaluates them, over millions of pointer angles. It covers both directions, start angles, depths
+  and item counts, plus the stick, the opening and the layout.
+- `src/spiral_weapon_wheel_test.cpp` runs the layer, the copied code and the wheel on a fake game:
+  - the items offered, the selection through the loops, the d-pad and the picks (an item, item 0x18,
+    "None", a blank, the item in hand, Circle);
+  - the toggle mode and the draw;
+  - the slow-down into the pause and the ease back;
+  - the pause from the hold to the release, the gate's conditions, taps, double taps and holds at
+    each "Hold before pausing", 50/60 Hz, and the watchdogs.
 
 ## Credits
 
-- Going Commando's code: [rac2-decomp](https://github.com/OpenRAC/rac2-decomp) (Kryštof "Lynder063"
-  Malinda and its contributors; earlier llesieur99).
-- Ratchet & Clank's: [OpenRAC](https://github.com/OpenRAC/OpenRAC)'s decompilations
-  (`games/rac1/decomp`, after Lombyte's project, and the NTSC decomp), and the OpenRAC mod SDK.
+- **Prey Menu** by **KerosenileArsonist** (<https://www.nexusmods.com/newvegas/mods/94499>): the
+  wheel's art and its spiral's design, used with credit as its Nexus permissions ask.
+- **Going Commando's code**: [rac2-decomp](https://github.com/OpenRAC/rac2-decomp) (Kryštof
+  "Lynder063" Malinda and its contributors; earlier llesieur99).
+- **Ratchet & Clank's**: [OpenRAC](https://github.com/OpenRAC/OpenRAC)'s decompilations and the
+  OpenRAC mod SDK.
+- **stb_image** by Sean Barrett (public domain or MIT).
+- Prey's wheel was studied through [Chairloader](https://github.com/thelivingdiamond/Chairloader)'s
+  headers. Nothing of Prey's is copied.
 
 ## License
 
-GNU General Public License version 3 ([LICENSE](LICENSE)). The files copied from rac2-decomp are
-GPL-3.0-only, as that project gives no later version; the mod's own files are GPL-3.0-or-later.
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) names the source, its commit, the files and lines
-copied, and its earlier MIT notice; the package carries it as `LICENSE.THIRD_PARTY_NOTICES.md`.
+- **The code** is under the GNU General Public License version 3 ([LICENSE](LICENSE)). The files
+  copied from rac2-decomp, and `src/gc/rac1_spiral.cpp`, are GPL-3.0-only. The mod's own files are
+  GPL-3.0-or-later.
+- **The art** (`assets/spiral-wheel/`, and `docs/mockup.png`, which is made from it) is **not** under
+  the GPL. It is © KerosenileArsonist, from Prey Menu, used under the author's Nexus permissions: you
+  may use, modify and convert it with credit, but **not in anything sold**.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the details. The package carries it as
+  `LICENSE.THIRD_PARTY_NOTICES.md`.
 
 Ratchet & Clank and Ratchet & Clank: Going Commando are trademarks of Sony Interactive
-Entertainment, developed by Insomniac Games. This mod is not affiliated with or endorsed by
-either, and contains none of their code or assets.
+Entertainment, developed by Insomniac Games. Prey is a trademark of ZeniMax Media. This mod is not
+affiliated with or endorsed by any of them, and contains none of their code or assets.

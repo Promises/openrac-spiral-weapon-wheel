@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The translation layer: Going Commando's weapon quick select (src/gc/*.c, copied from
-// rac2-decomp) run on Ratchet & Clank's memory, functions and hook points.
+// The translation layer: Going Commando's weapon quick select's pause (src/gc/*.c, copied from
+// rac2-decomp) run on Ratchet & Clank's memory, functions and hook points, with the spiral wheel
+// (src/spiral/, from "Prey Menu") in place of Going Commando's ring: its selection and its draw
+// (rac1_spiral.cpp), the items it offers (Ratchet & Clank's owned hand items), and the slow-down
+// into the pause.
 //
 // Ratchet & Clank's quick select is Going Commando's ancestor, record for record: the same 0x90-byte
 // HUD record (its update and draw callbacks take it), the same pad, the same page of seven-word slot
@@ -32,10 +35,12 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include "../layout.hpp"
+#include "../spiral/wheel.hpp"
 
 namespace gc_weapon_wheel::gc {
 
@@ -75,6 +80,16 @@ constexpr std::int32_t kGcSelectorKey = 0x23;
 constexpr int kGcOpenDelay = 4;
 constexpr int kOpenDelayLittleLonger = 8;
 constexpr int kOpenDelayLonger = 12;
+// The slow-down before the pause (the mod's "Slow-down before pausing"), in 60ths of a second of
+// the game's time at its own pace: off, short, and Prey's (its time scaler eases the game's time).
+constexpr int kRampOff = 0;
+constexpr int kRampShort = 9;
+constexpr int kRampPrey = 18;
+// The slowest the port's time_stretch goes: each tick 8 times as long (an eighth of the speed).
+constexpr float kStretchMax = 8.0f;
+// The stick's rest, below which it does not turn the pointer (Going Commando's quick select reads
+// a stick under 0.5 as let go).
+constexpr float kStickDeadzone = 0.5f;
 
 
 // Sizes of the layer's copies (Going Commando's offsets).
@@ -142,6 +157,8 @@ struct Game {
     std::function<void()> draw_debug_profiler;
     // The click: allocate_voice_for_bank_entry(0, 1, 0), the level bank's entry 0.
     std::function<void()> play_click;
+    // The port's slow motion (openrac_api.time_stretch): each tick this many times as long, 1 to 8.
+    std::function<void(float)> time_stretch;
 
     std::function<float(float)> square_root;
     std::function<float(float, float)> fast_arc_tan;
@@ -166,6 +183,22 @@ struct LevelAddresses {
     std::uint32_t bolt_init = 0, bolt_update = 0, bolt_draw = 0;
 };
 
+// The wheel's settings (the mod's): the spiral's look, hold or toggle, the slow-down and its ease
+// back.
+struct WheelOptions {
+    spiral::Look look;
+    bool toggle = false;
+    int ramp_frames = kRampShort;
+    bool ease_back = false;
+};
+
+// What the overlay draws (the mod's under-HUD call, on the window thread): the wheel's frame of
+// the last tick, while it shows.
+struct WheelPicture {
+    bool shown = false;
+    spiral::Frame frame;
+};
+
 // Ratchet & Clank's double tap as the hero's update found it (Shim::explain_double_tap).
 struct TapSnapshot {
     std::int16_t tap = 0, window = 0;
@@ -179,6 +212,8 @@ public:
     // The settings: Going Commando's option byte (pause while open), the click, and the HUD-open
     // request's countdown in Going Commando's frames (its own 4, or longer: "Hold before pausing").
     void set_options(bool pause, bool click, int open_delay_frames = kGcOpenDelay);
+    void set_wheel_options(const WheelOptions& options) { m_wheel_options = options; }
+    const WheelOptions& wheel_options() const { return m_wheel_options; }
     // The level whose program is loaded (-1: none): its addresses, again only when it changed.
     void connect(int level);
 
@@ -226,7 +261,27 @@ public:
     void queue_selector();
     void show_counters_health(int frames);
     void show_counters_bolts(int frames);
-    void draw_ring(std::uint8_t* menu, int x, int y, int alpha);
+    // The spiral in place of Going Commando's weapon_wheel_update_select and weapon_wheel_draw
+    // (rac1_spiral.cpp).
+    void spiral_update(std::uint8_t* record);
+    int spiral_draw(std::uint8_t* record);
+    // The items the wheel offers: every owned hand item (item_available, item_info_table's slot 0),
+    // the wrench left out ("None" is it), in item order; each one's quick select place and whether
+    // it is in hand.
+    std::vector<spiral::Item> collect_items() const;
+    // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
+    std::string item_name(std::int32_t id) const;
+    std::string item_ammo(std::int32_t id, bool& empty) const;
+    // The wheel's picture for the overlay (any thread).
+    WheelPicture picture() const;
+    const spiral::Wheel& wheel() const { return m_wheel; }
+    // The slow-down before the pause: whether it runs, and the stretch it sets now.
+    bool ramping() const { return m_ramp != Ramp::None; }
+    bool ramping_down() const { return m_ramp == Ramp::Down; }
+    float stretch() const { return m_stretch; }
+    // A paused open asked for (request_begin_slot): the slow-down first, if there is one. True when
+    // it began (the pause comes after it), false to pause at once.
+    bool begin_ramp();
     bool selector_open_allowed() const;
     // The gate's conditions, their values and the first that fails, for the log.
     std::string describe_gate() const;
@@ -276,6 +331,33 @@ private:
     bool m_record_opened = false;
     bool m_paused_disabled = false;
     std::vector<std::string> m_logged;
+    // The spiral.
+    enum class Ramp { None, Down, Up };
+    WheelOptions m_wheel_options;
+    spiral::Wheel m_wheel;
+    std::vector<std::string> m_names;
+    bool m_armed = false;
+    bool m_toggle_released = false;
+    bool m_committing = false;
+    bool m_cancelled = false;
+    Ramp m_ramp = Ramp::None;
+    float m_ramp_elapsed = 0.0f;
+    float m_stretch = 1.0f;
+    bool m_ramp_record = false;
+    // The picture's lock: a fresh one for a copy (the tests set the layer anew).
+    struct PictureLock {
+        std::mutex lock;
+        PictureLock() = default;
+        PictureLock(const PictureLock&) {}
+        PictureLock& operator=(const PictureLock&) { return *this; }
+    };
+    mutable PictureLock m_picture_lock;
+    WheelPicture m_picture;
+    void set_stretch(float stretch);
+    void ramp_tick();
+    void end_ramp(bool ease_back);
+    void publish();
+    void close_wheel();
 
     friend class CopyScope;
 };
@@ -306,9 +388,12 @@ private:
 
 // The copied functions (src/gc/*.c) the layer and the mod call.
 extern "C" {
-void weapon_wheel_update_select(void* selector);
-int weapon_wheel_draw(char* menu);
 void menu_init_panel_layout(std::uint8_t* panel);
+void hud_request_open(void);
+int hud_is_open_done(void);
+void menu_set_state_word_three(void);
+void hud_clear_flag_a(void);
+void hud_clear_flag_b(void);
 void weapon_menu_init_slots(void);
 void UpdateModalState(void);
 void menu_set_mode(std::int32_t mode, std::int32_t arg);
@@ -337,4 +422,10 @@ extern int gc_shim_press_window;
 extern int gc_shim_input_block;
 extern int gc_shim_open_delay_start;
 int gc_shim_gate_window(int frames);
+// The polyfills the spiral's update calls (rac1_shim.cpp).
+int gc_shim_FastDecTimer(void* timer);
+int gc_shim_snd_play_from_global_bank(int sound, int, void*);
+void gc_shim_item_0x18(void);
+int gc_shim_hud_close_element_by_key(int handle);
+extern std::uint32_t gc_shim_frame_counter;
 }

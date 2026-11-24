@@ -80,9 +80,22 @@ constexpr std::uint32_t kRecordHandle = 0x64u;
 constexpr std::uint32_t kRecordSlide = 0x6Cu;
 constexpr std::uint32_t kRecordFades = 0x70u;
 constexpr std::uint32_t kRecordSelected = 0x74u;
-// HUD sprite ids: the quick select's panel quarter and its selection marker.
-constexpr int kPanelSprite = 0xE934;
-constexpr int kMarkerSprite = 0xE99C;
+// item_info_table (menu_item_info): 0x4C a record, the same layout as item_defs; +0x08 the
+// equipment slot an item takes (the pause menu's grid: menu_system.equipped[slot] = id, 0 the hand,
+// the slot the quick select's items are in; games/rac1/decomp src/game/ui/pause.c:1789-1807 and
+// 7096: equipped[0] is the hand's preview).
+constexpr std::uint32_t kItemInfoSlot = 0x08u;
+constexpr std::int32_t kHandSlot = 0;
+// The wrench: the hand's item with no weapon (hero_update_transitions' quick swap: item 8 in hand
+// swaps to the last weapon).
+constexpr std::int32_t kWrench = 8;
+// The circle button (the pad's word): cancel.
+constexpr std::uint32_t kCircle = 0x20u;
+// The d-pad (PS2 pad bits): up 0x1000, right 0x2000, down 0x4000, left 0x8000.
+constexpr std::uint32_t kDpadUp = 0x1000u, kDpadRight = 0x2000u, kDpadDown = 0x4000u, kDpadLeft = 0x8000u;
+// The 2D layer's picture: 512 x 416 game units over the 4:3 picture (openrac_input.pointer_*).
+constexpr float kScreenWidth = 512.0f;
+constexpr float kScreenHeight = 416.0f;
 
 struct Disc {
     bool ntsc;
@@ -102,6 +115,8 @@ struct Disc {
     std::uint32_t event_frames;       // gameplay_event_frame_count
     std::uint32_t game_mode;          // g_game_mode (mode_freeze_init's and update_mode_freeze's)
     std::uint32_t frame_scale;        // frame_scale, scale_ticks' factor (float)
+    std::uint32_t item_available;     // item_available: owned, a byte per item
+    std::uint32_t item_info;          // item_info_table: 0x4C a record (its slot)
     // --- Level 0's data ---
     std::uint32_t item_defs;
     std::uint32_t item_price;
@@ -150,6 +165,10 @@ inline Disc disc_for(bool ntsc) {
         d.event_frames = 0x0015EEA4u;
         d.game_mode = 0x0015F604u;
         d.frame_scale = 0x0015ED60u;
+        // games/rac1/decomp config/names_ntsc.tsv: item_available at US 0x0013D4C0, menu_item_info
+        // (item_info_table) at US 0x001863D0.
+        d.item_available = 0x0013D4C0u;
+        d.item_info = 0x001863D0u;
         d.item_defs = 0x00179AC0u;
         d.item_price = 0x001C40B0u;
         d.slot_tables = 0x0015FAC0u;
@@ -192,6 +211,10 @@ inline Disc disc_for(bool ntsc) {
         d.event_frames = 0x0015EFA4u;
         d.game_mode = 0x0015F6E8u;
         d.frame_scale = 0x0015EE60u;
+        // games/rac1/decomp include/names/executable.h: item_available D_0013D5C8, item_info_table
+        // D_001864D0.
+        d.item_available = 0x0013D5C8u;
+        d.item_info = 0x001864D0u;
         d.item_defs = 0x00179BC0u;
         d.item_price = 0x001C43B0u;
         d.slot_tables = 0x0015FB78u;

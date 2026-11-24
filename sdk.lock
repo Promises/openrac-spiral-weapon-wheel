@@ -1,6 +1,6 @@
 {
-  "about": "The OpenRAC mod SDK this mod builds against: tools/fetch_sdk.py puts it in .sdk/, where CMakeLists.txt finds it. The mod needs three hook points no OpenRAC release or develop commit has yet (rac1.level.update_play, rac1.freeze.update, rac1.freeze.draw): it is the SDK's source at a commit of the branch rac1-freeze-mode-hooks of the Promises/OpenRAC fork, which adds them (interface 1.39). Back to OpenRAC's develop, then to a release's url and sha256, once they are merged.",
-  "version": "1.39.0",
+  "about": "The OpenRAC mod SDK this mod builds against: tools/fetch_sdk.py puts it in .sdk/, where CMakeLists.txt finds it. The mod needs mod interface 1.40 (pictures in a mod's overlay: OpenRAC pull request #865) and three hook points no OpenRAC release has yet (rac1.level.update_play, rac1.freeze.update, rac1.freeze.draw: pull request #863, commit 1e29c3c8). It is the SDK's source at a commit of the branch spiral-wheel-test of the Promises/OpenRAC fork, which merges #865's branch (sdk-overlay-images) with #863's (rac1-freeze-hook-points) and #862's (rac1-freeze-keeps-lens). Back to OpenRAC's develop, then to a release's url and sha256, once they are merged.",
+  "version": "1.40.0",
   "git": "https://github.com/Promises/OpenRAC",
-  "commit": "dae54f2189efd251a059713ae6ed232e6d732eab"
+  "commit": "dc019effd2d0ad8553adad5fdc4f3c45f3d12958"
 }

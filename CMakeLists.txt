@@ -1,13 +1,13 @@
-# Going Commando weapon wheel: an OpenRAC native mod for Ratchet & Clank (from the SDK's template).
+# Spiral Weapon Wheel: an OpenRAC native mod for Ratchet & Clank (from the SDK's template).
 #
 #   python3 tools/fetch_sdk.py                     # the SDK sdk.lock pins, into .sdk/
 #   cmake -S . -B build -G Ninja
 #   cmake --build build && ctest --test-dir build
-#   python3 .sdk/openrac-mod-sdk-*/tools/package_mod.py build/package/gc_weapon_wheel
+#   python3 .sdk/openrac-mod-sdk-*/tools/package_mod.py build/package/spiral_weapon_wheel
 #
 # A tag v<version> (the manifest's) makes the workflow publish the release the launcher installs.
 cmake_minimum_required(VERSION 3.20)
-project(gc_weapon_wheel LANGUAGES C CXX)
+project(spiral_weapon_wheel LANGUAGES C CXX)
 
 # The SDK: the one sdk.lock pins (tools/fetch_sdk.py puts it in .sdk/); OPENRAC_SDK=<dir> (an
 # unpacked SDK, or sdk/ in a checkout of OpenRAC) or OpenRACMod_DIR=<dir>/cmake for another.
@@ -24,7 +24,7 @@ if(NOT OpenRACMod_DIR)
     endif()
   endif()
 endif()
-find_package(OpenRACMod 1.39 REQUIRED)
+find_package(OpenRACMod 1.40 REQUIRED)
 
 # Windows: GitHub's windows-2025 image pairs a Visual Studio whose C++ library asks for a newer Clang
 # than the clang-cl it ships (STL1000), depending on the image a run gets. The library's own switch
@@ -33,15 +33,14 @@ if(MSVC)
   add_compile_definitions(_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH)
 endif()
 
-# Going Commando's weapon quick select, copied from rac2-decomp (src/gc/*.c), and the translation
-# layer that runs it on Ratchet & Clank (src/gc/rac1_shim.*). The copied files include the layer's
+# Going Commando's weapon quick select's pause, copied from rac2-decomp (src/gc/*.c), and the
+# translation layer that runs it on Ratchet & Clank with the spiral wheel in place of its ring
+# (src/gc/rac1_shim.*, src/gc/rac1_spiral.cpp; the spiral itself in src/spiral/). The copied files include the layer's
 # common.h (src/gc/shim/) in place of rac2-decomp's headers; they are compiled as they are, so the
 # warnings their PS2-era casts and declarations raise on a host compiler are off for them, and the
 # two a newer compiler makes errors (an address passed as an s32; a function of one pointer type
 # passed for another) are warnings, which -w then silences.
 set(gc_copied
-  src/gc/weapon_wheel_update_select.c
-  src/gc/weapon_wheel_draw.c
   src/gc/menu_init_panel_layout.c
   src/gc/weapon_menu_init_slots.c
   src/gc/UpdateModalState.c
@@ -58,7 +57,7 @@ set(gc_copied
   src/gc/hero_update_hit_streak_effect.c
   src/gc/gfx_render_frame_extra_layers.c
   src/gc/func_0029CE38.c)
-set(gc_layer src/gc/rac1_shim.cpp)
+set(gc_layer src/gc/rac1_shim.cpp src/gc/rac1_spiral.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp)
 set(gc_copied_options -w)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   list(APPEND gc_copied_options -Wno-int-conversion -Wno-incompatible-pointer-types)
@@ -79,17 +78,29 @@ set_source_files_properties(src/gc/level_update_game_frame_input.c PROPERTIES
 set_source_files_properties(src/gc/hero_update_button_hold_timers.c PROPERTIES
   COMPILE_DEFINITIONS GC_SHIM_HANDLES)
 
-openrac_add_mod(gc_weapon_wheel MANIFEST openrac-mod.json SOURCES src/mod.cpp ${gc_layer} ${gc_copied})
-target_compile_features(gc_weapon_wheel PRIVATE cxx_std_17)
+openrac_add_mod(spiral_weapon_wheel MANIFEST openrac-mod.json SOURCES src/mod.cpp ${gc_layer} ${gc_copied})
+target_compile_features(spiral_weapon_wheel PRIVATE cxx_std_17)
+target_include_directories(spiral_weapon_wheel PRIVATE src)
+# stb_image (src/third_party, public domain or MIT) reads the art's PNGs: its own warnings are off.
+set_source_files_properties(src/mod.cpp PROPERTIES COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-Wno-unused-function>")
 
 # The notices of what is copied go in the package (and so the archive, which carries the files
-# named LICENSE* beside the manifest).
-get_target_property(gc_weapon_wheel_package gc_weapon_wheel OPENRAC_MOD_PACKAGE_DIR)
-configure_file(THIRD_PARTY_NOTICES.md "${gc_weapon_wheel_package}/LICENSE.THIRD_PARTY_NOTICES.md" COPYONLY)
+# named LICENSE* beside the manifest), and the art (assets/, the manifest's "assets"), which is
+# Prey Menu's under its author's permissions, not the GPL (THIRD_PARTY_NOTICES.md).
+get_target_property(spiral_weapon_wheel_package spiral_weapon_wheel OPENRAC_MOD_PACKAGE_DIR)
+configure_file(THIRD_PARTY_NOTICES.md "${spiral_weapon_wheel_package}/LICENSE.THIRD_PARTY_NOTICES.md" COPYONLY)
+file(GLOB spiral_art CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/spiral-wheel/*.png")
+foreach(picture ${spiral_art})
+  get_filename_component(picture_name "${picture}" NAME)
+  configure_file("${picture}" "${spiral_weapon_wheel_package}/assets/spiral-wheel/${picture_name}" COPYONLY)
+endforeach()
 
-# The translation layer with the copied code, on a fake game (ctest; the workflow runs it on every
-# platform).
+# The spiral's math against Prey Menu's formulas, and the translation layer with the copied code on
+# a fake game (ctest; the workflow runs them on every platform).
 enable_testing()
-add_executable(gc_weapon_wheel_test src/gc_weapon_wheel_test.cpp ${gc_layer} ${gc_copied})
-target_compile_features(gc_weapon_wheel_test PRIVATE cxx_std_17)
-add_test(NAME gc_weapon_wheel COMMAND gc_weapon_wheel_test)
+add_executable(spiral_test src/spiral_test.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp)
+target_compile_features(spiral_test PRIVATE cxx_std_17)
+add_test(NAME spiral COMMAND spiral_test)
+add_executable(spiral_weapon_wheel_test src/spiral_weapon_wheel_test.cpp ${gc_layer} ${gc_copied})
+target_compile_features(spiral_weapon_wheel_test PRIVATE cxx_std_17)
+add_test(NAME spiral_weapon_wheel COMMAND spiral_weapon_wheel_test)
