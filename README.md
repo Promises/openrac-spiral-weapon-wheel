@@ -14,7 +14,10 @@ are Ratchet & Clank's own.*
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
 - **The spiral.** Everything you can put on your quick select (the weapons and gadgets of the pause
-  menu's Quick Select page, in its order) lies on a spiral, twelve to a loop. Turn the stick
+  menu's Quick Select page) lies on a spiral, twelve to a loop. Your own quick select is the home
+  ring: its eight items sit on the first loop in the directions they have on the game's ring, so
+  the stick points where you know them; the others fill the free slots, then the loops further
+  out. Turn the stick
   around and the pointer goes round and round through the loops: items you have passed shrink
   inward and fade, and the ones ahead come out. The d-pad steps one item at a time.
 - **What it shows.** The item in hand has the thick corners. Items on your quick select have a
@@ -84,6 +87,13 @@ Ratchet & Clank PAL and NTSC-U.
     - each slot's angle, size (`0.9 + 0.0666 * depth` to the power of its distance from the
       pointer) and fade (full within six slots, gone at twelve);
     - the art's sizes and colours.
+- **The order**: the game's quick select first, each item at the first loop's slot nearest its
+  direction on the game's ring (`draw_hud_item_selector_panel`: slot 0 at the top, the others
+  clockwise, 45 degrees apart). The cardinal directions fit the 30-degree slots exactly; a diagonal
+  goes to the slot nearer the vertical (45 to 60, 135 to 120, -45 to -60, -135 to -120), so the
+  two beside one side never meet. At the default start angle (90, 12 o'clock) "None" sits where the
+  quick select's slot 0 points, so that item goes one loop out at the same angle (the log says so).
+  The others follow: the first loop's free slots in order, then outward.
 - **The items** are those of the pause menu's Quick Select page: the owned items of its weapons
   grid (15 cells), then of its hand gadgets grid (6 cells), read from the game's own tables
   (`pause_item_candidate_entries`, `pause_hand_gadget_cells`), shown and assigned when owned as the
@@ -98,7 +108,8 @@ Ratchet & Clank PAL and NTSC-U.
 | Behaviour | From |
 |---|---|
 | The spiral: 12 a loop, the pointer turning with the stick, the wrap, sizes, fades, the art's states, the settings and their defaults | Prey Menu's scripts and menu |
-| What the Quick Select page can assign, in its order, like Prey's favourites | the mod's own choice; the rule is the game's |
+| What the Quick Select page can assign, like Prey's favourites | the mod's own choice; the rule is the game's |
+| The quick select as the home ring, the diagonals' rounding, the slot-0 item one loop out | the mod's own choice |
 | The quick select's items marked with their number, as Prey Menu marks hotkeys | the mod's own choice |
 | "None" is the wrench | the mod's own choice (Prey Menu's "None" unequips) |
 | The slow-down, then the pause | Prey's wheel as seen in its footage; the ramp is the mod's own (Prey's time scaler eases to a target over a duration) |

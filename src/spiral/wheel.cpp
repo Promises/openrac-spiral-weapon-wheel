@@ -29,6 +29,11 @@ float Wheel::pointer_deg() const {
     return pointer(static_cast<int>(m_items.size()), m_input, m_look.spiral).angle_deg;
 }
 
+bool Wheel::is_item_or_none(int index) const {
+    return index == -1 || (index >= 0 && index < static_cast<int>(m_items.size()) &&
+                           m_items[static_cast<std::size_t>(index)].id != 0);
+}
+
 int Wheel::selected() const {
     return pointer(static_cast<int>(m_items.size()), m_input, m_look.spiral).selected;
 }
@@ -38,7 +43,7 @@ bool Wheel::steer(float x, float y, float deadzone) {
     m_input = turn(m_input, m_stick, x, y, static_cast<int>(m_items.size()), m_look.spiral, deadzone);
     const int after = selected();
     // UpdatePointer.gek: the scroll sound when the index changed to an item or "None".
-    return after != before && after >= -1;
+    return after != before && is_item_or_none(after);
 }
 
 bool Wheel::step(int slots) {
@@ -54,7 +59,7 @@ bool Wheel::step(int slots) {
     m_stick.y = -std::sin(a);
     m_stick.first = false;
     const int after = selected();
-    return after != before && after >= -1;
+    return after != before && is_item_or_none(after);
 }
 
 void Wheel::advance(float seconds) {
@@ -79,21 +84,26 @@ Frame Wheel::frame() const {
             continue;
         }
         const float s = size * t.scale;
+        // A hole (arrange.hpp: a first-loop slot no item took) is drawn as a blank.
+        const Item* item = t.index >= 0 ? &m_items[static_cast<std::size_t>(t.index)] : nullptr;
+        if (item != nullptr && item->id == 0) {
+            item = nullptr;
+        }
+        const bool blank = t.blank || (t.index >= 0 && item == nullptr);
         // Sector: alpha 165 * AlphaMult, brightness 100 when hovered (else 0: black), turned to
         // _AngleRad.
         Sprite sector;
         sector.art = Art::Sector;
         sector.w = sector.h = s;
         sector.angle_deg = t.angle_deg;
-        sector.grey = t.hover ? kSectorHover : 0.0f;
+        sector.grey = t.hover && !blank ? kSectorHover : 0.0f;
         sector.alpha = kSectorAlpha * t.alpha;
         f.sprites.push_back(sector);
-        if (t.blank) {
+        if (blank) {
             continue;
         }
         // Border: not a blank's; the file by _Hotkey and _Equipped (BorderFile_0..3), brightness
         // 175, alpha 255 * AlphaMult. "None" (-1) has no item: a plain border.
-        const Item* item = t.index >= 0 ? &m_items[static_cast<std::size_t>(t.index)] : nullptr;
         const bool hot = item != nullptr && item->hot > 0;
         const bool eq = item != nullptr && item->equipped;
         Sprite border;

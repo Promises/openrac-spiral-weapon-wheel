@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "rac1_shim.hpp"
+#include "../spiral/arrange.hpp"
 
 namespace gc_weapon_wheel::gc {
 
@@ -63,7 +64,7 @@ int game_y(float y) { return static_cast<int>(std::lround(kScreenHeight * 0.5f +
 // grid, then its hand gadgets grid (layout.hpp: the cells' tables, draw_menu_item_grid's and
 // update_menu_item_slots' rule), each cell's item when it is an item (kind 0) and owned. Nothing of
 // the Items page (packs, helmets, boots, the Sonic Summoner, the Persuader...) is in them.
-std::vector<spiral::Item> Shim::collect_items() const {
+std::vector<spiral::Item> Shim::collect_items() {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     std::vector<spiral::Item> out;
@@ -94,7 +95,26 @@ std::vector<spiral::Item> Shim::collect_items() const {
     };
     take(a.weapon_cells, kWeaponCells);
     take(a.gadget_cells, kGadgetCells);
-    return out;
+    // The game's quick select is the home ring (arrange.hpp): slot i of its eight at the direction
+    // draw_hud_item_selector_panel draws it (games/rac1/decomp
+    // src/overlays/shared/weapon_hud_and_counters.c:1348-1353: FastAddRots(2 * i * pi / count - pi,
+    // pi / 2) with y down, so slot 0 at the top and the others clockwise: 90 - 45 * i degrees
+    // counter-clockwise from 3 o'clock); an empty slot leaves its place to the others.
+    std::vector<spiral::HomeItem> home;
+    std::vector<spiral::Item> rest;
+    for (const spiral::Item& item : out) {
+        if (item.hot > 0) {
+            home.push_back({item, 90.0f - 45.0f * static_cast<float>(item.hot - 1)});
+        } else {
+            rest.push_back(item);
+        }
+    }
+    std::vector<std::string> notes;
+    std::vector<spiral::Item> arranged = spiral::arrange(home, rest, m_wheel_options.look.spiral, &notes);
+    for (const std::string& note : notes) {
+        log_once("arrange " + note, note);
+    }
+    return arranged;
 }
 
 std::string Shim::item_name(std::int32_t id) const {
@@ -278,7 +298,7 @@ void Shim::spiral_update(std::uint8_t* record) {
             std::string line = "the wheel opens with " + std::to_string(m_wheel.items().size()) + " items:";
             for (const spiral::Item& item : m_wheel.items()) {
                 char id[16];
-                std::snprintf(id, sizeof id, " 0x%X", static_cast<unsigned>(item.id));
+                std::snprintf(id, sizeof id, item.id != 0 ? " 0x%X" : " -", static_cast<unsigned>(item.id));
                 line += id;
             }
             game.info(line.c_str());
@@ -366,7 +386,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         if (fade[0] == 0 && game.info) {
             char line[200];
             const std::int32_t in_hand = Memory{gc_shim_hero}.read<std::int32_t>(kGcHeroItem);
-            if (m_cancelled || selected < -1) {
+            if (m_cancelled || !m_wheel.is_item_or_none(selected)) {
                 std::snprintf(line, sizeof line, "cancelled (%s; 0x%X in hand)", m_cancelled ? "Circle" : "let go on a blank",
                               static_cast<unsigned>(in_hand));
             } else {
@@ -378,7 +398,7 @@ void Shim::spiral_update(std::uint8_t* record) {
             }
             game.info(line);
         }
-        if (fade[0] == 0 && !m_cancelled && selected >= -1) {
+        if (fade[0] == 0 && !m_cancelled && m_wheel.is_item_or_none(selected)) {
             Memory hero{gc_shim_hero};
             Memory stats{gc_shim_stats};
             // (the mod's) "None" is the wrench.
@@ -450,7 +470,7 @@ int Shim::spiral_draw(std::uint8_t* record) {
     }
     // The name above the info bar and the ammo below, in Going Commando's colours (white, the ammo
     // red when it is out), faded in with the selection.
-    if (f.selected >= -1) {
+    if (m_wheel.is_item_or_none(f.selected)) {
         const float opacity = open * pick;
         const std::uint32_t white = tween_colour(0x00F0F0F0u, 0x80F0F0F0u, opacity);
         std::string name = f.selected >= 0 ? m_names[static_cast<std::size_t>(f.selected)] : item_name(kWrench);

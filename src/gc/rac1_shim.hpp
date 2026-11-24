@@ -268,7 +268,7 @@ public:
     // The items the wheel offers: what the pause menu's Quick Select page lets the player put on the
     // quick select (its weapons grid, then its hand gadgets grid, the owned items of their cells:
     // layout.hpp), in that order; each one's quick select place and whether it is in hand.
-    std::vector<spiral::Item> collect_items() const;
+    std::vector<spiral::Item> collect_items();
     // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
     std::string item_name(std::int32_t id) const;
     std::string item_ammo(std::int32_t id, bool& empty) const;

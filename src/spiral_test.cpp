@@ -6,9 +6,12 @@
 // directions, start angles and depths; then the wheel's layout (wheel.hpp) and its stick
 // (UpdatePointer.gek) and opening (UpdateMenu.gek).
 #include <cmath>
+#include <cstdint>
+#include <string>
 #include <cstdio>
 #include <vector>
 
+#include "spiral/arrange.hpp"
 #include "spiral/spiral.hpp"
 #include "spiral/wheel.hpp"
 
@@ -287,6 +290,128 @@ void test_wheel_frame() {
     CHECK(near(half.frame().sprites.back().w, spiral::kInfoWidth * 0.5f));
 }
 
+// The game's quick select as the home ring: its eight items at the directions of its own ring
+// (slot i at 90 - 45 * i degrees: games/rac1/decomp draw_hud_item_selector_panel).
+std::vector<spiral::HomeItem> home_ring(const std::vector<std::int32_t>& ids) {
+    std::vector<spiral::HomeItem> out;
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+        if (ids[i] != 0) {
+            spiral::HomeItem h;
+            h.item.id = ids[i];
+            h.item.hot = static_cast<int>(i) + 1;
+            h.angle_deg = 90.0f - 45.0f * static_cast<float>(i);
+            out.push_back(h);
+        }
+    }
+    return out;
+}
+
+std::vector<spiral::Item> others(std::initializer_list<std::int32_t> ids) {
+    std::vector<spiral::Item> out;
+    for (std::int32_t id : ids) {
+        spiral::Item it;
+        it.id = id;
+        out.push_back(it);
+    }
+    return out;
+}
+
+int index_of(const std::vector<spiral::Item>& slots, std::int32_t id) {
+    int found = -100, count = 0;
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+        if (slots[i].id == id) {
+            found = static_cast<int>(i);
+            ++count;
+        }
+    }
+    CHECK(count == 1);  // no duplicates, none lost
+    return found;
+}
+
+void test_home_ring() {
+    const std::vector<std::int32_t> ring = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
+    // Counter-clockwise from 12 o'clock (the defaults): the cardinals exactly; the diagonals to the
+    // slot nearer the vertical (45 -> 60, -45 -> -60, -135 -> -120, 135 -> 120); slot 0's item
+    // (up) meets "None" there and goes one loop out at the same angle (index 11).
+    {
+        spiral::Options o;
+        std::vector<std::string> notes;
+        const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05, 0x06}), o, &notes);
+        const int expect[8] = {11, 10, 8, 6, 5, 4, 2, 0};
+        for (int i = 0; i < 8; ++i) {
+            CHECK(index_of(slots, ring[static_cast<std::size_t>(i)]) == expect[i]);
+        }
+        CHECK(notes.size() == 1 && notes[0].find("0x10") != std::string::npos);
+        // The others fill the first loop's free slots in order (1, 3, 7, 9), then outward (12, 13).
+        CHECK(index_of(slots, 0x01) == 1 && index_of(slots, 0x02) == 3 && index_of(slots, 0x03) == 7);
+        CHECK(index_of(slots, 0x04) == 9 && index_of(slots, 0x05) == 12 && index_of(slots, 0x06) == 13);
+        CHECK(slots.size() == 14u);
+    }
+    // Every direction lands within 15 degrees of its slot (exactly for the cardinals when the start
+    // angle is a multiple of 30), both directions, other start angles; no two items share a slot;
+    // only a direction that is "None"'s goes one loop out.
+    for (bool clockwise : {false, true}) {
+        for (float start : {90.0f, 0.0f, 150.0f, -60.0f, -45.0f, 200.0f}) {
+            spiral::Options o;
+            o.clockwise = clockwise;
+            o.start_deg = start;
+            std::vector<std::string> notes;
+            const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05}), o, &notes);
+            int moved = 0;
+            for (int i = 0; i < 8; ++i) {
+                const int index = index_of(slots, ring[static_cast<std::size_t>(i)]);
+                const float want = 90.0f - 45.0f * static_cast<float>(i);
+                const float off = std::fabs(std::remainder(spiral::slot_angle(index, o) - want, 360.0f));
+                CHECK(off <= 15.01f);
+                const bool multiple = std::fabs(std::remainder(start, 30.0f)) < 0.01f;
+                if (multiple && i % 2 == 0) {
+                    CHECK(off < 0.01f);
+                }
+                if (index == spiral::kFirstLoop) {
+                    ++moved;
+                    CHECK(std::fabs(std::remainder(spiral::slot_angle(-1, o) - want, 360.0f)) <= 15.01f);
+                } else {
+                    CHECK(index >= 0 && index < spiral::kFirstLoop);
+                }
+            }
+            CHECK(moved == static_cast<int>(notes.size()) && moved <= 1);
+            for (std::int32_t id : {0x01, 0x02, 0x03, 0x04, 0x05}) {
+                index_of(slots, id);
+            }
+        }
+    }
+    // Empty quick select slots leave their places to the others; with few others, holes (id 0)
+    // stay in the first loop.
+    {
+        spiral::Options o;
+        const auto slots = spiral::arrange(home_ring({0x10, 0, 0x12, 0, 0, 0, 0x15, 0}), others({0x01}), o);
+        CHECK(index_of(slots, 0x10) == 11 && index_of(slots, 0x12) == 8 && index_of(slots, 0x15) == 2);
+        CHECK(index_of(slots, 0x01) == 0);  // the first free slot
+        int holes = 0;
+        for (const spiral::Item& it : slots) {
+            holes += it.id == 0;
+        }
+        CHECK(slots.size() == 12u && holes == 8);
+        // A hole is drawn and picked as a blank: no border, no icon, not lit, no click.
+        spiral::Look look;
+        spiral::Wheel w;
+        auto items = slots;
+        items[static_cast<std::size_t>(index_of(slots, 0x12))].equipped = true;
+        w.open(items, look);
+        w.advance(1.0f);
+        CHECK(w.selected() == 8);
+        CHECK(!w.step(-1) && w.selected() == 7 && !w.is_item_or_none(7));
+        int borders = 0, lit = 0;
+        for (const spiral::Sprite& sp : w.frame().sprites) {
+            borders += sp.art != spiral::Art::Sector && sp.art != spiral::Art::Pointer && sp.art != spiral::Art::Info &&
+                       sp.art != spiral::Art::Badge;
+            lit += sp.art == spiral::Art::Sector && sp.grey > 0.0f;
+        }
+        CHECK(borders == 5 && lit == 0);  // 4 items and "None"; the pointer on a hole
+        CHECK(w.frame().icons.size() == 4u);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -295,6 +420,7 @@ int main() {
     test_depth_and_fading();
     test_stick_and_opening();
     test_wheel_frame();
+    test_home_ring();
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -324,9 +324,12 @@ constexpr std::int32_t kOwned[] = {0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0
                                    0x12, 0x13, 0x14, 0x15, 0x18, 0x02, 0x05, 0x06, 0x1C, 0x1E, 0x23};
 constexpr std::int32_t kItemsPage[] = {0x08, 0x02, 0x05, 0x06, 0x1C, 0x1E, 0x23};
 constexpr int kWheelItems = 14;
-// The wheel's order: the weapons grid's owned items, then the gadgets grid's.
-constexpr std::int32_t kWheelOrder[kWheelItems] = {0x0A, 0x10, 0x0F, 0x14, 0x11, 0x0E, 0x09,
-                                                   0x0B, 0x12, 0x0D, 0x18, 0x13, 0x15, 0x0C};
+// The wheel's order (arrange.hpp): the quick select (kItems, slot 3 empty) at its ring's directions
+// on the first loop (0x10 up meets "None" and is one loop out at 11; 0x11 at 10, 0x12 at 8, 0x13 at
+// 5, 0x14 at 4, 0x15 at 2, 0x18 at 0), then the page's others (weapons grid, then gadgets) in the
+// free slots 1, 3, 6, 7, 9, then 12 and 13.
+constexpr std::int32_t kWheelOrder[kWheelItems] = {0x18, 0x0A, 0x15, 0x0F, 0x14, 0x13, 0x0E,
+                                                   0x09, 0x12, 0x0B, 0x11, 0x10, 0x0D, 0x0C};
 int wheel_index(std::int32_t id) {
     for (int i = 0; i < kWheelItems; ++i) {
         if (kWheelOrder[i] == id) {
@@ -641,7 +644,7 @@ void test_items() {
     set_up(f, true, false);
     const std::vector<spiral::Item> items = gc::shim().collect_items();
     CHECK_EQ(items.size(), static_cast<std::size_t>(kWheelItems));
-    // The Quick Select page's owned items, its weapons grid's order then its gadgets grid's.
+    // The Quick Select page's owned items, arranged around the quick select.
     for (std::size_t i = 0; i < items.size() && i < static_cast<std::size_t>(kWheelItems); ++i) {
         CHECK_EQ(items[i].id, kWheelOrder[i]);
         CHECK_EQ(items[i].icon, 0xE900 + kWheelOrder[i]);
@@ -670,7 +673,17 @@ void test_items() {
     CHECK(items[static_cast<std::size_t>(wheel_index(0x10))].equipped && !items[0].equipped);
     // The opening's line lists them in order.
     open_hud(f);
-    CHECK(f.logged("the wheel opens with 14 items: 0xA 0x10 0xF 0x14 0x11 0xE 0x9 0xB 0x12 0xD 0x18 0x13 0x15 0xC"));
+    CHECK(f.logged("the wheel opens with 14 items: 0x18 0xA 0x15 0xF 0x14 0x13 0xE 0x9 0x12 0xB 0x11 0x10 0xD 0xC"));
+    CHECK(f.logged("item 0x10 of the quick select points where \"None\" is (90 deg): it is one loop out there"));
+    // Each quick select item is drawn where the game's ring has it (slot i at 90 - 45 * i).
+    for (int slot = 0; slot < 8; ++slot) {
+        if (kItems[slot] == 0) {
+            continue;
+        }
+        const int index = wheel_index(kItems[slot]);
+        const float drawn = static_cast<float>((index + 1) * 30 + 90);
+        CHECK(std::fabs(std::remainder(drawn - (90.0f - 45.0f * static_cast<float>(slot)), 360.0f)) <= 15.01f);
+    }
 }
 
 void test_spiral_selection() {
@@ -685,22 +698,25 @@ void test_spiral_selection() {
     play(f, 0x10);
     CHECK_EQ(f.rd<std::int32_t>(kRecord + 0x78), 0x10000FF);
     float x, y;
-    // Around a quarter turn at a time from the item in hand (1): 4, 7, 10, the last item (13).
+    // From the item in hand (0x10, one loop out at 12 o'clock: 11) a quarter turn clockwise at a
+    // time: 8 (3 o'clock), 5 (6 o'clock), 2 (9 o'clock), then on past the first item to "None" and
+    // a blank.
     const int e = wheel_index(0x10);
-    CHECK_EQ(e, 1);
-    for (int target : {e + 3, e + 6, e + 9, 13}) {
+    CHECK_EQ(e, 11);
+    for (int target : {8, 5, 2, 0, -1}) {
         stick_at_item(target, x, y);
         play(f, 0x10, x, y);
         CHECK_EQ(selected(f), target);
     }
-    // Round past the last item: the blanks, then "None" (the wrench), then the first loop again.
-    stick_at_item(14, x, y);  // the slot after the last item: a blank
+    stick_at_item(-2, x, y);  // a blank before "None"
     play(f, 0x10, x, y);
-    CHECK_EQ(selected(f), -10);
-    // Back the other way (clockwise) to 10.
-    stick_at_item(10, x, y);
-    play(f, 0x10, x, y);
-    CHECK_EQ(selected(f), 10);
+    CHECK_EQ(selected(f), -2);
+    // Back the other way (counter-clockwise), round past 11 to 13 (one loop out), then back to 10.
+    for (int target : {1, 4, 7, 10, 13, 10}) {
+        stick_at_item(target, x, y);
+        play(f, 0x10, x, y);
+        CHECK_EQ(selected(f), target);
+    }
     // The stick let go: the pointer stays.
     play(f, 0x10);
     CHECK_EQ(selected(f), 10);
@@ -769,7 +785,7 @@ void test_arming() {
     set_up(f, true, false);
     f.opener = true;
     float x, y;
-    stick_at_item(2, x, y);
+    stick_at_item(9, x, y);
     play(f, 0x10, x, y);
     for (int i = 0; i < 6; ++i) {
         play(f, 0x10, x, y);
@@ -777,7 +793,7 @@ void test_arming() {
     CHECK_EQ(selected(f), wheel_index(0x10));
     play(f, 0x10);
     play(f, 0x10, x, y);
-    CHECK_EQ(selected(f), 2);
+    CHECK_EQ(selected(f), 9);
 }
 
 // The d-pad, one slot at a time, to `target` (an item, "None" -1, or a blank below), the short way
@@ -813,27 +829,27 @@ void test_fades_and_commit() {
     }
     CHECK_EQ(fade(f, 0), 8);
     // A new selection: the selection fade starts over, then grows to 8.
-    play(f, 0x10 | gcw::kDpadRight);  // one on from the item in hand: 0x0F
-    CHECK_EQ(selected(f), wheel_index(0x0F));
+    play(f, 0x10 | gcw::kDpadRight);  // one on from the item in hand: 0x0D
+    CHECK_EQ(selected(f), wheel_index(0x0D));
     CHECK_EQ(fade(f, 1), 0);
     for (int i = 0; i < 10; ++i) {
         play(f, 0x10);
     }
     CHECK_EQ(fade(f, 1), 8);
-    f.wr<std::uint16_t>(f.d.item_price + 0x0F * gcw::kPriceStride + gcw::kPriceUsesAmmo, 0);
-    f.wr<std::int32_t>(f.d.ammo + 4 * 0x0F, 55);  // more than the 40 it can hold (and it uses none)
+    f.wr<std::uint16_t>(f.d.item_price + 0x0D * gcw::kPriceStride + gcw::kPriceUsesAmmo, 0);
+    f.wr<std::int32_t>(f.d.ammo + 4 * 0x0D, 55);  // more than the 40 it can hold (and it uses none)
     const std::uint32_t usage = f.d.usage_stats + gcw::kUsageStride * gcw::kUsageQuickSelect;
     for (int i = 0; i < 7; ++i) {
         play(f, 0);
         CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
     }
     play(f, 0);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0F);
-    CHECK(f.logged("picked item 0xF (Item10f), equipped 0xF"));
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0D);
+    CHECK(f.logged("picked item 0xD (Item10d), equipped 0xD"));
     CHECK_EQ(f.rd<std::uint16_t>(usage), 1);
     CHECK_EQ(f.rd<std::uint16_t>(usage + 2), 6000 / 600);
     CHECK_EQ(f.rd<std::uint32_t>(usage + 4), (1u << 3) | 0x80000000u);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.ammo + 4 * 0x0F), 55);  // no ammo: not clamped
+    CHECK_EQ(f.rd<std::int32_t>(f.d.ammo + 4 * 0x0D), 55);  // no ammo: not clamped
     CHECK(!f.open());
     CHECK(!gc::shim().wheel().is_open() && !gc::shim().picture().shown);
     CHECK_EQ(f.rd<std::int32_t>(kRecord + gcw::kRecordSlide), -6);
@@ -887,14 +903,14 @@ void test_toggle() {
     }
     CHECK(f.open());
     float x, y;
-    stick_at_item(3, x, y);
+    stick_at_item(9, x, y);
     play(f, 0, x, y);
-    CHECK_EQ(selected(f), 3);
+    CHECK_EQ(selected(f), 9);
     play(f, 0x10);
     for (int i = 0; i < 10; ++i) {
         play(f, 0);
     }
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), kWheelOrder[3]);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), kWheelOrder[9]);
     CHECK(!f.open());
 }
 
@@ -1058,7 +1074,7 @@ void test_slow_down() {
     }
     CHECK_EQ(f.freeze_inits, freezes);
     CHECK(!f.open() && !gc::shim().ramping() && f.stretch == 1.0f);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0F);  // one on from 0x10
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0D);  // one on from 0x10
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
 
     // Without the ease back: the time at full pace as the pause ends.
@@ -1119,14 +1135,15 @@ void test_paused_path() {
     CHECK_EQ(f.sound_updates, 2);
     // Held: phase 1 holds (the layer keeps g_modal_timer armed), the world too.
     float x, y;
-    stick_toward(180.0f, x, y);
+    stick_toward(60.0f, x, y);
     for (int i = 0; i < 30; ++i) {
         freeze(f, 0x10, i < 2 ? 0.0f : x, i < 2 ? 0.0f : y);
     }
     CHECK_EQ(modal(gc::kModalPhase), 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
-    // The stick at 9 o'clock: 0x0F, one slot on (counter-clockwise) from 0x10 in hand at 150 degrees.
-    CHECK_EQ(selected(f), wheel_index(0x0F));
+    // The stick at 60 degrees: 0x11, the game's slot 1 (up-right, nearer the vertical), one slot
+    // clockwise of 0x10 in hand at 12 o'clock.
+    CHECK_EQ(selected(f), wheel_index(0x11));
     CHECK_EQ(f.play_ticks, ticks_before + held - 1);
     // Let go: phase 2 counts down, phase 3 ends: back to play, the sounds and the music on, the
     // pad's history cleared.
@@ -1147,7 +1164,7 @@ void test_paused_path() {
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0F);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x11);
     CHECK(!f.open());
     // Going Commando's bars are left out: Ratchet & Clank's letterbox is never written.
     CHECK(letterbox_untouched(f));

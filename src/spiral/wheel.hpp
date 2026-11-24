@@ -18,7 +18,7 @@ namespace spiral {
 
 // One item the wheel offers.
 struct Item {
-    std::int32_t id = 0;      // the game's item
+    std::int32_t id = 0;      // the game's item; 0 a hole (arrange.hpp)
     std::int32_t icon = 0;    // the game's icon for it
     int hot = 0;              // its place on the game's own quick select, 1 to 8; 0 none
     bool equipped = false;    // in hand
@@ -92,6 +92,8 @@ public:
 
     // The pointed-at item (an index into items()), -1 "None", below -1 a blank.
     int selected() const;
+    // Whether slot `index` holds an item (not a hole: arrange.hpp) or is "None".
+    bool is_item_or_none(int index) const;
     const std::vector<Item>& items() const { return m_items; }
     float input() const { return m_input; }
     // Where the pointer picture points, degrees counter-clockwise from 3 o'clock.

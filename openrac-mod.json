@@ -2,7 +2,7 @@
   "format": 2,
   "id": "spiral-weapon-wheel",
   "name": "Spiral Weapon Wheel",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Henning Berge",
   "description": "A weapon wheel in the style of Prey (2017)'s favourites wheel: hold Triangle and the game slows down for a moment, then holds (Going Commando's own pause, run from its copied code), while everything you can put on the quick select (the Quick Select page's weapons and gadgets) lies on a spiral that the stick turns through, loop after loop, twelve to a loop. The one in hand and the ones on your quick select are marked (with their quick select number); its name and ammo show in the middle; let go of Triangle to equip it. A double tap is the quick swap. Ratchet & Clank's own icons, names and font. Settings: size, start angle, direction, the spiral's depth, hold or toggle, the hold before the pause, the slow-down and the ease back. Needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay) and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet). Wheel art and spiral design from Prey Menu by KerosenileArsonist.",
   "license": "GPL-3.0-or-later AND GPL-3.0-only AND LicenseRef-Prey-Menu-Art",
