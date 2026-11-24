@@ -71,6 +71,11 @@ constexpr std::int32_t kModeFreeze = 4;
 // Commando's (hud_set_slot_contents' 0x23).
 constexpr std::int32_t kSelectorKey = 3;
 constexpr std::int32_t kGcSelectorKey = 0x23;
+// The HUD-open request's countdown start in Going Commando's data (ref_L00_002FC058_01: 4 frames in
+// every USA v2.00 level program, 0x001A9374 in level 0's), and the setting's longer choices.
+constexpr int kGcOpenDelay = 4;
+constexpr int kOpenDelayLittleLonger = 8;
+constexpr int kOpenDelayLonger = 12;
 
 
 // Sizes of the layer's copies (Going Commando's offsets).
@@ -172,8 +177,9 @@ class Shim {
 public:
     Game game;
 
-    // The settings: Going Commando's option byte (pause while open) and the click.
-    void set_options(bool pause, bool click);
+    // The settings: Going Commando's option byte (pause while open), the click, and the HUD-open
+    // request's countdown in Going Commando's frames (its own 4, or longer: "Hold before pausing").
+    void set_options(bool pause, bool click, int open_delay_frames = kGcOpenDelay);
     // The level whose program is loaded (-1: none): its addresses, again only when it changed.
     void connect(int level);
 
@@ -250,6 +256,7 @@ private:
     };
     bool m_pause = true;
     bool m_click = true;
+    int m_open_delay = kGcOpenDelay;
     int m_level_number = -2;
     LevelAddresses m_level;
     int m_copy_depth = 0;
@@ -335,4 +342,6 @@ extern int gc_shim_hud_flag_a;
 extern int gc_shim_hud_flag_b;
 extern int gc_shim_press_window;
 extern int gc_shim_input_block;
+extern int gc_shim_open_delay_start;
+int gc_shim_gate_window(int frames);
 }

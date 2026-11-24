@@ -43,7 +43,21 @@ openrac::Mod* g_mod = nullptr;
 
 gc::Shim& layer() { return gc::shim(); }
 
-void read_settings(openrac::Mod& mod) { layer().set_options(mod.setting<bool>("pause"), mod.setting<bool>("click")); }
+// "Hold before pausing": the HUD-open request's countdown, Going Commando's 4 frames or longer.
+int open_delay_frames(const std::string& choice) {
+    if (choice == "going_commando") {
+        return gc::kGcOpenDelay;
+    }
+    if (choice == "longer") {
+        return gc::kOpenDelayLonger;
+    }
+    return gc::kOpenDelayLittleLonger;
+}
+
+void read_settings(openrac::Mod& mod) {
+    layer().set_options(mod.setting<bool>("pause"), mod.setting<bool>("click"),
+                        open_delay_frames(mod.setting<std::string>("open_delay")));
+}
 
 void connect() { layer().connect(g_mod->loaded_level()); }
 
@@ -198,4 +212,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.5", load)
+OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.6", load)

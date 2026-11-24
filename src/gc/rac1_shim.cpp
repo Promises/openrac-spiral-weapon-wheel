@@ -125,9 +125,13 @@ Shim& shim() {
     return s;
 }
 
-void Shim::set_options(bool pause, bool click) {
+void Shim::set_options(bool pause, bool click, int open_delay_frames) {
     m_pause = pause;
     m_click = click;
+    m_open_delay = open_delay_frames;
+    // Only the countdown's start (the copied state machine reads it each request), in the game's
+    // ticks as Going Commando's PAL build scales its frame counts.
+    gc_shim_open_delay_start = frames(m_open_delay);
     gc_shim_options[3] = pause ? 1 : 0;
 }
 
@@ -151,7 +155,7 @@ void Shim::reset() {
     gc_shim_hud_flag_a = 0;
     gc_shim_hud_flag_b = 0;
     gc_shim_open_delay_counter = 0;
-    gc_shim_open_delay_start = frames(4);
+    gc_shim_open_delay_start = frames(m_open_delay);
     m_request_tick = 0;
     m_request_trace.clear();
     gc_shim_press_window = 0;
@@ -502,7 +506,7 @@ std::string Shim::describe_gate() const {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     const std::uint32_t h = a.hero;
-    const int window = frames(gc_shim_press_window);
+    const int window = gc_shim_gate_window(gc_shim_press_window);
     const int within = PadPressedWithin(kTriangle, window, nullptr) != 0;
     const int hold = m.read<std::int32_t>(a.cinematic_frames);
     const int loop_mode = m.read<std::int32_t>(a.cinematic_mode);
@@ -1008,6 +1012,10 @@ extern "C" {
 
 // The lines the mod adds to the copied files (gc/shim/common.h).
 int gc_shim_frames(int frames) { return shim().frames(frames); }
+
+int gc_shim_gate_window(int frames) {
+    return std::min(30, std::max(shim().frames(frames), gc_shim_open_delay_start + 2));
+}
 
 void gc_shim_item_0x18(void) {
     mem().write<std::uint8_t>(shim().level().at.hero + gcw::kHeroItem18, 1);

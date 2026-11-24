@@ -227,6 +227,11 @@ extern unsigned char gc_shim_hero[];
 /* Going Commando's count of frames (60 a second) in the game's ticks: as its PAL build scales its
    press window, (n * 5 + 2) / 6 at 50 a second; n at 60. */
 int gc_shim_frames(int frames);
+/* The gate's press window (Going Commando's frames) in the game's ticks, as gc_shim_frames, and at
+   least long enough to still see the press when the HUD-open request's countdown ends (its start +
+   2 polls): with Going Commando's countdown it is the window as it is; the mod's longer "Hold before
+   pausing" countdowns would otherwise end after the press has left the window and never open. */
+int gc_shim_gate_window(int frames);
 /* Ratchet & Clank's commit of item 0x18 (update_hud_item_selector_selection_and_visibility): hero+0x1FF5
    set, no pending item. */
 void gc_shim_item_0x18(void);

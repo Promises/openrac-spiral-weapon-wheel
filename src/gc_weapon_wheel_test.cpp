@@ -1272,6 +1272,54 @@ void test_natural_double_tap() {
     }
 }
 
+// "Hold before pausing": the countdown's start only. "A little longer" (the default, 8 frames):
+// a 6-tick tap never pauses, a natural double tap swaps with no pause, a hold opens at tick 9;
+// "Longer" (12) at tick 13; "Going Commando" (4) at tick 5; PAL scaled (8 -> 7: tick 8).
+void test_open_delay_setting() {
+    struct Case {
+        bool ntsc;
+        int frames;
+        int opens_at;
+    };
+    for (const Case c : {Case{true, gc::kOpenDelayLittleLonger, 9}, Case{true, gc::kOpenDelayLonger, 13},
+                         Case{true, gc::kGcOpenDelay, 5}, Case{false, gc::kOpenDelayLittleLonger, 8}}) {
+        Fake f;
+        f.opener = true;
+        f.rac1_timers = true;
+        f.rac1_switch = true;
+        set_up(f, c.ntsc, true);
+        gc::shim().set_options(true, true, c.frames);
+        f.wr<std::int32_t>(f.d.hero + gcw::kHeroItem, 0x12);
+        f.wr<std::int32_t>(f.d.hero + gcw::kHeroRequestedItem, 0x12);
+        f.wr<std::int32_t>(f.d.last_weapon, 0x12);
+        f.wr<std::int32_t>(f.d.quick_swap_item, 0x11);
+        for (int i = 0; i < 30; ++i) {
+            play(f, 0);
+        }
+        CHECK_EQ(hold_until_freeze(f) - 1, c.opens_at);
+        while (f.rd<std::int32_t>(f.d.game_mode) == 4) {
+            freeze(f, 0);
+        }
+        if (c.frames != gc::kOpenDelayLittleLonger || !c.ntsc) {
+            continue;
+        }
+        // A 6-tick tap: no pause.
+        for (int i = 0; i < 30; ++i) play(f, 0);
+        const int freezes = f.freeze_inits;
+        for (int i = 0; i < 6; ++i) tick(f, 0x10);
+        for (int i = 0; i < 30; ++i) tick(f, 0);
+        CHECK_EQ(f.freeze_inits, freezes);
+        // A double tap of 6-tick presses, 5 apart: the swap, no pause.
+        for (int i = 0; i < 6; ++i) tick(f, 0x10);
+        for (int i = 0; i < 5; ++i) tick(f, 0);
+        for (int i = 0; i < 6; ++i) tick(f, 0x10);
+        for (int i = 0; i < 30; ++i) tick(f, 0);
+        CHECK_EQ(f.freeze_inits, freezes);
+        CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
+        CHECK_EQ(f.swaps, 1);
+    }
+}
+
 void test_quick_swap() {
     Fake f;
     set_up(f, false, true);
@@ -1347,6 +1395,7 @@ int main() {
     test_double_tap_logs();
     test_wheel_picks_then_double_tap();
     test_natural_double_tap();
+    test_open_delay_setting();
     test_unavailable_paused_open();
     test_watchdog_update_bypassed();
     test_watchdog_record_never_opens();

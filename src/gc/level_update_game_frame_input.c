@@ -132,7 +132,7 @@ int level_update_game_frame_input(void) /* (gc-weapon-wheel) returns 1 when it t
     blocked = gc_shim_selector_open_allowed(); /* (gc-weapon-wheel) */
     level_update_countdown_state_machine();
 
-    if (PadPressedWithin(16, gc_shim_frames(g_pad_press_window), 0) && g_pad_hold_frame_count >= 8) { /* (gc-weapon-wheel) the window in the game's ticks, as Going Commando's PAL build (L00_00371E28-tick-g8.c:119) */
+    if (PadPressedWithin(16, gc_shim_gate_window(g_pad_press_window), 0) && g_pad_hold_frame_count >= 8) { /* (gc-weapon-wheel) the window in the game's ticks, as Going Commando's PAL build (L00_00371E28-tick-g8.c:119), and long enough for the mod's longer "Hold before pausing" */
         if (blocked && !g_game_l00_mode && !g_input_block_flag && g_language_settings[3]) { /* (gc-weapon-wheel) lines 109-111 with the hero's part (Going Commando's states 0x6F, 0x31, 0x1C, its hero mode 2, its transition value, its mode byte < 2) Ratchet & Clank's, in `blocked` above */
             hud_request_open();
             if (hud_is_open_done()) {

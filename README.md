@@ -12,7 +12,13 @@ their neighbours, the names and the ammo format are Ratchet & Clank's own, read 
 
 Settings: **Pause while open** (on: Going Commando's option byte; off: the quick select opens over
 the running game from Ratchet & Clank's own Triangle, Going Commando's code running it, as Going
-Commando does with the option off); **Click sound** (off: Ratchet & Clank's quick select is silent;
+Commando does with the option off); **Hold before pausing** (how long Triangle is held before the
+pause: "Going Commando", its own 4 frames; **"A little longer", 8 frames, the default, longer than
+Going Commando's**: a natural tap is often 4 or 5 frames long, so with Going Commando's 4 running and
+double-tap swapping pause briefly before the swap; at 8 they usually do not pause; "Longer", 12
+frames. On PAL each is scaled to 50 ticks a second: 3, 7, 10. Only the HUD-open request's countdown
+start changes, and the gate's press window is made long enough to still see a press held that
+long); **Click sound** (off: Ratchet & Clank's quick select is silent;
 on, a stand-in sound where Going Commando clicks, see below).
 
 **Needs OpenRAC with mod interface 1.39 and three hook points that are not in a release or in
@@ -181,6 +187,11 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
   with no freeze tick between them (a port whose `rac1.freeze.update` does not run), which also
   turns the paused open off for the session. The mod's freeze kind always draws Going Commando's
   picture, never the freeze dialog.
+- "Hold before pausing" longer than Going Commando's (the default) is the mod's, not Going
+  Commando's: it sets the countdown's start (`ref_L00_002FC058_01`) to 8 or 12 frames, and the gate's
+  press window (a marked line) to at least that plus 2 polls, so the press is still in it when the
+  countdown ends (Going Commando's own 10-frame window would end first). With "Going Commando" both
+  are Going Commando's.
 - The gate asks again each tick a press is within its window (10 frames), as Going Commando's does:
   a tap's request ends for good once the press is out of the window; a hold opens 4 frames after.
   So a double tap whose second press is held about 3 to 5 ticks opens the paused quick select,
