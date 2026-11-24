@@ -13,13 +13,10 @@ while the mod runs.
 
 **[Watch it in game on YouTube](https://youtu.be/TsFeHlWv1F8)**
 
-![The wheel, a mock-up](docs/wheel.png)
+![The wheel in game](docs/banner.png)
 
-*A mock-up of the default look (1.4.6: counter-clockwise, growing outward, Continuous), drawn by the
-mod's own painter (`src/spiral/paint.cpp`) with its own glyphs, through its icon pack loader, its
-stand-in panel pictures and a stand-in font. In the game the panels carry the game's own
-scanlines, glint and static, and the names, numbers and font are Ratchet & Clank's own. The quick
-select's 1 to 8 are the first slots; the Devastator here is a gold one.*
+*The wheel in game on Veldin: the quick select's 1 to 8 on the inner ring, the other weapons and
+gadgets spiralling outward, the Bomb Glove picked.*
 
 ## Add your own icons
 
