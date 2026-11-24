@@ -44,7 +44,8 @@ level on.
   "icons": [
     {"game": "rac1", "item": "0x24", "glyph": "laser-pistol.svg", "category": "weapon"},
     {"game": "rac1", "item": 10, "glyph": "glyphs/bomb.png", "category": "weapon",
-     "wash": "#803030", "glyph_color": "#FFD0D0", "selected_glyph_color": "#FFFFFF"}
+     "wash": "#803030", "glyph_color": "#FFD0D0", "selected_glyph_color": "#FFFFFF",
+     "wrap": "Laser-|Pistol"}
   ]
 }
 ```
@@ -66,9 +67,32 @@ Fields of each icon:
 | `glyph` | A file inside the pack's folder: `.svg` (recommended) or `.png`. |
 | `category` | Optional: `weapon`, `gold`, `gadget`, `pack`, `head`, `feet` or `item`. Without it, the item's own category is used. |
 | `wash`, `glyph_color`, `selected_glyph_color` | Optional `"#RRGGBB"`: your own colours over the category's (the slot's wash; the glyph; the glyph when pointed at). |
+| `wrap` | Optional: where the item's name may break onto two lines in the wheel's middle, `|` marking the break. See below. |
 | `special` | Instead of `item`, for something the game does not keep as an item (the built-in pack's Zoomerator, Raritanium, Codebot, Premium and Ultra Nanotech). It is kept with the pack but never shown on the wheel. |
 
 A bad icon is left out, and the log says why. The rest of the pack still counts.
+
+### Long names: `wrap`
+
+The wheel's middle disc is small, and the game draws its text at one fixed size. The wheel tries to
+fit the name in this order:
+
+1. the normal font;
+2. the small font;
+3. a break at a space onto two lines (normal font, then small);
+4. the pack's `wrap` hint onto two lines (normal font, then small);
+5. the small font, cut short with "…".
+
+The hint is for a long single word, for example `"wrap": "Hydro-|displacer"`:
+
+- The text before the `|`, including any hyphen you write there, ends line 1.
+- The hint is used only when the game's name is exactly the hint with the `|` removed and with any
+  hyphen written just before it ignored. "Hydro-|displacer" matches "Hydrodisplacer", and
+  "Thruster-|Pack" matches "Thruster-Pack".
+- A translated or renamed item does not match. It falls back to the steps above, so a hint never
+  shows a name that is not the game's.
+
+The built-in pack has hints for Hydrodisplacer, Morph-o-Ray, Map-o-Matic and Thruster-Pack.
 
 ### Without `icons.json`
 

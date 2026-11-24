@@ -350,7 +350,8 @@ public:
         float y;  // its middle, screen heights from the screen's
     };
     std::vector<CentreLine> centre_lines(const spiral::Frame& f, const std::string& label, const std::string& name,
-                                         const std::string& ammo, std::uint32_t ammo_colour) const;
+                                         const std::string& ammo, std::uint32_t ammo_colour,
+                                         const std::string& wrap = std::string()) const;
     std::string gold_label(std::int32_t id) const;
     std::string item_ammo(std::int32_t id, bool& empty) const;
     // The wheel's picture for the overlay (any thread).

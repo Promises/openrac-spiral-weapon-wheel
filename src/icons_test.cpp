@@ -176,7 +176,8 @@ const char* kExampleManifest = R"({
   "icons": [
     {"game": "rac1", "item": "0x24", "glyph": "laser-pistol.svg", "category": "weapon"},
     {"game": "rac1", "item": 10, "glyph": "glyphs/bomb.png", "category": "weapon",
-     "wash": "#803030", "glyph_color": "#FFD0D0", "selected_glyph_color": "#FFFFFF"}
+     "wash": "#803030", "glyph_color": "#FFD0D0", "selected_glyph_color": "#FFFFFF",
+     "wrap": "Laser-|Pistol"}
   ]
 })";
 
@@ -196,6 +197,7 @@ void test_packs() {
     if (pack.icons.size() == 2u) {
         CHECK(pack.icons[0].item == 0x24 && pack.icons[0].has_category && pack.icons[0].category == spiral::look::Category::Weapon);
         CHECK(!pack.icons[0].colours.has_wash);
+        CHECK(pack.icons[1].wrap == "Laser-|Pistol" && pack.icons[0].wrap.empty());
         CHECK(pack.icons[1].item == 10 && pack.icons[1].colours.has_wash && pack.icons[1].colours.wash.r == 0x80 &&
               pack.icons[1].colours.has_glyph && pack.icons[1].colours.has_selected && pack.icons[1].colours.selected.g == 0xFF);
     }
@@ -204,8 +206,9 @@ void test_packs() {
         {"game": "rac1", "item": "0x09", "glyph": "../outside.svg"},
         {"game": "rac1", "item": "zz", "glyph": "a.svg"},
         {"game": "rac1", "item": "0x0A", "glyph": "a.gif"},
-        {"game": "rac1", "item": "0x0B", "glyph": "b.svg", "category": "shoes", "wash": "red"}]})"));
-    CHECK(spiral::read_pack(bad.string(), pack, problems) && pack.icons.size() == 1u && problems.size() == 5u);
+        {"game": "rac1", "item": "0x0B", "glyph": "b.svg", "category": "shoes", "wash": "red", "wrap": "nobreak"}]})"));
+    CHECK(spiral::read_pack(bad.string(), pack, problems) && pack.icons.size() == 1u && problems.size() == 6u);
+    CHECK(pack.icons.size() == 1u && pack.icons[0].wrap.empty());  // a wrap without "|" left out
     problems.clear();
     write(bad / "icons.json", std::string(R"({"format": 2, "icons": []})"));
     CHECK(!spiral::read_pack(bad.string(), pack, problems) && problems.size() == 1u &&
@@ -305,6 +308,12 @@ void test_builtin_pack() {
     }
     CHECK(listed == 33u);
     CHECK(packs.icon(0x08) == nullptr);  // the OmniWrench: no glyph (it is never on the quick select)
+    // The wrap hints: the single long words the middle disc cannot hold on one line.
+    CHECK(packs.icon(0x16) != nullptr && packs.icon(0x16)->wrap == "Hydro-|displacer");
+    CHECK(packs.icon(0x15) != nullptr && packs.icon(0x15)->wrap == "Morph-o-|Ray");
+    CHECK(packs.icon(0x21) != nullptr && packs.icon(0x21)->wrap == "Map-o-|Matic");
+    CHECK(packs.icon(0x03) != nullptr && packs.icon(0x03)->wrap == "Thruster-|Pack");
+    CHECK(packs.icon(0x0A) != nullptr && packs.icon(0x0A)->wrap.empty());
     // All 38 drawings are in the pack: the 5 things RAC1 keeps as flags of their own, not items
     // (the Zoomerator, Raritanium, the Codebot, Premium and Ultra Nanotech), by name, each drawn.
     spiral::IconPack pack;

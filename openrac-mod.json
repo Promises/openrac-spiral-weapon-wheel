@@ -2,7 +2,7 @@
   "format": 2,
   "id": "spiral-weapon-wheel",
   "name": "Spiral Weapon Wheel",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "author": "Henning Berge",
   "description": "A weapon wheel in the style of Prey (2017)'s favourites wheel: hold Triangle and the game slows down for a moment, then holds (Going Commando's own pause, run from its copied code), while everything you can put on the quick select (the Quick Select page's weapons and gadgets) lies on a spiral that the stick turns through, loop after loop, twelve to a loop. Each slot is a Ratchet & Clank menu panel bent into a sector: scanlines, a khaki frame, washed in its item's category colour as the game colours its icons (blue weapons, orange-tan gold weapons, green gadgets); the pointed-at one has the yellow Load Game frame and is pushed out. The glyphs are original drawings, in an icon pack other mods can add to or replace (an equipment mod's new weapon included); an item without one gets a glyph made from your own disc data; the quick select's items carry their number on a grey badge; the name and ammo show in the round middle panel; the health meter hides while it is open; let go of Triangle to equip. A double tap is the quick swap. No game-derived art is shipped: the panels are drawn as the mod loads. Settings: size, start angle, direction, the spiral's depth, hold or toggle, the hold before the pause, the slow-down and the ease back. Needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay) and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet). Spiral design from Prey Menu by KerosenileArsonist.",
   "license": "GPL-3.0-or-later AND GPL-3.0-only AND ISC AND Zlib AND LicenseRef-Spiral-Wheel-Glyphs",

@@ -217,6 +217,11 @@ bool read_pack(const std::string& folder, IconPack& out, std::vector<std::string
                 continue;
             }
             icon.file = (fs::path(folder) / glyph).string();
+            icon.wrap = field("wrap");
+            if (!icon.wrap.empty() && icon.wrap.find('|') == std::string::npos) {
+                problems.push_back(where + ": wrap \"" + icon.wrap + "\" has no \"|\" (left out)");
+                icon.wrap.clear();
+            }
             const std::string category = field("category");
             if (!category.empty()) {
                 icon.has_category = parse_category(category, icon.category);

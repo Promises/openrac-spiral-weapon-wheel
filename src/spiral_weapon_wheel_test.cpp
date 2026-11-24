@@ -1615,6 +1615,39 @@ void test_text_fit() {
             CHECK(gc::shim().game.text_width(l.size, l.text.c_str()) <= gc::shim().centre_room(frame, l.y));
         }
     }
+    // An icon pack's hint (1.4.3): a single word too wide in both fonts (the in-game case:
+    // "Hydrodisplacer" cut in 1.4.2) breaks where the hint says, the hyphen on line 1; only when the
+    // game's name is the hint without its "|" (and the hyphen before it).
+    gc::shim().game.text_width = [](gc::TextSize size, const char* text) {
+        const std::string t = text;
+        if (t == "Hydrodisplacer") {
+            return size == gc::TextSize::Small ? 130 : 145;
+        }
+        return static_cast<int>(t.size()) * (size == gc::TextSize::Small ? 9 : 10);
+    };
+    auto hinted = gc::shim().centre_lines(frame, "", "Hydrodisplacer", "", gc::kMenuBlue, "Hydro-|displacer");
+    CHECK(hinted.size() == 2u && hinted[0].text == "Hydro-" && hinted[1].text == "displacer" &&
+          hinted[0].size == gc::TextSize::Normal);
+    auto unhinted = gc::shim().centre_lines(frame, "", "Hydrodisplacer", "", gc::kMenuBlue);
+    CHECK(unhinted.size() == 1u && unhinted[0].text.find("...") != std::string::npos);
+    for (const char* other : {"Hydroverdraenger", "Hydrodisplacers", "Hydro-displacer x"}) {
+        auto mismatch = gc::shim().centre_lines(frame, "", other, "", gc::kMenuBlue, "Hydro-|displacer");
+        CHECK(mismatch.empty() || mismatch.size() == 1u || mismatch[0].text != "Hydro-");
+    }
+    // A hint whose hyphen is the name's own ("Thruster-|Pack" for "Thruster-Pack").
+    auto thruster = gc::shim().centre_lines(frame, "", "Thruster-Pack-Extra", "", gc::kMenuBlue, "Thruster-|Pack-Extra");
+    CHECK(thruster.size() == 2u && thruster[0].text == "Thruster-" && thruster[1].text == "Pack-Extra");
+    // A gold weapon's block with a hinted name: the label, two name lines, the ammo, centred, each
+    // within the disc.
+    auto block = gc::shim().centre_lines(frame, "Gold", "Hydrodisplacer", "16/20", gc::kMenuBlue, "Hydro-|displacer");
+    CHECK(block.size() == 4u);
+    if (block.size() == 4u) {
+        CHECK(block[0].text == "Gold" && block[1].text == "Hydro-" && block[2].text == "displacer" && block[3].text == "16/20");
+        CHECK(std::fabs((block[1].y + block[2].y) * 0.5f - frame.centre_y) < 1e-5f);
+        for (const auto& l : block) {
+            CHECK(gc::shim().game.text_width(l.size, l.text.c_str()) <= gc::shim().centre_room(frame, l.y));
+        }
+    }
     // A name no font and no wrap fits: cut with "...".
     auto huge = names("Supercalifragilistic", "");
     CHECK(huge.size() == 1u && huge[0].text.size() > 3 && huge[0].text.compare(huge[0].text.size() - 3, 3, "...") == 0);

@@ -14,7 +14,8 @@
       "game": "rac1",
       "item": "0x03",
       "glyph": "thruster-pack.svg",
-      "category": "pack"
+      "category": "pack",
+      "wrap": "Thruster-|Pack"
     },
     {
       "game": "rac1",
@@ -116,13 +117,15 @@
       "game": "rac1",
       "item": "0x15",
       "glyph": "morph-o-ray.svg",
-      "category": "weapon"
+      "category": "weapon",
+      "wrap": "Morph-o-|Ray"
     },
     {
       "game": "rac1",
       "item": "0x16",
       "glyph": "hydrodisplacer.svg",
-      "category": "gadget"
+      "category": "gadget",
+      "wrap": "Hydro-|displacer"
     },
     {
       "game": "rac1",
@@ -188,7 +191,8 @@
       "game": "rac1",
       "item": "0x21",
       "glyph": "map-o-matic.svg",
-      "category": "item"
+      "category": "item",
+      "wrap": "Map-o-|Matic"
     },
     {
       "game": "rac1",

@@ -36,6 +36,8 @@ struct Item {
         bool has_wash = false, has_glyph = false, has_selected = false;
         look::Rgb wash{}, glyph{}, selected{};
     } colours;
+    // An icon pack's hint where the name may break (icon_packs.hpp: "wrap"), "" none.
+    std::string wrap;
 };
 
 // One slot as drawn (look.hpp): a menu panel bent into a sector of the spiral.

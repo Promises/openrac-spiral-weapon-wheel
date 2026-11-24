@@ -15,7 +15,10 @@
 // file in the pack's folder: SVG, one shape in fill="currentColor" on a 256 view box, or PNG, white
 // on transparent), its category (look.hpp: weapon, gold, gadget, pack, head, feet, item; optional:
 // the item's own otherwise), and optional colours over the category's: "wash", "glyph_color",
-// "selected_glyph_color" ("#RRGGBB"). Or, without an icons.json, plain files: <game>/<item>.svg or
+// "selected_glyph_color" ("#RRGGBB"), and "wrap": where the item's name may break onto two lines in
+// the wheel's middle ("Hydro-|displacer": the text before each "|" ends a line), used only when the
+// game's name is that text without the "|" (and without a hyphen written before it). Or, without an
+// icons.json, plain files: <game>/<item>.svg or
 // .png (<item> in hexadecimal), each taking its item's category and colours.
 //
 // The folders are read at a level's load: a pack added, changed or removed counts from that level
@@ -49,6 +52,7 @@ struct PackIcon {
     Item::Colours colours;
     std::string pack;  // its pack's name (or folder)
     std::string special;  // "special": a thing that is not an item (never looked up by item)
+    std::string wrap;     // "wrap": where its name may break ("Hydro-|displacer"), "" none
 };
 
 struct IconPack {

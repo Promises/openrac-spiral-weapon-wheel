@@ -445,6 +445,7 @@ void Shim::attach_glyph(spiral::Item& item) {
             item.category = pack->category;
         }
         item.colours = pack->colours;
+        item.wrap = pack->wrap;
     }
     if (gold && item.category == spiral::look::Category::Weapon) {
         item.category = spiral::look::Category::Gold;
@@ -1052,11 +1053,37 @@ int Shim::centre_room(const spiral::Frame& f, float y) const {
 // (the mod's) The middle's lines: the gold label (if any), the name, the ammo (if any), each a
 // game line (16 units: the game draws all three fonts at 16), kLineGap apart, centred in the disc
 // as one block. The name: the normal font, else the small, else wrapped at a word onto two lines
-// (normal, else small), else the small cut with "..."; the ammo the large font, else the normal,
+// (normal, else small), else at its icon pack's hint (normal, else small), else the small cut
+// with "..."; the ammo the large font, else the normal,
 // else the small, else cut. Each line fits the disc's chord at it (centre_room), by the game's own
 // measure. Without the measure, the first choice.
+std::vector<std::string> wrap_hint(const std::string& hint, const std::string& name) {
+    // The hint's lines (split at each "|"), when the name is the hint without its "|"s, or without
+    // them and a hyphen written before one ("Hydro-|displacer" is "Hydrodisplacer"); else none.
+    std::vector<std::string> parts;
+    std::string plain, unhyphened, part;
+    for (std::size_t i = 0; i < hint.size(); ++i) {
+        if (hint[i] == '|') {
+            parts.push_back(part);
+            part.clear();
+            if (!unhyphened.empty() && unhyphened.back() == '-') {
+                unhyphened.pop_back();
+            }
+            continue;
+        }
+        part += hint[i];
+        plain += hint[i];
+        unhyphened += hint[i];
+    }
+    parts.push_back(part);
+    if (parts.size() < 2 || (name != plain && name != unhyphened)) {
+        return {};
+    }
+    return parts;
+}
+
 std::vector<Shim::CentreLine> Shim::centre_lines(const spiral::Frame& f, const std::string& label, const std::string& name,
-                                                 const std::string& ammo, std::uint32_t ammo_colour) const {
+                                                 const std::string& ammo, std::uint32_t ammo_colour, const std::string& wrap) const {
     auto fits = [&](TextSize size, const std::string& text, float y) {
         return !game.text_width || game.text_width(size, text.c_str()) <= centre_room(f, y);
     };
@@ -1091,6 +1118,12 @@ std::vector<Shim::CentreLine> Shim::centre_lines(const spiral::Frame& f, const s
         const std::vector<std::string> two = {name.substr(0, split), name.substr(split + 1)};
         choices.push_back({TextSize::Normal, two, false});
         choices.push_back({TextSize::Small, two, false});
+    }
+    // An icon pack's hint where the name breaks (a long single word: "Hydro-|displacer").
+    const std::vector<std::string> hinted = wrap_hint(wrap, name);
+    if (!hinted.empty()) {
+        choices.push_back({TextSize::Normal, hinted, false});
+        choices.push_back({TextSize::Small, hinted, false});
     }
     choices.push_back({TextSize::Small, {name}, true});
     for (std::size_t c = 0; c < choices.size(); ++c) {
@@ -1175,7 +1208,7 @@ int Shim::spiral_draw(std::uint8_t* record) {
         const std::string ammo = item_ammo(selected.id, empty);
         const bool gold = selected.category == spiral::look::Category::Gold;
         const std::vector<CentreLine> lines =
-            centre_lines(f, gold ? gold_label(selected.id) : std::string(), name, ammo, empty ? kAmmoOut : kMenuBlue);
+            centre_lines(f, gold ? gold_label(selected.id) : std::string(), name, ammo, empty ? kAmmoOut : kMenuBlue, selected.wrap);
         for (const CentreLine& l : lines) {
             line(l.size, static_cast<int>(kLineUnits), l.y, l.colour, l.text);
         }
