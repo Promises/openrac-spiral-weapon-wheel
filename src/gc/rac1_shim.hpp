@@ -337,6 +337,9 @@ private:
     spiral::Wheel m_wheel;
     std::vector<std::string> m_names;
     bool m_armed = false;
+    // The stick's first turns of an opening, in the log.
+    static constexpr int kStickLogTurns = 5;
+    int m_stick_logged = 0;
     bool m_toggle_released = false;
     bool m_committing = false;
     bool m_cancelled = false;

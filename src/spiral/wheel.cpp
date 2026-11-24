@@ -25,6 +25,10 @@ void Wheel::open(std::vector<Item> items, const Look& look) {
     m_open = true;
 }
 
+float Wheel::pointer_deg() const {
+    return pointer(static_cast<int>(m_items.size()), m_input, m_look.spiral).angle_deg;
+}
+
 int Wheel::selected() const {
     return pointer(static_cast<int>(m_items.size()), m_input, m_look.spiral).selected;
 }

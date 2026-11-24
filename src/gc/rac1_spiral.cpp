@@ -266,6 +266,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         m_toggle_released = false;
         m_committing = false;
         m_cancelled = false;
+        m_stick_logged = 0;
         write_i32(record, kSelected, m_wheel.selected());
     }
     m_wheel.advance(1.0f / 60.0f);
@@ -290,9 +291,25 @@ void Shim::spiral_update(std::uint8_t* record) {
     }
     const bool steering = active && m_armed && !m_committing && (holding || m_wheel_options.toggle);
     if (steering) {
-        // UpdatePointer.gek: the stick (y up on the pad, down on the screen) turns the pointer.
+        // UpdatePointer.gek: the stick turns the pointer, as a screen vector (y down). Ratchet &
+        // Clank's stick is one already: its y grows downward (pushed up it reads below 0; Going
+        // Commando's quick select, whose slot 0 is at the top, takes it when atan2(y, x) is -pi/2).
         if (magnitude >= kStickDeadzone) {
-            moved = m_wheel.steer(stick_x, -stick_y, kStickDeadzone);
+            moved = m_wheel.steer(stick_x, stick_y, kStickDeadzone);
+            // The first few turns of each opening in the log: the stick as read, its direction on
+            // the screen (degrees counter-clockwise from 3 o'clock) and the slot it points at.
+            if (m_stick_logged < kStickLogTurns && game.info) {
+                ++m_stick_logged;
+                const int slot = m_wheel.selected();
+                const float screen = std::atan2(-stick_y, stick_x) * 180.0f / spiral::kPi;
+                char line[200];
+                std::snprintf(line, sizeof line,
+                              "stick %d of the opening: raw (%.2f, %.2f), %.0f deg on the screen; the pointer at "
+                              "%.0f deg, slot %d%s",
+                              m_stick_logged, stick_x, stick_y, screen, m_wheel.pointer_deg(), slot,
+                              slot >= 0 ? "" : slot == -1 ? " (None)" : " (a blank)");
+                game.info(line);
+            }
         } else if ((pressed & (kDpadRight | kDpadDown)) != 0) {
             // (the mod's) The d-pad: one slot on or back.
             moved = m_wheel.step(1);

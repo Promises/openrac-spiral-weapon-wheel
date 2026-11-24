@@ -536,11 +536,17 @@ void stick_at(float angle, float& x, float& y) {
     y = std::sin(angle);
 }
 
+// The stick pushed toward `degrees` on the screen (counter-clockwise from 3 o'clock). Ratchet &
+// Clank's stick reads y downward: pushed up, y is -1 (as Going Commando's quick select takes it).
+void stick_toward(float degrees, float& x, float& y) {
+    x = std::cos(degrees * kPi / 180.0f);
+    y = -std::sin(degrees * kPi / 180.0f);
+}
+
 // The stick pointing at wheel item `index`'s slot (the default spiral: counter-clockwise from 12
-// o'clock, "None" there, item i at (i + 1) * 30 + 90 degrees; the pad's y is up).
+// o'clock, "None" there, item i at (i + 1) * 30 + 90 degrees).
 void stick_at_item(int index, float& x, float& y) {
-    const float degrees = static_cast<float>((index + 1) * 30 + 90);
-    stick_at(degrees * kPi / 180.0f, x, y);
+    stick_toward(static_cast<float>((index + 1) * 30 + 90), x, y);
 }
 
 // --- Tests ---
@@ -673,6 +679,53 @@ void test_spiral_selection() {
     CHECK(f.clicks > 0);
     // The overlay's picture while it shows.
     CHECK(gc::shim().picture().shown && gc::shim().picture().frame.selected == 10);
+}
+
+// The stick pushed toward a slot on the screen points at that slot, as drawn: the lit sector's
+// angle is the stick's, for up, down, left, right and the diagonals, counter-clockwise and
+// clockwise, at the default start and others. Each direction is reached through its neighbours (the
+// spiral counts the turn, so a jump of half a circle could go either way).
+void test_stick_points_where_it_is_pushed() {
+    for (bool clockwise : {false, true}) {
+        for (float start : {90.0f, 0.0f, -45.0f, 200.0f}) {
+            Fake f;
+            set_up(f, true, false);
+            gc::WheelOptions w = gc::shim().wheel_options();
+            w.look.spiral.clockwise = clockwise;
+            w.look.spiral.start_deg = start;
+            gc::shim().set_wheel_options(w);
+            open_hud(f);
+            play(f, 0x10);
+            float x, y;
+            for (float target : {90.0f, 45.0f, 0.0f, -45.0f, -90.0f, -135.0f, 180.0f, 135.0f, 90.0f, 135.0f, 180.0f,
+                                 -135.0f, -90.0f, -45.0f, 0.0f, 45.0f, 90.0f}) {
+                stick_toward(target, x, y);
+                play(f, 0x10, x, y);
+                // The pointed-at slot (an item, "None" or a blank) is drawn where the stick points: its
+                // sector's angle (_AngleDeg) as the frame draws it; for an item or "None", the lit one.
+                const int slot = selected(f);
+                const int sign = clockwise ? -1 : 1;
+                const float drawn = static_cast<float>((slot * sign + sign) * 30) + start;
+                for (const spiral::Sprite& sp : gc::shim().picture().frame.sprites) {
+                    if (sp.art == spiral::Art::Sector && sp.grey > 0.0f) {
+                        CHECK(slot >= -1 && std::fabs(std::remainder(sp.angle_deg - drawn, 360.0f)) < 0.01f);
+                    }
+                }
+                const float lit = drawn;
+                const float off = std::remainder(lit - target, 360.0f);
+                if (!(std::fabs(off) <= 15.01f)) {
+                    std::fprintf(stderr, "stick toward %.0f deg (clockwise %d, start %.0f): sector at %.0f deg\n", target,
+                                 clockwise ? 1 : 0, start, lit);
+                }
+                CHECK(std::fabs(off) <= 15.01f);
+                // And the pointer picture too.
+                CHECK(std::fabs(std::remainder(gc::shim().wheel().pointer_deg() - target, 360.0f)) <= 0.01f);
+            }
+            // The log has the first turns of the opening: the stick as read, its direction, the slot.
+            CHECK(f.logged("0.00, -1.00), 90 deg on the screen"));
+            CHECK_EQ(f.count_logs("of the opening: raw"), 5);
+        }
+    }
 }
 
 // Opened with the stick held: it does not pick until the stick rests (Going Commando's arming).
@@ -1418,7 +1471,8 @@ void test_wheel_picks_then_double_tap() {
             play(f, 0);
         }
     };
-    auto angle_of = [](std::int32_t id) { return static_cast<float>((wheel_index(id) + 1) * 30 + 90) * kPi / 180.0f; };
+    // The pad's angle (atan2(y, x), y down) of the item's slot on the screen.
+    auto angle_of = [](std::int32_t id) { return -static_cast<float>((wheel_index(id) + 1) * 30 + 90) * kPi / 180.0f; };
     pick(angle_of(0x11));  // item 0x11 (A)
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
     pick(angle_of(0x12));  // item 0x12 (B)
@@ -1591,6 +1645,7 @@ int main() {
     test_items();
     test_spiral_selection();
     test_arming();
+    test_stick_points_where_it_is_pushed();
     test_fades_and_commit();
     test_toggle();
     test_draw();

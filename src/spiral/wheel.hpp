@@ -94,6 +94,8 @@ public:
     int selected() const;
     const std::vector<Item>& items() const { return m_items; }
     float input() const { return m_input; }
+    // Where the pointer picture points, degrees counter-clockwise from 3 o'clock.
+    float pointer_deg() const;
     float anim() const { return m_anim; }
 
     // What to draw now.
