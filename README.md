@@ -8,23 +8,26 @@ it runs.
 
 ![The wheel, a mock-up](docs/mockup.png)
 
-*A mock-up made from the mod's art, with placeholder icons. In the game the icons, names and font
-are Ratchet & Clank's own.*
+*A mock-up made from the mod's art, with placeholder icons. In the game each item's icon is drawn
+from your own game's icon (below), and the names and font are Ratchet & Clank's own.*
 
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
 - **The spiral.** Everything you can put on your quick select (the weapons and gadgets of the pause
   menu's Quick Select page) lies on a spiral, twelve to a loop. Your own quick select is the home
   ring: its eight items sit on the first loop in the directions they have on the game's ring, so
-  the stick points where you know them; the others fill the free slots, then the loops further
-  out. Turn the stick
-  around and the pointer goes round and round through the loops: items you have passed shrink
-  inward and fade, and the ones ahead come out. The d-pad steps one item at a time.
-- **What it shows.** The item in hand has the thick corners. Items on your quick select have a
-  filled corner with their quick select number. The pointed-at item's name and ammo are in the
-  middle.
-- **Picking.** Let go of Triangle to equip the pointed-at item. **None**, where the spiral starts,
-  is the wrench. Circle closes the wheel without picking anything.
+  the stick points where you know them (the first push of each opening lands on that loop); the
+  others fill the free slots, then the loops further out. Turn the stick around and the pointer
+  goes round and round through the loops: items you have passed shrink inward and fade, and the
+  ones ahead come out. The d-pad steps one item at a time.
+- **What it shows.** Each item's glyph, cut out of your game's own icon and redrawn sharp, on a
+  cell of its icon's colour (blue weapons, green gadgets), darkened. The item in hand has the thick
+  corners. Items on your quick select have a filled corner with their quick select number. The
+  pointed-at item's name and ammo are in the middle. The health meter is hidden while the wheel
+  is open (the bolt and ammo counters stay), and comes back as it was.
+- **Picking.** Let go of Triangle to equip the pointed-at item. Let go before you have moved the
+  pointer and nothing changes (so a double tap's swap stands). Circle closes the wheel without
+  picking anything. There is no "None" slot.
 - **Double tap Triangle** for the quick swap to your previous weapon, as before.
 
 ## Settings
@@ -83,23 +86,37 @@ Ratchet & Clank PAL and NTSC-U.
   - In place of the eight-slot ring, it uses the spiral (`src/spiral/`, game-agnostic), ported from
     Prey Menu's menu and scripts:
     - the pointer's angle grows by the stick's turn;
-    - the spiral wraps through blank slots and "None";
+    - the spiral wraps through blank slots (Prey Menu's "None" slot, before the first item, is a
+      blank here);
     - each slot's angle, size (`0.9 + 0.0666 * depth` to the power of its distance from the
       pointer) and fade (full within six slots, gone at twelve);
     - the art's sizes and colours.
 - **The order**: the game's quick select first, each item at the first loop's slot nearest its
   direction on the game's ring (`draw_hud_item_selector_panel`: slot 0 at the top, the others
-  clockwise, 45 degrees apart). The cardinal directions fit the 30-degree slots exactly; a diagonal
-  goes to the slot nearer the vertical (45 to 60, 135 to 120, -45 to -60, -135 to -120), so the
-  two beside one side never meet. At the default start angle (90, 12 o'clock) "None" sits where the
-  quick select's slot 0 points, so that item goes one loop out at the same angle (the log says so).
-  The others follow: the first loop's free slots in order, then outward.
+  clockwise, 45 degrees apart). The first loop is the 12 slots from the start angle on (item 0 on
+  it). The cardinal directions fit the 30-degree slots exactly; a diagonal goes to the slot nearer
+  the vertical (45 to 60, 135 to 120, -45 to -60, -135 to -120), so the two beside one side never
+  meet. The others follow: the first loop's free slots in order, then outward. The first push of
+  an opening points at the first loop's slot in the stick's direction; after it the stick turns
+  the pointer as Prey Menu's does.
+- **The glyphs** are made as the game runs, from the player's own game: each item's HUD icon read
+  from game memory (`hud_state`: the frame's 8-bit indices and its CSM1 palette, the frame the
+  Quick Select page draws), its ground keyed out by brightness with a soft edge, cropped, and
+  redrawn four times as large from a signed distance field (smooth edges), then fitted into the
+  largest square inside its sector with 13 % clear each side. The cell takes the icon's ground
+  colour (its top-right corner, or the ring's brightest half where the glyph reaches the corner),
+  at 55 % value and 75 % saturation (85 % and 90 % when pointed at). Nothing of the game's is in
+  the mod or this repository. An icon that cannot be read is drawn as the game's own sprite.
 - **The items** are those of the pause menu's Quick Select page: the owned items of its weapons
   grid (15 cells), then of its hand gadgets grid (6 cells), read from the game's own tables
   (`pause_item_candidate_entries`, `pause_hand_gadget_cells`), shown and assigned when owned as the
   page does (`draw_menu_item_grid`, `update_menu_item_slots`). Nothing of the Items page.
-- **The pictures** are drawn under the game's HUD by the mod's overlay (interface 1.40). The icons
-  and text are drawn on top, through the game's own HUD calls.
+- **The pictures** (the art and the glyphs) are drawn under the game's HUD by the mod's overlay
+  (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
+  the game's own HUD calls.
+- **The health meter** (its HUD record, handle 0x7535) is closed whenever it is up while the wheel
+  shows, and shown again for as long as it had to show when the wheel closes, whichever way it
+  closes. Going Commando's pause shows it; the mod leaves that out.
 - **The slow-down** uses the port's slow motion (`time_stretch`). The game's time scale goes down
   evenly from 1 to an eighth over the setting's length, then Going Commando's pause begins.
 
@@ -109,9 +126,11 @@ Ratchet & Clank PAL and NTSC-U.
 |---|---|
 | The spiral: 12 a loop, the pointer turning with the stick, the wrap, sizes, fades, the art's states, the settings and their defaults | Prey Menu's scripts and menu |
 | What the Quick Select page can assign, like Prey's favourites | the mod's own choice; the rule is the game's |
-| The quick select as the home ring, the diagonals' rounding, the slot-0 item one loop out | the mod's own choice |
+| The quick select as the home ring, the diagonals' rounding, the first push on that loop | the mod's own choice |
+| Glyphs from the game's icons, tinted cells, the fit with 13 % padding | the user's choice; the method is the mod's own |
+| The health meter hidden while open | Prey hides its HUD; the mod's own way |
+| Nothing picked until the pointer moved | Going Commando (its quick select opens on nothing) |
 | The quick select's items marked with their number, as Prey Menu marks hotkeys | the mod's own choice |
-| "None" is the wrench | the mod's own choice (Prey Menu's "None" unequips) |
 | The slow-down, then the pause | Prey's wheel as seen in its footage; the ramp is the mod's own (Prey's time scaler eases to a target over a duration) |
 | The pause, the hold before it, the double tap, the fades, the pick on release | Going Commando, from its decompilation |
 | The stick's rest (0.5) and the wait for it before the stick picks | Going Commando |
@@ -146,7 +165,9 @@ The tests:
   and item counts, plus the stick, the opening and the layout.
 - `src/spiral_weapon_wheel_test.cpp` runs the layer, the copied code and the wheel on a fake game:
   - the items offered (none of the Items page), the selection through the loops, the d-pad and the picks (an item, item 0x18,
-    "None", a blank, the item in hand, Circle);
+    a blank, the item in hand, Circle, a release before moving);
+  - the glyphs (synthetic icons only: no game pixels in the tests) and their fallback, the health
+    meter hidden and restored on every way out;
   - the toggle mode and the draw;
   - the slow-down into the pause and the ease back;
   - the pause from the hold to the release, the gate's conditions, taps, double taps and holds at

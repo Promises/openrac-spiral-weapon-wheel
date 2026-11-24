@@ -175,6 +175,9 @@ void Shim::reset() {
         set_stretch(1.0f);
     }
     m_ramp_elapsed = 0.0f;
+    // A new level's HUD: what was hidden went with the old one.
+    m_health_hidden = false;
+    m_health_ticks = 0;
     publish();
 }
 
@@ -206,7 +209,7 @@ void Shim::connect(int level) {
          {&Disc::hero, &Disc::pad, &Disc::slot_items, &Disc::ammo, &Disc::gold, &Disc::usage_stats,
           &Disc::mode_freeze_info, &Disc::bolts,
           &Disc::quick_swap_item, &Disc::last_weapon, &Disc::level_index, &Disc::event_frames, &Disc::game_mode,
-          &Disc::frame_scale, &Disc::item_available, &Disc::weapon_cells, &Disc::gadget_cells}) {
+          &Disc::frame_scale, &Disc::item_available, &Disc::weapon_cells, &Disc::gadget_cells, &Disc::hud_state}) {
         l.at.*f = exe(d.*f);
     }
     if (level >= 0) {
@@ -838,6 +841,10 @@ void Shim::freeze_draw(const std::function<void()>& original) {
 // held Triangle opens.
 void Shim::selector_init(std::uint32_t record) {
     const Memory& m = game.memory;
+    // A new record: a wheel left open (its record closed by the game) closes first.
+    if (m_wheel.is_open()) {
+        close_wheel();
+    }
     m_refused.erase(std::remove(m_refused.begin(), m_refused.end(), record), m_refused.end());
     rebuild_pages();
     fill_weapon_table();
@@ -1149,8 +1156,10 @@ void gc_shim_weapon_wheel_init(unsigned char*) {}
 void gc_shim_UpdateRadialMenuSelection(void) {}
 int gc_shim_DrawRadialSelectorPanel(void) { return 0; }
 
-// level_forward_value_b / level_forward_value: the health meter and the bolt counter shown.
-void gc_shim_level_forward_value_b(int frames) { shim().show_counters_health(frames); }
+// level_forward_value_b / level_forward_value: the health meter and the bolt counter shown. (The
+// mod's) Not the health meter: the wheel covers it, and it is hidden while the wheel shows
+// (Shim::hide_health); the bolt counter is, as Going Commando's.
+void gc_shim_level_forward_value_b(int) {}
 void gc_shim_level_forward_value(int frames) { shim().show_counters_bolts(frames); }
 
 // hud_update_record_timers(1): Ratchet & Clank's update_hud_elements(1), the same 13 records' update

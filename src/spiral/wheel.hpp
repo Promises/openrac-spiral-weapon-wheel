@@ -22,6 +22,14 @@ struct Item {
     std::int32_t icon = 0;    // the game's icon for it
     int hot = 0;              // its place on the game's own quick select, 1 to 8; 0 none
     bool equipped = false;    // in hand
+    // Its glyph (glyph.hpp) as the overlay's picture, and that picture's size; 0: none, the game's
+    // own icon is drawn instead.
+    int glyph = 0;
+    int glyph_width = 0;
+    int glyph_height = 0;
+    // Its icon's ground colour, the cell's tint; none: the cell is Prey Menu's black.
+    bool tinted = false;
+    std::uint8_t tint[3] = {0, 0, 0};
 };
 
 // The pictures of PreyMenu.xml (textures/interface/PreyMenu/), each drawn centred on the wheel.
@@ -34,6 +42,7 @@ enum class Art {
     Pointer,      // pointer.dds
     Info,         // info.dds: the line under the name
     Badge,        // hotkeys/<n>.dds: the hotkey's number (here: the quick select's place)
+    Glyph,        // an item's glyph (Item::glyph), the overlay picture `image`
 };
 
 // A picture to draw: centred at (x, y) from the wheel's middle (0, 0 for the wheel's own), `w` by
@@ -42,9 +51,13 @@ enum class Art {
 struct Sprite {
     Art art = Art::Sector;
     int badge = 0;  // Art::Badge: 1 to 8
+    int image = 0;  // Art::Glyph: the overlay picture
     float x = 0, y = 0, w = 0, h = 0;
     float angle_deg = 0;
     float grey = 1;
+    // A colour in place of the grey (0 to 1 each): a tinted cell.
+    bool coloured = false;
+    float rgb[3] = {1, 1, 1};
     float alpha = 1;
 };
 
@@ -92,8 +105,11 @@ public:
 
     // The pointed-at item (an index into items()), -1 "None", below -1 a blank.
     int selected() const;
-    // Whether slot `index` holds an item (not a hole: arrange.hpp) or is "None".
-    bool is_item_or_none(int index) const;
+    // Whether slot `index` holds an item (not a blank or a hole: arrange.hpp).
+    bool is_item(int index) const;
+    // The spiral's own options for the look's: the first item on the start angle (Prey Menu's
+    // "None" slot, one before it, is a blank here: the mod has no "None").
+    Options spiral_options() const;
     const std::vector<Item>& items() const { return m_items; }
     float input() const { return m_input; }
     // Where the pointer picture points, degrees counter-clockwise from 3 o'clock.
@@ -130,5 +146,13 @@ constexpr float kSectorHover = 100.0f / 255.0f;
 constexpr float kBorderGrey = 175.0f / 255.0f;
 constexpr float kPointerGrey = 200.0f / 255.0f;
 constexpr float kInfoGrey = 200.0f / 255.0f;
+// The mod's: an item's glyph fits the largest square inside its sector at the icon's radius
+// (sector.dds spans 0.331 to 0.498 of the size, +-15 degrees: 2 * (0.498 - 0.4167) = 0.163 of the
+// size), 13 % of it clear each side, by its larger side; the cell is its icon's ground colour, its
+// value at 55 % and saturation at 75 % (the pointed-at cell: 85 % and 90 %).
+constexpr float kGlyphSquare = 0.163f;
+constexpr float kGlyphPadding = 0.13f;
+constexpr float kCellValue = 0.55f, kCellSaturation = 0.75f;
+constexpr float kCellHoverValue = 0.85f, kCellHoverSaturation = 0.9f;
 
 }  // namespace spiral

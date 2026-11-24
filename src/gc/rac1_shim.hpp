@@ -159,6 +159,10 @@ struct Game {
     std::function<void()> play_click;
     // The port's slow motion (openrac_api.time_stretch): each tick this many times as long, 1 to 8.
     std::function<void(float)> time_stretch;
+    // The overlay's pictures (openrac_api.overlay_image_create, overlay_image_destroy): a
+    // width x height RGBA picture kept, its id (0 refused); let go.
+    std::function<int(int, int, const std::uint8_t*)> create_image;
+    std::function<void(int)> destroy_image;
 
     std::function<float(float)> square_root;
     std::function<float(float, float)> fast_arc_tan;
@@ -269,6 +273,10 @@ public:
     // quick select (its weapons grid, then its hand gadgets grid, the owned items of their cells:
     // layout.hpp), in that order; each one's quick select place and whether it is in hand.
     std::vector<spiral::Item> collect_items();
+    // Whether the health meter is hidden now (the wheel's).
+    bool health_hidden() const { return m_health_hidden; }
+    // The glyph made for an icon frame (its overlay picture; 0 none), for the tests.
+    int glyph_image(int frame) const;
     // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
     std::string item_name(std::int32_t id) const;
     std::string item_ammo(std::int32_t id, bool& empty) const;
@@ -337,6 +345,8 @@ private:
     spiral::Wheel m_wheel;
     std::vector<std::string> m_names;
     bool m_armed = false;
+    // Whether the stick or the d-pad moved the pointer in this opening.
+    bool m_touched = false;
     // The stick's first turns of an opening, in the log.
     static constexpr int kStickLogTurns = 5;
     int m_stick_logged = 0;
@@ -361,6 +371,22 @@ private:
     void end_ramp(bool ease_back);
     void publish();
     void close_wheel();
+    // The glyphs (rac1_spiral.cpp): each icon frame's, made once from its pixels in game memory and
+    // kept while they stay the same.
+    struct CachedGlyph {
+        std::uint64_t hash = 0;
+        int image = 0;
+        int width = 0, height = 0;
+        bool tinted = false;
+        std::uint8_t tint[3] = {0, 0, 0};
+    };
+    std::vector<std::pair<int, CachedGlyph>> m_glyphs;
+    void attach_glyph(spiral::Item& item);
+    // The health meter hidden while the wheel shows, and how long it showed for when it was.
+    bool m_health_hidden = false;
+    int m_health_ticks = 0;
+    void hide_health(std::uint32_t record);
+    void restore_health();
 
     friend class CopyScope;
 };

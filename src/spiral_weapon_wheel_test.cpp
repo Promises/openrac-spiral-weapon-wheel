@@ -6,9 +6,11 @@
 // functions that do what Ratchet & Clank's do with them (mode_freeze_init, queue_animation_update
 // and update_hud_elements on one HUD record, the sound and music calls counted, the draws recorded,
 // the port's slow motion recorded).
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -85,6 +87,8 @@ struct Fake {
     int level = 0;
     int swaps = 0;
     std::vector<float> stretches;  // time_stretch's calls
+    std::vector<int> images, destroyed;  // the overlay pictures made and let go
+    int image_next = 500;
     float stretch = 1.0f;
     std::int32_t last_mode = 0;
     std::vector<std::string> logs;
@@ -167,7 +171,23 @@ struct Fake {
         wr<std::int32_t>(kRecord + 0x70, 0);
         return handle_next++;
     }
+    // The health meter's record (slot 1, two before the quick select's): show_health_hud opens it
+    // (handle 0x7535), hud_keep_visible keeps it for at least that long, remove closes it.
+    static constexpr std::uint32_t kHealth = kRecord - 2 * 0x90;
+    int health_removed = 0;
+    bool health_open() const { return rd<std::uint32_t>(kHealth + 0x34) != 0; }
+    void show_health() {
+        ++health_shown;
+        wr<std::int32_t>(kHealth + 0x64, gcw::kHealthHandle);
+        wr<std::uint32_t>(kHealth + 0x34, 0x00235000u);
+        wr<std::int32_t>(kHealth + 0x6C, 0);
+    }
     int remove(int handle) {
+        if (handle == gcw::kHealthHandle && health_open()) {
+            wr<std::uint32_t>(kHealth + 0x34, 0);
+            ++health_removed;
+            return 1;
+        }
         if (rd<std::int32_t>(kRecord + 0x64) == handle) {
             wr<std::uint32_t>(kRecord + 0x30, 0xFFFF);
             wr<std::uint32_t>(kRecord + 0x34, 0);
@@ -175,8 +195,10 @@ struct Fake {
             ++removed;
             return 1;
         }
+        ++others_removed;
         return 0;
     }
+    int others_removed = 0;  // a close of any other HUD element (the ammo, the bolts): never
     bool open() const { return rd<std::uint32_t>(kRecord + 0x34) != 0; }
     // update_hud_elements(1): the record's pending init, then its update.
     int update_hud(int) {
@@ -310,6 +332,48 @@ struct Fake {
 
 Fake* g_fake = nullptr;
 
+// The fake HUD's icon frames: small numbers (the icon's low byte, 64 more a variant).
+int fake_frame(int icon, int variant) { return (icon & 0xFF) + 1 + variant * 64; }
+
+// The fake HUD set (hud_state, layout.hpp): every frame's image is the same synthetic icon (a dark
+// ring on a blue ground, 32 x 32 indices into a palette of 256 shades from the ground to the dark,
+// stored in CSM1 order), but item 0x0C's, whose bank is not linked (bit 31 set): its glyph fails and
+// the game's own icon stays. Nothing of the game's: a test picture.
+constexpr std::uint32_t kHudTables = 0x001D8000u;  // frames, images, palettes, then the pixels
+void fake_hud(Fake& f) {
+    const std::uint32_t frames = kHudTables, images = kHudTables + 0x800, palettes = kHudTables + 0x1800;
+    const std::uint32_t pixels = kHudTables + 0x2000, unlinked_pixels = kHudTables + 0x2400, colours = kHudTables + 0x2800;
+    f.wr<std::uint32_t>(f.d.hud_state + gcw::kHudFrames, frames);
+    f.wr<std::uint32_t>(f.d.hud_state + gcw::kHudImages, images);
+    f.wr<std::uint32_t>(f.d.hud_state + gcw::kHudPalettes, palettes);
+    for (int frame = 0; frame < 0x1FF; ++frame) {
+        f.wr<std::int16_t>(frames + 4u * static_cast<std::uint32_t>(frame), 0);
+        f.wr<std::int16_t>(frames + 4u * static_cast<std::uint32_t>(frame) + 2, static_cast<std::int16_t>(frame));
+        const bool unlinked = frame == fake_frame(0xE900 + 0x0C, 0);
+        const std::uint32_t page = images + 8u * static_cast<std::uint32_t>(frame);
+        f.wr<std::uint32_t>(page, unlinked ? (unlinked_pixels | 0x80000000u) : pixels);
+        f.wr<std::uint8_t>(page + 6, 5);
+        f.wr<std::uint8_t>(page + 7, 5);
+    }
+    f.wr<std::uint32_t>(palettes, colours);
+    auto csm1 = [](int i) { return (i & 0xE7) | ((i & 0x08) << 1) | ((i & 0x10) >> 1); };
+    for (int i = 0; i < 256; ++i) {
+        const float t = static_cast<float>(i) / 255.0f;  // 0 the ground, 1 the glyph
+        const std::uint32_t c = colours + 4u * static_cast<std::uint32_t>(csm1(i));
+        f.wr<std::uint8_t>(c, static_cast<std::uint8_t>(110 - 95 * t));
+        f.wr<std::uint8_t>(c + 1, static_cast<std::uint8_t>(115 - 100 * t));
+        f.wr<std::uint8_t>(c + 2, static_cast<std::uint8_t>(221 - 206 * t));
+        f.wr<std::uint8_t>(c + 3, 0x80);
+    }
+    for (int y = 0; y < 32; ++y) {
+        for (int x = 0; x < 32; ++x) {
+            const float r = std::sqrt((x - 15.5f) * (x - 15.5f) + (y - 15.5f) * (y - 15.5f));
+            const float ink = std::fmin(1.0f, std::fmax(0.0f, 1.0f - std::fabs(r - 9.5f) + 1.0f));
+            f.wr<std::uint8_t>(pixels + static_cast<std::uint32_t>(y * 32 + x), static_cast<std::uint8_t>(ink * 255.0f));
+        }
+    }
+}
+
 // The slot assignment: eight items, slot 3 empty; item 0x18 in slot 7.
 constexpr std::int32_t kItems[8] = {0x10, 0x11, 0x12, 0, 0x13, 0x14, 0x15, 0x18};
 // The Quick Select page's grids as the NTSC-U executable has them (pause_item_candidate_entries at
@@ -325,11 +389,11 @@ constexpr std::int32_t kOwned[] = {0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0
 constexpr std::int32_t kItemsPage[] = {0x08, 0x02, 0x05, 0x06, 0x1C, 0x1E, 0x23};
 constexpr int kWheelItems = 14;
 // The wheel's order (arrange.hpp): the quick select (kItems, slot 3 empty) at its ring's directions
-// on the first loop (0x10 up meets "None" and is one loop out at 11; 0x11 at 10, 0x12 at 8, 0x13 at
-// 5, 0x14 at 4, 0x15 at 2, 0x18 at 0), then the page's others (weapons grid, then gadgets) in the
-// free slots 1, 3, 6, 7, 9, then 12 and 13.
-constexpr std::int32_t kWheelOrder[kWheelItems] = {0x18, 0x0A, 0x15, 0x0F, 0x14, 0x13, 0x0E,
-                                                   0x09, 0x12, 0x0B, 0x11, 0x10, 0x0D, 0x0C};
+// on the first loop, item 0 on the start angle (0x10 up at 0, 0x11 at 11, 0x12 at 9, 0x13 at 6,
+// 0x14 at 5, 0x15 at 3, 0x18 at 1), then the page's others (weapons grid, then gadgets) in the free
+// slots 2, 4, 7, 8, 10, then 12 and 13.
+constexpr std::int32_t kWheelOrder[kWheelItems] = {0x10, 0x18, 0x0A, 0x15, 0x0F, 0x14, 0x13,
+                                                   0x0E, 0x09, 0x12, 0x0B, 0x11, 0x0D, 0x0C};
 int wheel_index(std::int32_t id) {
     for (int i = 0; i < kWheelItems; ++i) {
         if (kWheelOrder[i] == id) {
@@ -391,6 +455,7 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         f.wr<std::int16_t>(cell + gcw::kCellItem, static_cast<std::int16_t>(kGadgetCellItems[i]));
     }
     std::memcpy(f.ram.data() + d.ammo_format, "%d/%d", 6);
+    fake_hud(f);
     f.wr<std::int32_t>(d.width, 200);
     f.wr<std::int32_t>(d.height, 180);
     f.wr<std::int32_t>(d.center_x, 100);
@@ -449,7 +514,7 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
     g.draw_hud_sprite = [](int frame, int x, int y, int w, int h, int alpha) {
         g_fake->sprites.push_back({frame, x, y, w, h, alpha, g_fake->tint});
     };
-    g.get_icon_frame = [](int icon, int variant) { return icon * 8 + variant; };
+    g.get_icon_frame = [](int icon, int variant) { return fake_frame(icon, variant); };
     g.hud_frame = [](std::uint32_t rec, int frame, int, int, std::uint32_t, int) {
         CHECK_EQ(rec, kRecord);
         g_fake->frames_drawn.push_back(frame);
@@ -471,10 +536,27 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         return g_fake->text(name);
     };
     g.show_health_hud = [] {
-        ++g_fake->health_shown;
-        return 7;
+        g_fake->show_health();
+        return gcw::kHealthHandle;
     };
-    g.hud_keep_visible = [](int, int) { return 0; };
+    g.hud_keep_visible = [](int handle, int ticks) {
+        if (handle == gcw::kHealthHandle) {
+            const std::uint32_t at = Fake::kHealth + 0x7C;
+            g_fake->wr<std::int32_t>(at, std::max(g_fake->rd<std::int32_t>(at), ticks));
+        }
+        return 0;
+    };
+    g.create_image = [](int width, int height, const std::uint8_t* rgba) {
+        // A glyph: a picture of its own, with something drawn in it.
+        int ink = 0;
+        for (int i = 0; i < width * height; ++i) {
+            ink += rgba[i * 4 + 3] > 128 ? 1 : 0;
+        }
+        CHECK(width > 0 && height > 0 && ink > 0);
+        g_fake->images.push_back(++g_fake->image_next);
+        return g_fake->image_next;
+    };
+    g.destroy_image = [](int image) { g_fake->destroyed.push_back(image); };
     g.queue_animation_update = [](int key, int a, std::uint32_t i, std::uint32_t u, std::uint32_t dr, std::uint32_t data, int b) {
         if (key == 2) {
             ++g_fake->bolts_shown;
@@ -570,9 +652,9 @@ void stick_toward(float degrees, float& x, float& y) {
 }
 
 // The stick pointing at wheel item `index`'s slot (the default spiral: counter-clockwise from 12
-// o'clock, "None" there, item i at (i + 1) * 30 + 90 degrees).
+// o'clock, item 0 there, item i at i * 30 + 90 degrees).
 void stick_at_item(int index, float& x, float& y) {
-    stick_toward(static_cast<float>((index + 1) * 30 + 90), x, y);
+    stick_toward(static_cast<float>(index * 30 + 90), x, y);
 }
 
 // --- Tests ---
@@ -670,18 +752,27 @@ void test_items() {
     CHECK_EQ(items[static_cast<std::size_t>(wheel_index(0x13))].hot, 5);
     CHECK_EQ(items[static_cast<std::size_t>(wheel_index(0x18))].hot, 8);
     CHECK_EQ(items[static_cast<std::size_t>(wheel_index(0x0A))].hot, 0);
-    CHECK(items[static_cast<std::size_t>(wheel_index(0x10))].equipped && !items[0].equipped);
+    CHECK(items[static_cast<std::size_t>(wheel_index(0x10))].equipped && !items[1].equipped);
     // The opening's line lists them in order.
     open_hud(f);
-    CHECK(f.logged("the wheel opens with 14 items: 0x18 0xA 0x15 0xF 0x14 0x13 0xE 0x9 0x12 0xB 0x11 0x10 0xD 0xC"));
-    CHECK(f.logged("item 0x10 of the quick select points where \"None\" is (90 deg): it is one loop out there"));
+    CHECK(f.logged("the wheel opens with 14 items: 0x10 0x18 0xA 0x15 0xF 0x14 0x13 0xE 0x9 0x12 0xB 0x11 0xD 0xC"));
+    // Every item has its glyph (a picture made from its icon; the cell its ground's tint) but 0x0C,
+    // whose icon's bank is not linked: the game's own icon for it.
+    for (const spiral::Item& it : gc::shim().wheel().items()) {
+        CHECK((it.glyph != 0) == (it.id != 0x0C));
+        CHECK(it.tinted == (it.id != 0x0C));
+        if (it.tinted) {
+            CHECK(it.tint[2] > it.tint[0]);  // the fake's blue ground
+        }
+    }
+    CHECK(f.logged("(frame 13, 32x32): not a glyph") == false);
     // Each quick select item is drawn where the game's ring has it (slot i at 90 - 45 * i).
     for (int slot = 0; slot < 8; ++slot) {
         if (kItems[slot] == 0) {
             continue;
         }
         const int index = wheel_index(kItems[slot]);
-        const float drawn = static_cast<float>((index + 1) * 30 + 90);
+        const float drawn = static_cast<float>(index * 30 + 90);
         CHECK(std::fabs(std::remainder(drawn - (90.0f - 45.0f * static_cast<float>(slot)), 360.0f)) <= 15.01f);
     }
 }
@@ -698,21 +789,21 @@ void test_spiral_selection() {
     play(f, 0x10);
     CHECK_EQ(f.rd<std::int32_t>(kRecord + 0x78), 0x10000FF);
     float x, y;
-    // From the item in hand (0x10, one loop out at 12 o'clock: 11) a quarter turn clockwise at a
-    // time: 8 (3 o'clock), 5 (6 o'clock), 2 (9 o'clock), then on past the first item to "None" and
-    // a blank.
+    // The item in hand, 0x10, is on 12 o'clock (index 0). The first push points on the first loop,
+    // where the game's quick select is: 9 o'clock is 3. Then the stick turns: a quarter turn
+    // counter-clockwise at a time to 6 and 9, then round to 11, on to 12 and 13 (the next loop) and
+    // into a blank; back clockwise to 10.
     const int e = wheel_index(0x10);
-    CHECK_EQ(e, 11);
-    for (int target : {8, 5, 2, 0, -1}) {
+    CHECK_EQ(e, 0);
+    for (int target : {3, 6, 9, 11, 12, 13}) {
         stick_at_item(target, x, y);
         play(f, 0x10, x, y);
         CHECK_EQ(selected(f), target);
     }
-    stick_at_item(-2, x, y);  // a blank before "None"
+    stick_at_item(14, x, y);  // the slot after the last item: a blank
     play(f, 0x10, x, y);
-    CHECK_EQ(selected(f), -2);
-    // Back the other way (counter-clockwise), round past 11 to 13 (one loop out), then back to 10.
-    for (int target : {1, 4, 7, 10, 13, 10}) {
+    CHECK_EQ(selected(f), -10);
+    for (int target : {13, 10}) {
         stick_at_item(target, x, y);
         play(f, 0x10, x, y);
         CHECK_EQ(selected(f), target);
@@ -756,10 +847,10 @@ void test_stick_points_where_it_is_pushed() {
                 // sector's angle (_AngleDeg) as the frame draws it; for an item or "None", the lit one.
                 const int slot = selected(f);
                 const int sign = clockwise ? -1 : 1;
-                const float drawn = static_cast<float>((slot * sign + sign) * 30) + start;
+                const float drawn = static_cast<float>(slot * sign * 30) + start;
                 for (const spiral::Sprite& sp : gc::shim().picture().frame.sprites) {
                     if (sp.art == spiral::Art::Sector && sp.grey > 0.0f) {
-                        CHECK(slot >= -1 && std::fabs(std::remainder(sp.angle_deg - drawn, 360.0f)) < 0.01f);
+                        CHECK(slot >= 0 && std::fabs(std::remainder(sp.angle_deg - drawn, 360.0f)) < 0.01f);
                     }
                 }
                 const float lit = drawn;
@@ -829,7 +920,8 @@ void test_fades_and_commit() {
     }
     CHECK_EQ(fade(f, 0), 8);
     // A new selection: the selection fade starts over, then grows to 8.
-    play(f, 0x10 | gcw::kDpadRight);  // one on from the item in hand: 0x0D
+    dpad_to(f, wheel_index(0x0D) - 1);
+    play(f, 0x10 | gcw::kDpadRight);
     CHECK_EQ(selected(f), wheel_index(0x0D));
     CHECK_EQ(fade(f, 1), 0);
     for (int i = 0; i < 10; ++i) {
@@ -866,10 +958,10 @@ void test_fades_and_commit() {
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x11);
     CHECK_EQ(f.rd<std::int32_t>(f.d.ammo + 4 * 0x11), 40);
 
-    // "None": the wrench.
+    // No "None": the slot before the first item is a blank, which picks nothing.
     f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
     commit(f, -1);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), gcw::kWrench);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
 
     // A blank: nothing.
     f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
@@ -877,8 +969,19 @@ void test_fades_and_commit() {
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
     CHECK(!f.open());
 
-    // The item in hand: nothing to equip.
+    // Let go before the pointer moved: nothing picked (Going Commando's opens on nothing).
     commit(f, wheel_index(0x10));
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
+    CHECK(f.logged("cancelled (the pointer never moved; 0x10 in hand)"));
+    // Moved away and back to the item in hand: nothing to equip.
+    open_hud(f);
+    play(f, 0x10);
+    play(f, 0x10 | gcw::kDpadRight);
+    play(f, 0x10);
+    play(f, 0x10 | gcw::kDpadLeft);
+    for (int i = 0; i < 10; ++i) {
+        play(f, 0);
+    }
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
     // Circle: closed, nothing picked.
     commit(f, wheel_index(0x13), gcw::kCircle);
@@ -927,26 +1030,24 @@ void test_draw() {
     f.texts.clear();
     const int w = gc::shim().selector_draw(kRecord);
     CHECK_EQ(w, 210);
-    // The icons: the game's sprites, one for each item seen (within a loop of the pointer), the
-    // pointed-at one on the radius at full size and alpha.
+    // The glyphs are the overlay's (Art::Glyph sprites, each inside its sector's square); the game's
+    // own sprites only for the item without one (0x0C), when it is seen.
     const spiral::Frame frame = gc::shim().wheel().frame();
     CHECK_EQ(f.sprites.size(), frame.icons.size());
-    bool pointed = false;
     for (std::size_t i = 0; i < f.sprites.size(); ++i) {
-        const spiral::Icon& icon = frame.icons[i];
-        const spiral::Item& item = gc::shim().wheel().items()[static_cast<std::size_t>(icon.item)];
-        CHECK_EQ(f.sprites[i].frame, item.icon * 8);
-        if (icon.item == wheel_index(0x12)) {
-            pointed = true;
-            CHECK_EQ(f.sprites[i].alpha, 128);
-            // Two thirds of the screen high, the icon on 0.4167 of it: about 116 game units from the
-            // middle (256, 208), its size 0.0889 of the height: 34 x 37 units.
-            const int cx = f.sprites[i].x + f.sprites[i].w / 2;
-            const int cy = f.sprites[i].y + f.sprites[i].h / 2;
-            const float across = static_cast<float>(cx - 256) / 384.0f;
-            const float down = static_cast<float>(cy - 208) / 416.0f;
-            CHECK(std::fabs(std::sqrt(across * across + down * down) - spiral::kSize * spiral::kRadius) < 0.01f);
-            CHECK(std::abs(f.sprites[i].w - 34) <= 1 && std::abs(f.sprites[i].h - 37) <= 1);
+        const spiral::Item& item = gc::shim().wheel().items()[static_cast<std::size_t>(frame.icons[i].item)];
+        CHECK(item.id == 0x0C && f.sprites[i].frame == fake_frame(item.icon, 0));
+    }
+    bool pointed = false;
+    for (const spiral::Sprite& sp : gc::shim().picture().frame.sprites) {
+        if (sp.art != spiral::Art::Glyph) {
+            continue;
+        }
+        const float box = spiral::kSize * spiral::kGlyphSquare * (1.0f - 2.0f * spiral::kGlyphPadding);
+        CHECK(sp.w <= box * 1.5f + 1e-4f && sp.h <= box * 1.5f + 1e-4f);  // within its loop's scale
+        const float r = std::sqrt(sp.x * sp.x + sp.y * sp.y);
+        if (std::fabs(r - spiral::kSize * spiral::kRadius) < 1e-3f && std::fabs(std::max(sp.w, sp.h) - box) < 1e-3f) {
+            pointed = true;  // the pointed-at one: on the radius, the box's size
         }
     }
     CHECK(pointed);
@@ -974,21 +1075,24 @@ void test_draw() {
     f.texts.clear();
     gc::shim().selector_draw(kRecord);
     CHECK(f.texts.size() == 2 && f.texts[1].text == "0/40" && f.texts[1].colour == 0x804040ffu);
-    // A gold weapon: Ratchet & Clank's gold name and icon frame.
+    // A gold weapon: its glyph from the gold icon frame (4), as the Quick Select page draws it; the
+    // same pictures again on the next opening (kept while their pixels stay the same).
     f.wr<std::uint8_t>(f.d.gold + 0x11, 1);
-    gc::shim().wheel();
-    f.sprites.clear();
-    gc::shim().selector_draw(kRecord);
-    bool gold = false;
-    for (const Sprite& sp : f.sprites) {
-        gold = gold || sp.frame == (0xE900 + 0x11) * 8 + 4;
+    const std::size_t made = f.images.size();
+    const std::vector<spiral::Item> again = gc::shim().collect_items();
+    CHECK(gc::shim().glyph_image(fake_frame(0xE900 + 0x11, 4)) != 0);
+    CHECK_EQ(f.images.size(), made + 1);
+    for (const spiral::Item& it : again) {
+        if (it.id == 0x11) {
+            CHECK_EQ(it.glyph, gc::shim().glyph_image(fake_frame(0xE900 + 0x11, 4)));
+        }
     }
-    CHECK(gold);
-    // "None": the wrench's name.
-    dpad_to(f, -1);
-    f.texts.clear();
-    gc::shim().selector_draw(kRecord);
-    CHECK(!f.texts.empty() && f.texts[0].text == "Item108");
+    // Pixels changed (a new level's HUD): that frame's glyph made again, the old picture let go.
+    const int old = gc::shim().glyph_image(fake_frame(0xE900 + 0x12, 0));
+    f.wr<std::uint8_t>(kHudTables + 0x2000 + 5 * 32 + 5, 255);
+    gc::shim().collect_items();
+    CHECK(gc::shim().glyph_image(fake_frame(0xE900 + 0x12, 0)) != old);
+    CHECK(!f.destroyed.empty() && f.destroyed.back() == old ? true : std::find(f.destroyed.begin(), f.destroyed.end(), old) != f.destroyed.end());
 }
 
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
@@ -1068,13 +1172,15 @@ void test_slow_down() {
         play(f, 0x10);
         ++n;
     }
+    f.wr<std::uint8_t>(f.d.hero + gcw::kHeroItem18, 0);
     play(f, 0x10 | gcw::kDpadRight);
     for (int i = 0; i < 40; ++i) {
         play(f, 0);
     }
     CHECK_EQ(f.freeze_inits, freezes);
     CHECK(!f.open() && !gc::shim().ramping() && f.stretch == 1.0f);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0D);  // one on from 0x10
+    // One on from 0x10: 0x18, picked by its own rule (hero+0x1FF5).
+    CHECK_EQ(f.rd<std::uint8_t>(f.d.hero + gcw::kHeroItem18), 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
 
     // Without the ease back: the time at full pace as the pause ends.
@@ -1095,6 +1201,73 @@ void test_slow_down() {
         ++n;
     }
     CHECK(!gc::shim().ramping() && f.stretch == 1.0f);
+}
+
+// A tick of whichever mode the game is in.
+void tick(Fake& f, std::uint32_t held) {
+    if (f.rd<std::int32_t>(f.d.game_mode) == 4) {
+        freeze(f, held);
+    } else {
+        play(f, held);
+    }
+}
+
+// The health meter hidden while the wheel shows (Prey hides its HUD), and shown again for as long
+// as it had to show when the wheel closes, on every way out: a pick, Circle, after the watchdog.
+// The bolt counter is shown as before; nothing else of the HUD is closed.
+void test_health_hidden() {
+    for (int way = 0; way < 3; ++way) {
+        Fake f;
+        set_up(f, true, true);
+        for (int i = 0; i < 12; ++i) {
+            play(f, 0);
+        }
+        // Hurt in play: the health meter up, for 100 ticks.
+        f.show_health();
+        f.wr<std::int32_t>(Fake::kHealth + 0x7C, 100);
+        const int shown = f.health_shown;
+        hold_until_freeze(f);
+        for (int i = 0; i < 4; ++i) {
+            freeze(f, 0x10);
+        }
+        CHECK(f.open() && !f.health_open() && gc::shim().health_hidden());
+        CHECK(f.bolts_shown > 0);
+        // The game shows it again while the wheel is up (a hit in the slow-down): hidden again.
+        f.show_health();
+        freeze(f, 0x10);
+        CHECK(!f.health_open());
+        if (way == 2) {
+            // The watchdog ends the pause: the wheel goes on in play until it is let go.
+            gc::shim().end_paused("a test");
+            CHECK(f.rd<std::int32_t>(f.d.game_mode) == 0 && f.open());
+        }
+        // Let go (or Circle): the wheel closes, the health meter shows again, for its 100 ticks.
+        for (int i = 0; i < 20 && f.open(); ++i) {
+            tick(f, way == 1 ? (i == 0 ? 0x10 | gcw::kCircle : 0x10) : 0);
+        }
+        for (int i = 0; i < 20 && f.open(); ++i) {
+            tick(f, 0);
+        }
+        CHECK(!f.open());
+        CHECK(f.health_open() && !gc::shim().health_hidden());
+        CHECK(f.rd<std::int32_t>(Fake::kHealth + 0x7C) >= 100);
+        CHECK(f.health_shown > shown);
+        CHECK_EQ(f.others_removed, 0);
+    }
+    // Not up when the wheel opened: not shown after it either.
+    Fake f;
+    set_up(f, true, true);
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    hold_until_freeze(f);
+    for (int i = 0; i < 4; ++i) {
+        freeze(f, 0x10);
+    }
+    for (int i = 0; i < 40 && (f.open() || f.rd<std::int32_t>(f.d.game_mode) == 4); ++i) {
+        tick(f, 0);
+    }
+    CHECK(!f.open() && !f.health_open() && f.health_shown == 0);
 }
 
 void test_paused_path() {
@@ -1130,7 +1303,8 @@ void test_paused_path() {
     freeze(f, 0x10);
     CHECK(f.open());
     CHECK_EQ(modal(gc::kModalPhase), 1);
-    CHECK(f.health_shown > 0 && f.bolts_shown > 0);
+    // The bolt counter shown, the health meter not (hidden while the wheel shows).
+    CHECK(f.health_shown == 0 && f.bolts_shown > 0);
     CHECK(f.help_updates > 0);
     CHECK_EQ(f.sound_updates, 2);
     // Held: phase 1 holds (the layer keeps g_modal_timer armed), the world too.
@@ -1425,7 +1599,7 @@ void test_hold_timing() {
             ++n;
         }
     }
-    CHECK_EQ(f.count_logs("cancelled"), 0);
+    CHECK_EQ(f.count_logs("cancelled:"), 0);
     CHECK_EQ(f.freeze_inits, 3);
     // Held 3 ticks, let go: cancelled on the release (the gate asks again while the press is in its
     // window, and the request ends once it is out), no freeze.
@@ -1526,7 +1700,7 @@ void test_wheel_picks_then_double_tap() {
         }
     };
     // The pad's angle (atan2(y, x), y down) of the item's slot on the screen.
-    auto angle_of = [](std::int32_t id) { return -static_cast<float>((wheel_index(id) + 1) * 30 + 90) * kPi / 180.0f; };
+    auto angle_of = [](std::int32_t id) { return -static_cast<float>(wheel_index(id) * 30 + 90) * kPi / 180.0f; };
     pick(angle_of(0x11));  // item 0x11 (A)
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
     pick(angle_of(0x12));  // item 0x12 (B)
@@ -1544,14 +1718,6 @@ void test_wheel_picks_then_double_tap() {
     CHECK_EQ(f.freeze_inits, 2);
 }
 
-// A tick of whichever mode the game is in.
-void tick(Fake& f, std::uint32_t held) {
-    if (f.rd<std::int32_t>(f.d.game_mode) == 4) {
-        freeze(f, held);
-    } else {
-        play(f, held);
-    }
-}
 
 // A natural double tap with "Pause while open" on: two presses of `hold` ticks, `gap` ticks apart.
 // Going Commando's mode 7 runs the double tap's timers too (its level programs' UpdateModalState
@@ -1579,6 +1745,11 @@ void test_natural_double_tap() {
             if (f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem) != 0x11) {
                 std::fprintf(stderr, "natural double tap: hold %d, gap %d: item 0x%X, freezes %d\n", hold, gap,
                              f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), f.freeze_inits);
+                if (std::getenv("SPIRAL_DEBUG")) {
+                    for (const std::string& l : f.logs) {
+                        std::fprintf(stderr, "  %s\n", l.c_str());
+                    }
+                }
             }
             CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
             CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
@@ -1704,6 +1875,7 @@ int main() {
     test_toggle();
     test_draw();
     test_paused_path();
+    test_health_hidden();
     test_slow_down();
     test_gate_conditions();
     test_relocated_game_mode();

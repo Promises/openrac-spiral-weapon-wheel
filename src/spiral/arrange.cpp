@@ -4,7 +4,6 @@
 #include "arrange.hpp"
 
 #include <cmath>
-#include <cstdio>
 
 namespace spiral {
 
@@ -16,12 +15,10 @@ float apart(float a, float b) { return std::fabs(std::remainder(a - b, 360.0f));
 }  // namespace
 
 float slot_angle(int index, const Options& o) {
-    const int cs = sign(o);
-    return static_cast<float>((index * cs + cs) * 30) + o.start_deg;
+    return static_cast<float>(index * sign(o) * 30) + o.start_deg;
 }
 
-std::vector<Item> arrange(const std::vector<HomeItem>& home, const std::vector<Item>& rest, const Options& o,
-                          std::vector<std::string>* notes) {
+std::vector<Item> arrange(const std::vector<HomeItem>& home, const std::vector<Item>& rest, const Options& o) {
     std::vector<Item> slots;  // index -> item (id 0: a hole)
     auto put = [&](int index, const Item& item) {
         if (static_cast<int>(slots.size()) <= index) {
@@ -40,8 +37,8 @@ std::vector<Item> arrange(const std::vector<HomeItem>& home, const std::vector<I
             if (placed[h] || home[h].item.id == 0) {
                 continue;
             }
-            for (int index = -1; index < kFirstLoop; ++index) {
-                if (index >= 0 && taken(index)) {
+            for (int index = 0; index < kFirstLoop; ++index) {
+                if (taken(index)) {
                     continue;
                 }
                 const float a = slot_angle(index, o);
@@ -61,19 +58,7 @@ std::vector<Item> arrange(const std::vector<HomeItem>& home, const std::vector<I
             break;
         }
         placed[static_cast<std::size_t>(best_item)] = true;
-        int index = best_slot;
-        if (index == -1) {
-            // "None"'s own direction: one loop out at the same angle.
-            index = kFirstLoop;
-            if (notes != nullptr) {
-                char line[160];
-                std::snprintf(line, sizeof line,
-                              "item 0x%X of the quick select points where \"None\" is (%.0f deg): it is one loop out there",
-                              static_cast<unsigned>(home[static_cast<std::size_t>(best_item)].item.id),
-                              home[static_cast<std::size_t>(best_item)].angle_deg);
-                notes->push_back(line);
-            }
-        }
+        const int index = best_slot;
         put(index, home[static_cast<std::size_t>(best_item)].item);
     }
     // The rest: the first loop's free slots in order, then outward.

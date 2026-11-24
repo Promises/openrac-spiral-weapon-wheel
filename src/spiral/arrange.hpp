@@ -6,8 +6,8 @@
 // other items fill the first loop's free slots in spiral order, then the loops further out. A slot
 // of the first loop left over is a hole (an Item with id 0), drawn and picked as a blank.
 //
-// The first loop is spiral indices 0 to 10, with "None" at -1 (the start angle, spiral.hpp); index
-// 11 is the next loop's slot at the start angle again.
+// The first loop is indices 0 to 11, item 0 on the start angle (Wheel::spiral_options: the mod has
+// no "None", whose slot Prey Menu keeps there); index 12 is the next loop's slot on it again.
 #pragma once
 
 #include <string>
@@ -25,10 +25,10 @@ struct HomeItem {
     float angle_deg = 0;
 };
 
-// The first loop's slots (indices 0 to 10).
-constexpr int kFirstLoop = kPerLoop - 1;
+// The first loop's slots (indices 0 to 11).
+constexpr int kFirstLoop = kPerLoop;
 
-// The slot `index` is drawn at (_AngleDeg).
+// Where slot `index` is drawn: the start angle, 30 degrees a slot in the spiral's direction.
 float slot_angle(int index, const Options& o);
 
 // The items in spiral order: the home items at their nearest first-loop slots, the rest after.
@@ -37,10 +37,7 @@ float slot_angle(int index, const Options& o);
 //    cardinal directions on a start angle that is a multiple of 30);
 //  - a tie between two slots (a diagonal, 15 degrees from each) goes to the slot nearer the
 //    vertical (up or down), so the two diagonals beside one side never meet;
-//  - a home item whose nearest direction is "None"'s (the start angle) takes the slot one loop out
-//    at that same angle (index 11), and `notes` says so;
-//  - the other items fill the free first-loop slots in index order, then indices 11 on.
-std::vector<Item> arrange(const std::vector<HomeItem>& home, const std::vector<Item>& rest, const Options& o,
-                          std::vector<std::string>* notes = nullptr);
+//  - the other items fill the free first-loop slots in index order, then indices 12 on.
+std::vector<Item> arrange(const std::vector<HomeItem>& home, const std::vector<Item>& rest, const Options& o);
 
 }  // namespace spiral

@@ -22,6 +22,7 @@
 
 #include "rac1_shim.hpp"
 #include "../spiral/arrange.hpp"
+#include "../spiral/glyph.hpp"
 
 namespace gc_weapon_wheel::gc {
 
@@ -109,12 +110,129 @@ std::vector<spiral::Item> Shim::collect_items() {
             rest.push_back(item);
         }
     }
-    std::vector<std::string> notes;
-    std::vector<spiral::Item> arranged = spiral::arrange(home, rest, m_wheel_options.look.spiral, &notes);
-    for (const std::string& note : notes) {
-        log_once("arrange " + note, note);
+    std::vector<spiral::Item> arranged = spiral::arrange(home, rest, m_wheel_options.look.spiral);
+    for (spiral::Item& item : arranged) {
+        attach_glyph(item);
     }
     return arranged;
+}
+
+// (the mod's) An item's glyph, from its HUD icon in game memory (layout.hpp: hud_state's frames,
+// image and palette pages): the frame the Quick Select page draws for it (frame 4 for a gold
+// weapon, as draw_menu_item_grid), decoded, keyed and redrawn (glyph.hpp), and kept as an overlay
+// picture while the frame's pixels stay the same. Anything amiss leaves the item without one: the
+// game's own icon is drawn.
+void Shim::attach_glyph(spiral::Item& item) {
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    if (item.id == 0 || !game.create_image || !game.get_icon_frame) {
+        return;
+    }
+    const bool gold = m.read<std::uint8_t>(a.gold + static_cast<std::uint32_t>(item.id)) != 0;
+    const int frame = game.get_icon_frame(item.icon, gold ? 4 : 0);
+    const std::uint32_t frames = m.read<std::uint32_t>(a.hud_state + kHudFrames);
+    const std::uint32_t images = m.read<std::uint32_t>(a.hud_state + kHudImages);
+    const std::uint32_t palettes = m.read<std::uint32_t>(a.hud_state + kHudPalettes);
+    auto in_memory = [](std::uint32_t address, std::uint32_t bytes) {
+        return address != 0 && address < 0x02000000u && address + bytes <= 0x02000000u;
+    };
+    if (frame <= 0 || !in_memory(frames, 4u * static_cast<std::uint32_t>(frame) + 4) || images == 0 || palettes == 0) {
+        return;
+    }
+    const std::int16_t palette = m.read<std::int16_t>(frames + 4u * static_cast<std::uint32_t>(frame));
+    const std::int16_t image = m.read<std::int16_t>(frames + 4u * static_cast<std::uint32_t>(frame) + 2);
+    if (palette < 0 || image < 0 || !in_memory(images, 8u * static_cast<std::uint32_t>(image) + 8) ||
+        !in_memory(palettes, 8u * static_cast<std::uint32_t>(palette) + 8)) {
+        return;
+    }
+    const std::uint32_t pixels = m.read<std::uint32_t>(images + 8u * static_cast<std::uint32_t>(image));
+    const int width = 1 << (m.read<std::uint8_t>(images + 8u * static_cast<std::uint32_t>(image) + 6) & 15);
+    const int height = 1 << (m.read<std::uint8_t>(images + 8u * static_cast<std::uint32_t>(image) + 7) & 15);
+    const std::uint32_t colours = m.read<std::uint32_t>(palettes + 8u * static_cast<std::uint32_t>(palette));
+    const std::uint32_t bytes = static_cast<std::uint32_t>(width * height);
+    if (width < 8 || height < 8 || width > 256 || height > 256 || !in_memory(pixels, bytes) || !in_memory(colours, 1024)) {
+        return;
+    }
+    // FNV-1a over the indices and the palette: the same picture, the same glyph.
+    std::uint64_t hash = 1469598103934665603ull;
+    auto mix = [&hash](const std::uint8_t* p, std::size_t n) {
+        for (std::size_t i = 0; i < n; ++i) {
+            hash = (hash ^ p[i]) * 1099511628211ull;
+        }
+    };
+    mix(m.at(pixels), bytes);
+    mix(m.at(colours), 1024);
+    auto it = std::find_if(m_glyphs.begin(), m_glyphs.end(), [&](const auto& g) { return g.first == frame; });
+    if (it == m_glyphs.end() || it->second.hash != hash) {
+        CachedGlyph made;
+        made.hash = hash;
+        const spiral::Glyph g = spiral::make_glyph(spiral::decode_psmt8(m.at(pixels), width, height, m.at(colours)));
+        if (g.ok) {
+            made.image = game.create_image(g.picture.width, g.picture.height, g.picture.rgba.data());
+            made.width = g.picture.width;
+            made.height = g.picture.height;
+            made.tinted = true;
+            std::copy(g.tint, g.tint + 3, made.tint);
+        }
+        char line[160];
+        std::snprintf(line, sizeof line, "the glyph of icon 0x%X (frame %d, %dx%d): %s", static_cast<unsigned>(item.icon), frame,
+                      width, height, made.image != 0 ? "made" : g.ok ? "the port refused it" : "not a glyph on a ground");
+        if (game.info) {
+            game.info(line);
+        }
+        if (it == m_glyphs.end()) {
+            m_glyphs.push_back({frame, made});
+            it = m_glyphs.end() - 1;
+        } else {
+            if (it->second.image != 0 && game.destroy_image) {
+                game.destroy_image(it->second.image);
+            }
+            it->second = made;
+        }
+    }
+    item.glyph = it->second.image;
+    item.glyph_width = it->second.width;
+    item.glyph_height = it->second.height;
+    item.tinted = it->second.tinted;
+    std::copy(it->second.tint, it->second.tint + 3, item.tint);
+}
+
+int Shim::glyph_image(int frame) const {
+    for (const auto& g : m_glyphs) {
+        if (g.first == frame) {
+            return g.second.image;
+        }
+    }
+    return 0;
+}
+
+// (the mod's) The health meter hidden while the wheel shows, as Prey hides its HUD: its record
+// (slot 1, two before the quick select's, handle 0x7535) closed whenever it is open, and how long
+// it had to show kept; on close it is shown again for that long. The bolt counter and the ammo stay.
+void Shim::hide_health(std::uint32_t record) {
+    const Memory& m = game.memory;
+    if (record < 2 * kRecordBytes || !game.remove_hud_item) {
+        return;
+    }
+    const std::uint32_t health = record - 2 * kRecordBytes;
+    if (m.read<std::int32_t>(health + kRecordHandle) != kHealthHandle || m.read<std::uint32_t>(health + kRecordUpdate) == 0 ||
+        m.read<std::int32_t>(health + kRecordSlide) < 0) {
+        return;
+    }
+    m_health_ticks = std::max(m_health_ticks, m.read<std::int32_t>(health + kRecordTimeout));
+    m_health_hidden = true;
+    game.remove_hud_item(kHealthHandle);
+}
+
+void Shim::restore_health() {
+    if (!m_health_hidden) {
+        return;
+    }
+    m_health_hidden = false;
+    if (game.show_health_hud && game.hud_keep_visible) {
+        game.hud_keep_visible(game.show_health_hud(), std::max(1, m_health_ticks));
+    }
+    m_health_ticks = 0;
 }
 
 std::string Shim::item_name(std::int32_t id) const {
@@ -246,6 +364,7 @@ WheelPicture Shim::picture() const {
 
 void Shim::close_wheel() {
     m_wheel.close();
+    restore_health();
     m_armed = false;
     m_committing = false;
     m_cancelled = false;
@@ -293,6 +412,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         m_committing = false;
         m_cancelled = false;
         m_stick_logged = 0;
+        m_touched = false;
         write_i32(record, kSelected, m_wheel.selected());
         if (game.info) {
             std::string line = "the wheel opens with " + std::to_string(m_wheel.items().size()) + " items:";
@@ -305,6 +425,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         }
     }
     m_wheel.advance(1.0f / 60.0f);
+    hide_health(m.address_of(record));
 
     // Going Commando's: the selection waits for the stick to rest (under 0.5), a d-pad press or its
     // countdown (the record's state, 30 frames from menu_init_panel_layout), so a stick held as the
@@ -330,6 +451,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         // Clank's stick is one already: its y grows downward (pushed up it reads below 0; Going
         // Commando's quick select, whose slot 0 is at the top, takes it when atan2(y, x) is -pi/2).
         if (magnitude >= kStickDeadzone) {
+            m_touched = true;
             moved = m_wheel.steer(stick_x, stick_y, kStickDeadzone);
             // The first few turns of each opening in the log: the stick as read, its direction on
             // the screen (degrees counter-clockwise from 3 o'clock) and the slot it points at.
@@ -347,8 +469,10 @@ void Shim::spiral_update(std::uint8_t* record) {
             }
         } else if ((pressed & (kDpadRight | kDpadDown)) != 0) {
             // (the mod's) The d-pad: one slot on or back.
+            m_touched = true;
             moved = m_wheel.step(1);
         } else if ((pressed & (kDpadLeft | kDpadUp)) != 0) {
+            m_touched = true;
             moved = m_wheel.step(-1);
         }
     }
@@ -366,12 +490,12 @@ void Shim::spiral_update(std::uint8_t* record) {
     }
 
     // (the mod's) Circle cancels: closed with nothing picked.
-    if (active && (pressed & kCircle) != 0 && !m_committing) {
+    if ((pressed & kCircle) != 0 && !m_committing) {
         m_committing = true;
         m_cancelled = true;
     }
-    // The pick: Triangle let go (or, toggled, pressed again).
-    if (active && !m_committing) {
+    // The pick: Triangle let go (or, toggled, pressed again), as Going Commando's, active or not.
+    if (!m_committing) {
         if (!m_wheel_options.toggle ? !holding : (m_toggle_released && (pressed & kTriangle) != 0)) {
             m_committing = true;
         }
@@ -386,23 +510,26 @@ void Shim::spiral_update(std::uint8_t* record) {
         if (fade[0] == 0 && game.info) {
             char line[200];
             const std::int32_t in_hand = Memory{gc_shim_hero}.read<std::int32_t>(kGcHeroItem);
-            if (m_cancelled || !m_wheel.is_item_or_none(selected)) {
-                std::snprintf(line, sizeof line, "cancelled (%s; 0x%X in hand)", m_cancelled ? "Circle" : "let go on a blank",
+            if (m_cancelled || !m_touched || !m_wheel.is_item(selected)) {
+                std::snprintf(line, sizeof line, "cancelled (%s; 0x%X in hand)",
+                              m_cancelled ? "Circle" : !m_touched ? "the pointer never moved" : "let go on a blank",
                               static_cast<unsigned>(in_hand));
             } else {
-                const std::int32_t pick = selected >= 0 ? m_wheel.items()[static_cast<std::size_t>(selected)].id : kWrench;
-                const std::string name = selected >= 0 ? m_names[static_cast<std::size_t>(selected)] : item_name(kWrench);
+                const std::int32_t pick = m_wheel.items()[static_cast<std::size_t>(selected)].id;
+                const std::string name = m_names[static_cast<std::size_t>(selected)];
                 std::snprintf(line, sizeof line, "picked item 0x%X (%s), equipped 0x%X%s", static_cast<unsigned>(pick),
                               name.c_str(), static_cast<unsigned>(pick),
                               pick == in_hand ? " (already in hand)" : "");
             }
             game.info(line);
         }
-        if (fade[0] == 0 && !m_cancelled && m_wheel.is_item_or_none(selected)) {
+        // A wheel let go before the stick or the d-pad moved its pointer picks nothing, as Going
+        // Commando's, which opens on nothing (here on the item in hand): a double tap's swap in the
+        // pause stands.
+        if (fade[0] == 0 && !m_cancelled && m_touched && m_wheel.is_item(selected)) {
             Memory hero{gc_shim_hero};
             Memory stats{gc_shim_stats};
-            // (the mod's) "None" is the wrench.
-            const std::int32_t id = selected >= 0 ? m_wheel.items()[static_cast<std::size_t>(selected)].id : kWrench;
+            const std::int32_t id = m_wheel.items()[static_cast<std::size_t>(selected)].id;
             if (hero.read<std::int32_t>(kGcHeroItem) != id && stats.read<std::uint16_t>(kGcUses) < 0xFFFF) {
                 stats.write<std::uint16_t>(kGcUses, static_cast<std::uint16_t>(stats.read<std::uint16_t>(kGcUses) + 1));
             }
@@ -470,14 +597,14 @@ int Shim::spiral_draw(std::uint8_t* record) {
     }
     // The name above the info bar and the ammo below, in Going Commando's colours (white, the ammo
     // red when it is out), faded in with the selection.
-    if (m_wheel.is_item_or_none(f.selected)) {
+    if (m_wheel.is_item(f.selected)) {
         const float opacity = open * pick;
         const std::uint32_t white = tween_colour(0x00F0F0F0u, 0x80F0F0F0u, opacity);
-        std::string name = f.selected >= 0 ? m_names[static_cast<std::size_t>(f.selected)] : item_name(kWrench);
+        const std::string& name = m_names[static_cast<std::size_t>(f.selected)];
         if (!name.empty()) {
             game.font_print_center(game_x(0.0f), game_y(f.name_y), white, name.c_str(), -1);
         }
-        if (f.selected >= 0) {
+        {
             bool empty = false;
             const std::string ammo = item_ammo(m_wheel.items()[static_cast<std::size_t>(f.selected)].id, empty);
             if (!ammo.empty()) {

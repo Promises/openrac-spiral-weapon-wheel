@@ -5,6 +5,7 @@
 // index, its three distances for an item's), over many pointer angles, item counts, both
 // directions, start angles and depths; then the wheel's layout (wheel.hpp) and its stick
 // (UpdatePointer.gek) and opening (UpdateMenu.gek).
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -12,6 +13,7 @@
 #include <vector>
 
 #include "spiral/arrange.hpp"
+#include "spiral/glyph.hpp"
 #include "spiral/spiral.hpp"
 #include "spiral/wheel.hpp"
 
@@ -330,54 +332,55 @@ int index_of(const std::vector<spiral::Item>& slots, std::int32_t id) {
 
 void test_home_ring() {
     const std::vector<std::int32_t> ring = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
-    // Counter-clockwise from 12 o'clock (the defaults): the cardinals exactly; the diagonals to the
-    // slot nearer the vertical (45 -> 60, -45 -> -60, -135 -> -120, 135 -> 120); slot 0's item
-    // (up) meets "None" there and goes one loop out at the same angle (index 11).
+    // Counter-clockwise from 12 o'clock (the defaults): item slot 0 is on the start angle (no
+    // "None"); the cardinals exactly; the diagonals to the slot nearer the vertical (45 -> 60,
+    // -45 -> -60, -135 -> -120, 135 -> 120).
     {
         spiral::Options o;
-        std::vector<std::string> notes;
-        const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05, 0x06}), o, &notes);
-        const int expect[8] = {11, 10, 8, 6, 5, 4, 2, 0};
+        const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05, 0x06}), o);
+        const int expect[8] = {0, 11, 9, 7, 6, 5, 3, 1};
         for (int i = 0; i < 8; ++i) {
             CHECK(index_of(slots, ring[static_cast<std::size_t>(i)]) == expect[i]);
         }
-        CHECK(notes.size() == 1 && notes[0].find("0x10") != std::string::npos);
-        // The others fill the first loop's free slots in order (1, 3, 7, 9), then outward (12, 13).
-        CHECK(index_of(slots, 0x01) == 1 && index_of(slots, 0x02) == 3 && index_of(slots, 0x03) == 7);
-        CHECK(index_of(slots, 0x04) == 9 && index_of(slots, 0x05) == 12 && index_of(slots, 0x06) == 13);
+        // The others fill the first loop's free slots in order (2, 4, 8, 10), then outward (12, 13).
+        CHECK(index_of(slots, 0x01) == 2 && index_of(slots, 0x02) == 4 && index_of(slots, 0x03) == 8);
+        CHECK(index_of(slots, 0x04) == 10 && index_of(slots, 0x05) == 12 && index_of(slots, 0x06) == 13);
         CHECK(slots.size() == 14u);
     }
-    // Every direction lands within 15 degrees of its slot (exactly for the cardinals when the start
-    // angle is a multiple of 30), both directions, other start angles; no two items share a slot;
-    // only a direction that is "None"'s goes one loop out.
+    // Every direction within 15 degrees of its slot (exactly for the cardinals when the start angle
+    // is a multiple of 30), both directions, other start angles; all eight on the first loop; no two
+    // items share a slot.
     for (bool clockwise : {false, true}) {
         for (float start : {90.0f, 0.0f, 150.0f, -60.0f, -45.0f, 200.0f}) {
             spiral::Options o;
             o.clockwise = clockwise;
             o.start_deg = start;
-            std::vector<std::string> notes;
-            const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05}), o, &notes);
-            int moved = 0;
+            const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05}), o);
             for (int i = 0; i < 8; ++i) {
                 const int index = index_of(slots, ring[static_cast<std::size_t>(i)]);
                 const float want = 90.0f - 45.0f * static_cast<float>(i);
                 const float off = std::fabs(std::remainder(spiral::slot_angle(index, o) - want, 360.0f));
                 CHECK(off <= 15.01f);
-                const bool multiple = std::fabs(std::remainder(start, 30.0f)) < 0.01f;
-                if (multiple && i % 2 == 0) {
+                if (std::fabs(std::remainder(start, 30.0f)) < 0.01f && i % 2 == 0) {
                     CHECK(off < 0.01f);
                 }
-                if (index == spiral::kFirstLoop) {
-                    ++moved;
-                    CHECK(std::fabs(std::remainder(spiral::slot_angle(-1, o) - want, 360.0f)) <= 15.01f);
-                } else {
-                    CHECK(index >= 0 && index < spiral::kFirstLoop);
-                }
+                CHECK(index >= 0 && index < spiral::kFirstLoop);
             }
-            CHECK(moved == static_cast<int>(notes.size()) && moved <= 1);
             for (std::int32_t id : {0x01, 0x02, 0x03, 0x04, 0x05}) {
                 index_of(slots, id);
             }
+            // The wheel draws slot i where slot_angle says.
+            spiral::Look look;
+            look.spiral = o;
+            spiral::Wheel w;
+            auto items = slots;
+            items[0].equipped = items[0].id != 0;
+            w.open(items, look);
+            w.advance(1.0f);
+            const float drawn = spiral::tile(spiral::pointer(static_cast<int>(items.size()), w.input(), w.spiral_options()), 5,
+                                             w.spiral_options())
+                                    .angle_deg;
+            CHECK(std::fabs(std::remainder(drawn - spiral::slot_angle(5, o), 360.0f)) < 0.01f);
         }
     }
     // Empty quick select slots leave their places to the others; with few others, holes (id 0)
@@ -385,30 +388,174 @@ void test_home_ring() {
     {
         spiral::Options o;
         const auto slots = spiral::arrange(home_ring({0x10, 0, 0x12, 0, 0, 0, 0x15, 0}), others({0x01}), o);
-        CHECK(index_of(slots, 0x10) == 11 && index_of(slots, 0x12) == 8 && index_of(slots, 0x15) == 2);
-        CHECK(index_of(slots, 0x01) == 0);  // the first free slot
+        CHECK(index_of(slots, 0x10) == 0 && index_of(slots, 0x12) == 9 && index_of(slots, 0x15) == 3);
+        CHECK(index_of(slots, 0x01) == 1);  // the first free slot
         int holes = 0;
         for (const spiral::Item& it : slots) {
             holes += it.id == 0;
         }
-        CHECK(slots.size() == 12u && holes == 8);
-        // A hole is drawn and picked as a blank: no border, no icon, not lit, no click.
+        CHECK(slots.size() == 10u && holes == 6);
+        // A hole, and the spiral's slot before the first item (Prey Menu's "None"), are blanks: no
+        // border, no icon, not lit, not picked.
         spiral::Look look;
         spiral::Wheel w;
         auto items = slots;
         items[static_cast<std::size_t>(index_of(slots, 0x12))].equipped = true;
         w.open(items, look);
         w.advance(1.0f);
-        CHECK(w.selected() == 8);
-        CHECK(!w.step(-1) && w.selected() == 7 && !w.is_item_or_none(7));
+        CHECK(w.selected() == 9);
+        CHECK(!w.step(-1) && w.selected() == 8 && !w.is_item(8));
         int borders = 0, lit = 0;
         for (const spiral::Sprite& sp : w.frame().sprites) {
-            borders += sp.art != spiral::Art::Sector && sp.art != spiral::Art::Pointer && sp.art != spiral::Art::Info &&
-                       sp.art != spiral::Art::Badge;
+            borders += sp.art == spiral::Art::Border || sp.art == spiral::Art::BorderEq || sp.art == spiral::Art::BorderHot ||
+                       sp.art == spiral::Art::BorderEqHot;
             lit += sp.art == spiral::Art::Sector && sp.grey > 0.0f;
         }
-        CHECK(borders == 5 && lit == 0);  // 4 items and "None"; the pointer on a hole
-        CHECK(w.frame().icons.size() == 4u);
+        CHECK(borders == 4 && lit == 0);  // the 4 items, no "None"
+        CHECK(!w.is_item(-1));
+    }
+}
+
+// A synthetic HUD icon, as the game's look: a diagonal two-tone ground (lighter top left), a
+// near-black glyph (a ring of radii `inner` to `outer` about the middle, and a bar), the edge
+// anti-aliased by 4 x 4 supersampling; `corner_glyph` puts glyph in the top-right corner.
+spiral::Picture synthetic_icon(const std::uint8_t ground[3], float inner, float outer, bool corner_glyph) {
+    spiral::Picture p;
+    p.width = p.height = 32;
+    p.rgba.resize(32 * 32 * 4);
+    for (int y = 0; y < 32; ++y) {
+        for (int x = 0; x < 32; ++x) {
+            float ink = 0.0f;
+            for (int sy = 0; sy < 4; ++sy) {
+                for (int sx = 0; sx < 4; ++sx) {
+                    const float fx = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / 4.0f - 16.0f;
+                    const float fy = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / 4.0f - 16.0f;
+                    const float r = std::sqrt(fx * fx + fy * fy);
+                    const bool in = (r >= inner && r <= outer) || (std::fabs(fx) < 1.5f && fy > 6.0f && fy < 14.0f) ||
+                                    (corner_glyph && fx > 9.0f && fy < -9.0f);
+                    ink += in ? 1.0f / 16.0f : 0.0f;
+                }
+            }
+            const float shine = 1.0f - 0.25f * static_cast<float>(x + y) / 62.0f;  // the gradient
+            std::uint8_t* o = &p.rgba[static_cast<std::size_t>(y * 32 + x) * 4];
+            for (int k = 0; k < 3; ++k) {
+                const float g = static_cast<float>(ground[k]) * shine;
+                o[k] = static_cast<std::uint8_t>(std::lround(g * (1.0f - ink) + 15.0f * ink));
+            }
+            o[3] = 255;
+        }
+    }
+    return p;
+}
+
+void test_glyphs() {
+    // PSMT8 with a CSM1 palette: index 8 reads entry 16, index 16 entry 8; alpha 0x80 is opaque.
+    {
+        std::vector<std::uint8_t> palette(1024, 0);
+        palette[16 * 4 + 0] = 200;
+        palette[16 * 4 + 3] = 0x80;
+        palette[8 * 4 + 1] = 100;
+        palette[8 * 4 + 3] = 0x40;
+        const std::uint8_t indices[4] = {8, 16, 0, 8};
+        const spiral::Picture p = spiral::decode_psmt8(indices, 2, 2, palette.data());
+        CHECK(p.rgba[0] == 200 && p.rgba[3] == 255);
+        CHECK(p.rgba[5] == 100 && p.rgba[7] == 128);
+    }
+    const std::uint8_t blue[3] = {110, 115, 221};
+    const std::uint8_t green[3] = {105, 215, 108};
+    // A ring glyph on blue: the tint is the top-right corner's ground, the glyph cut out, cropped to
+    // the ring (radius 11: 22 pixels and a pixel of room each side, four times as big), near black,
+    // its edge smooth: along the ring the drawn radius varies by under a big pixel.
+    {
+        const spiral::Glyph g = spiral::make_glyph(synthetic_icon(blue, 8.0f, 11.0f, false));
+        CHECK(g.ok && g.tint_from_corner);
+        // The corner two pixels in is the ground there, a little darker than at the top left.
+        CHECK(std::abs(g.tint[0] - 110 * 0.82) < 10 && std::abs(g.tint[2] - 221 * 0.82) < 12);
+        CHECK(g.picture.width >= 22 * 4 && g.picture.width <= 26 * 4);
+        CHECK(g.picture.rgba[0] < 40);  // the glyph's own dark colour
+        // The ring's outer edge: where alpha crosses half, in 64 directions about the centre.
+        // The ring's centre (16, 16) in the crop: it starts a pixel before the ring's left and top
+        // (16 - 11 - 1 = 4), four big pixels to a pixel.
+        const float cx = (16.0f - 4.0f) * 4.0f, cy = cx;
+        float lo = 1e9f, hi = 0.0f;
+        for (int k = 0; k < 64; ++k) {
+            const float a = static_cast<float>(k) * 2.0f * spiral::kPi / 64.0f;
+            if (std::sin(a) < -0.3f) {
+                continue;  // not across the bar (below the centre: y grows downward)
+            }
+            float edge = 0.0f;
+            for (float r = 0.0f; r < cx; r += 0.25f) {
+                const int x = static_cast<int>(cx + r * std::cos(a)), y = static_cast<int>(cy - r * std::sin(a));
+                if (x < 0 || y < 0 || x >= g.picture.width || y >= g.picture.height) {
+                    break;
+                }
+                if (g.picture.rgba[static_cast<std::size_t>(y * g.picture.width + x) * 4 + 3] >= 128) {
+                    edge = r;
+                }
+            }
+            lo = std::min(lo, edge);
+            hi = std::max(hi, edge);
+        }
+        CHECK(hi > 0.0f && hi - lo < 4.0f);  // within a source pixel all round (4 big pixels)
+        CHECK(std::fabs((lo + hi) / 2.0f - 11.0f * 4.0f) < 4.0f);
+    }
+    // The glyph in the top-right corner: the tint from the ring's brighter half instead.
+    {
+        const spiral::Glyph g = spiral::make_glyph(synthetic_icon(green, 8.0f, 11.0f, true));
+        CHECK(g.ok && !g.tint_from_corner);
+        CHECK(g.tint[1] > 150 && g.tint[0] < 120);
+    }
+    // No glyph (a flat square): not one.
+    {
+        spiral::Picture flat = synthetic_icon(blue, 100.0f, 101.0f, false);
+        for (std::size_t i = 0; i < flat.rgba.size(); i += 4) {
+            flat.rgba[i] = 110;
+            flat.rgba[i + 1] = 115;
+            flat.rgba[i + 2] = 221;
+        }
+        CHECK(!spiral::make_glyph(flat).ok);
+    }
+    // The cell's shade: the same hue, darker and a little greyer.
+    {
+        float out[3];
+        spiral::shade(blue, spiral::kCellValue, spiral::kCellSaturation, out);
+        CHECK(out[2] > out[0] && out[2] < 221.0f / 255.0f * 0.6f && out[2] - out[0] < (221.0f - 110.0f) / 255.0f);
+    }
+    // In the wheel: a glyph is a sprite fitted inside the sector's square by its larger side, and the
+    // cell takes the shaded tint; the game's icon is not drawn for it.
+    {
+        std::vector<spiral::Item> items(3);
+        for (int i = 0; i < 3; ++i) {
+            items[static_cast<std::size_t>(i)].id = 0x20 + i;
+            items[static_cast<std::size_t>(i)].icon = 0x100 + i;
+        }
+        items[0].equipped = true;
+        items[1].glyph = 77;
+        items[1].glyph_width = 100;
+        items[1].glyph_height = 50;
+        items[1].tinted = true;
+        std::copy(blue, blue + 3, items[1].tint);
+        spiral::Look look;
+        spiral::Wheel w;
+        w.open(items, look);
+        w.advance(1.0f);
+        const spiral::Frame f = w.frame();
+        CHECK(f.icons.size() == 2u);  // items 0 and 2: the game's own icons
+        bool glyph = false, tinted = false;
+        for (const spiral::Sprite& sp : f.sprites) {
+            if (sp.art == spiral::Art::Glyph) {
+                glyph = true;
+                const float box = spiral::kSize * spiral::kGlyphSquare * (1.0f - 2.0f * spiral::kGlyphPadding);
+                CHECK(sp.image == 77 && near(sp.w, box) && near(sp.h, box / 2.0f));
+            }
+            if (sp.art == spiral::Art::Sector && sp.coloured) {
+                tinted = true;
+                float want[3];
+                spiral::shade(blue, spiral::kCellValue, spiral::kCellSaturation, want);
+                CHECK(near(sp.rgb[2], want[2]));
+            }
+        }
+        CHECK(glyph && tinted);
     }
 }
 
@@ -421,6 +568,7 @@ int main() {
     test_stick_and_opening();
     test_wheel_frame();
     test_home_ring();
+    test_glyphs();
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -166,6 +166,7 @@ int picture_for(const spiral::Sprite& s) {
         case spiral::Art::Pointer: return g_art.pointer;
         case spiral::Art::Info: return g_art.info;
         case spiral::Art::Badge: return s.badge >= 1 && s.badge <= 8 ? g_art.badge[s.badge] : 0;
+        case spiral::Art::Glyph: return s.image;
     }
     return 0;
 }
@@ -189,9 +190,11 @@ void draw_overlay(void*, const openrac_overlay* overlay) {
         }
         const float x = 256.0f + s.x * 512.0f / aspect;
         const float y = 224.0f + s.y * 448.0f;
-        const auto grey = static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(s.grey, 0.0f), 1.0f) * 255.0f));
-        const auto alpha = static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(s.alpha, 0.0f), 1.0f) * 255.0f));
-        const std::uint32_t rgba = (grey << 24) | (grey << 16) | (grey << 8) | alpha;
+        auto byte = [](float v) { return static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(v, 0.0f), 1.0f) * 255.0f)); };
+        const std::uint32_t r = byte(s.coloured ? s.rgb[0] : s.grey);
+        const std::uint32_t g = byte(s.coloured ? s.rgb[1] : s.grey);
+        const std::uint32_t b = byte(s.coloured ? s.rgb[2] : s.grey);
+        const std::uint32_t rgba = (r << 24) | (g << 16) | (b << 8) | byte(s.alpha);
         openrac::overlay_image(overlay, id, x, y, s.w * 448.0f, s.h * 448.0f, s.angle_deg * kPi / 180.0f, rgba);
     }
 }
@@ -319,6 +322,11 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     g.play_click = [bank] { bank(0, 1, 0); };
     // The slow-down before the pause: the port's slow motion (interface 1.35).
     g.time_stretch = [m](float stretch) { m->time_stretch(stretch); };
+    // The items' glyphs, made from the player's own game as it runs, as overlay pictures.
+    g.create_image = [m](int width, int height, const std::uint8_t* rgba) {
+        return m->overlay_image_create(width, height, rgba, true);
+    };
+    g.destroy_image = [m](int image) { m->overlay_image_destroy(image); };
 
     // The math: Ratchet & Clank's own where its build has them by these names.
     if (const auto f = optional_function<float (*)(float)>(mod, n.square_root)) g.square_root = f;
@@ -394,4 +402,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.0.3", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.1.0", load)

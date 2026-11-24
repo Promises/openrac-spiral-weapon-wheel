@@ -173,4 +173,8 @@ Ratchet & Clank and Ratchet & Clank: Going Commando are trademarks of Sony Inter
 Entertainment, developed by Insomniac Games. This mod is not affiliated with or endorsed by
 either, and contains none of their code or assets: the decompiled code it copies is the
 decompilation projects' reconstruction, and the game runs from the player's own disc. The items'
-icons, names and font the wheel shows are read from the player's game as it runs.
+names and font the wheel shows are read from the player's game as it runs, and so are its glyphs:
+each is made at run time from the player's own game data (the HUD icon in game memory, decoded,
+keyed and redrawn: `src/spiral/glyph.cpp`) and lives only in the running game. No icon, glyph or
+other picture of the game's is shipped with the mod, kept in this repository, or used by its
+tests, which draw synthetic icons.

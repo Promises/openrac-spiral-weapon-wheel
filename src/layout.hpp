@@ -93,6 +93,20 @@ constexpr std::uint32_t kCellKind = 0x4u;
 constexpr std::uint32_t kCellItem = 0x6u;
 constexpr int kWeaponCells = 15;
 constexpr int kGadgetCells = 6;
+// hud_state (the HUD's arena, games/rac1/decomp src/game/ui/hud.c:512-700): +0x20 the frames'
+// {palette, image} index pairs (s16 each), +0x24 the image pages and +0x28 the palette pages, 8
+// bytes each: the pixels' and colours' address in game memory (bit 31 set while the bank is not
+// linked), then the page's GS block, and for an image its log2 width and height. A frame's image is
+// 8-bit indices (PSMT8), its palette 256 RGBA32 colours in CSM1 order (GetFrameTex's TEX0).
+constexpr std::uint32_t kHudFrames = 0x20u;
+constexpr std::uint32_t kHudImages = 0x24u;
+constexpr std::uint32_t kHudPalettes = 0x28u;
+// The health meter's HUD record (show_health_hud: queue_animation_update(1, 0x7535, ...)): slot 1,
+// two records before the quick select's (slot 3), its handle 0x7535.
+constexpr std::int32_t kHealthHandle = 0x7535;
+constexpr std::uint32_t kRecordBytes = 0x90u;
+constexpr std::uint32_t kRecordUpdate = 0x34u;
+constexpr std::uint32_t kRecordTimeout = 0x7Cu;
 // The wrench: the hand's item with no weapon (hero_update_transitions' quick swap: item 8 in hand
 // swaps to the last weapon).
 constexpr std::int32_t kWrench = 8;
@@ -125,6 +139,7 @@ struct Disc {
     std::uint32_t item_available;     // item_available: owned, a byte per item
     std::uint32_t weapon_cells;       // the Quick Select page's weapons grid, 15 cells
     std::uint32_t gadget_cells;       // its hand gadgets grid, 6 cells
+    std::uint32_t hud_state;          // hud_state, the HUD's arena
     // --- Level 0's data ---
     std::uint32_t item_defs;
     std::uint32_t item_price;
@@ -178,6 +193,7 @@ inline Disc disc_for(bool ntsc) {
         d.item_available = 0x0013D4C0u;
         d.weapon_cells = 0x001CF120u;
         d.gadget_cells = 0x001CEC20u;
+        d.hud_state = 0x0019A3E8u;  // names_ntsc.tsv: hud_state at US 0x0019A3E8
         d.item_defs = 0x00179AC0u;
         d.item_price = 0x001C40B0u;
         d.slot_tables = 0x0015FAC0u;
@@ -225,6 +241,7 @@ inline Disc disc_for(bool ntsc) {
         d.item_available = 0x0013D5C8u;
         d.weapon_cells = 0x001CF4A0u;
         d.gadget_cells = 0x001CEFA0u;
+        d.hud_state = 0x0019A4E8u;  // hud_state D_0019A4E8
         d.item_defs = 0x00179BC0u;
         d.item_price = 0x001C43B0u;
         d.slot_tables = 0x0015FB78u;
