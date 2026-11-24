@@ -20,10 +20,11 @@ Clank's own. The Devastator here is a gold one.*
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
 - **The spiral.** Everything you can put on your quick select (the weapons and gadgets of the pause
-  menu's Quick Select page) lies on a spiral, twelve to a loop. Your own quick select is the home
-  ring: its eight items sit on the first loop in the directions they have on the game's ring, so
-  the stick points where you know them (the first push of each opening lands on that loop); the
-  others fill the free slots, then the next loops. The spiral winds inward, each slot a little
+  menu's Quick Select page) lies on a spiral, twelve to a loop. Your own quick select comes first:
+  its items in their numbers' order, 1 on the start angle (12 o'clock), then 2, 3 ... 8 as the
+  next slots (an empty quick select slot is skipped, not left as a gap); the others follow (the
+  weapons, then the gadgets, then items mods add), on into the next loops. The first push of each
+  opening lands on the item in the pushed direction on the first loop. The spiral winds inward, each slot a little
   further in than the one before. Turn the stick around and the pointer goes round and round through
   the loops; twelve slots are shown whole and the ones beyond fade out either side. With "Spiral
   motion" *Continuous* (the default) the spiral follows the pointer all the time, as Prey Menu's
@@ -55,11 +56,11 @@ Clank's own. The Devastator here is a gold one.*
 | Ease back on close | off | On, the game's time eases back up as the wheel closes, the way it slowed down. |
 | Open and close | Hold | *Hold*: let go of Triangle to pick. *Toggle*: the wheel stays up when you let go; press Triangle again to pick. |
 | Hold before pausing | A little longer | How long Triangle is held before the wheel opens. *Going Commando* is its own 4 frames, *A little longer* 8 frames (so taps and double taps don't open it), *Longer* 12. On PAL: 3, 7, 10. |
-| Size | 1 | 0.5 to 1.5. At 1 the home ring is the design's size as it fits any screen with a margin. With *Spiral grows* Outward the later loops grow past the screen's edge (they are meant to); Inward keeps the design's drawing inside the screen. |
+| Size | 1 | 0.5 to 1.5. At 1 the first loop is the design's size as it fits any screen with a margin. With *Spiral grows* Outward the later loops grow past the screen's edge (they are meant to); Inward keeps the design's drawing inside the screen. |
 | Start angle | 90 | Where the spiral starts, in degrees counter-clockwise from 3 o'clock (90 is 12 o'clock). |
 | Clockwise | off | Which way the spiral turns: off, counter-clockwise (Prey Menu's default); on, clockwise (the design's drawing). |
 | Spiral grows | Outward | *Outward* (as 1.0 and 1.1 had it): your quick select's ring is the innermost, the other items spiral further out. *Inward* (the design's drawing): the quick select's ring is outermost, the others spiral in. |
-| Spiral motion | Continuous | *Continuous*: the spiral follows the pointer (Prey Menu's way). Outward, the home ring holds still while the pointer is on it, so all of it shows whole; past it the pointer sits in the middle of the ring, the 6 slots either side whole and fading beyond. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
+| Spiral motion | Continuous | *Continuous*: the spiral follows the pointer (Prey Menu's way). Outward, the first loop (the quick select's) holds still while the pointer is on it, so all of it shows whole; past it the pointer sits in the middle of the ring, the 6 slots either side whole and fading beyond. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
 | Spiral depth | 0.75 | How far in each slot is from the one before: the design's 11 pixels (of 720) at 0.75 and below, less above it, down to 5 at 1. |
 | Click sound | off | A sound as the pointer moves to another item (Ratchet & Clank's quick select is silent; this is a stand-in). |
 | Debug: preview (temporary) | Off | For testing the look: *Gold Visibomb Gun*, *All weapons gold* draw those as gold; *Everything* shows every Quick Select weapon and gadget, owned or not, and the ten gold weapons as entries of their own. The wheel only: letting go on a preview entry picks nothing. Removed before a release. |
@@ -118,7 +119,7 @@ Ratchet & Clank PAL and NTSC-U.
     loop, the spiral eases there (0.06 s), turning the way the pointer went. That is *Inward*,
     the design's drawing, held inside the screen. *Outward* (the default) mirrors the radii (the
     shown ring's first slot 163 out, its last 284) and grows on past the screen's edge with no cap;
-    nothing is drawn inside 130 (the middle disc). Its *Continuous* holds the home ring still while
+    nothing is drawn inside 130 (the middle disc). Its *Continuous* holds the first loop still while
     the pointer is on the first loop and then keeps the pointer 6 into the ring, so the ring shown
     and the 6 slots either side of the pointer are whole, fading over the 6 beyond. The blanks are
     drawn only where they link the last item, when it shows, on round to item 0: never a ring of
@@ -144,14 +145,17 @@ Ratchet & Clank PAL and NTSC-U.
   - The painter (`src/spiral/paint.cpp`) draws it all as quads of four pictures it makes as the
     mod loads (the scanlines, white, the badge, the pointer) and the glyphs: the panels in strips
     of a few degrees, the frame's four strokes centred on each edge, widest first.
-- **The order**: the game's quick select first, each item at the first loop's slot nearest its
-  direction on the game's ring (`draw_hud_item_selector_panel`: slot 0 at the top, the others
-  clockwise, 45 degrees apart). The first loop is the 12 slots from the start angle on (item 0 on
-  it). The cardinal directions fit the 30-degree slots exactly; a diagonal goes to the slot nearer
-  the vertical (45 to 60, 135 to 120, -45 to -60, -135 to -120), so the two beside one side never
-  meet. The others follow: the first loop's free slots in order, then outward. The first push of
-  an opening points at the first loop's slot in the stick's direction; after it the stick turns
-  the pointer as Prey Menu's does.
+- **The order** (1.4.6): the game's quick select first, in its numbers' order: quick select 1 at
+  index 0 (on the start angle), 2 at index 1, and so on. An empty quick select slot is skipped
+  (the next number takes its place), so there are no gaps. Then the rest in the providers' order:
+  the Quick Select page's weapons grid, its gadgets grid, the registered items, other providers'
+  (and, with the debug preview's Everything, the preview entries among them). 1.0.3 to 1.4.5 put
+  each quick select item at the first loop's slot nearest its direction on the game's ring
+  instead; with the slots growing per slot, the late ones read as an outer ring, so that was
+  dropped. The wheel opens on the item in hand; the first push of an opening points at the first
+  loop's slot in the stick's direction (onto the nearest item if that slot has none); after it the
+  stick turns the pointer as Prey Menu's does, and the d-pad steps through the items in index
+  order.
 - **The glyphs** come from icon packs ([ICONS.md](ICONS.md) is the guide for making one). The
   mod's own glyphs are a pack (`assets/glyphs/rac1/`: 38 original SVG drawings and their
   `icons.json`), read by the same loader as any other. Packs from other mods
@@ -206,7 +210,7 @@ Ratchet & Clank PAL and NTSC-U.
 | The spiral: 12 a loop, the pointer turning with the stick, the wrap, the settings | Prey Menu's scripts and menu |
 | The look: menu panels on a continuous spiral, the washes, frames, glints, badges, the pointer, the middle panel, the fades either side | the user's design, after Ratchet & Clank's menus |
 | What the Quick Select page can assign, like Prey's favourites | the mod's own choice; the rule is the game's |
-| The quick select as the home ring, the diagonals' rounding, the first push on that loop | the mod's own choice |
+| The quick select first in its numbers' order, empty slots skipped; the first push on the first loop | the mod's own choice (the user's) |
 | The glyphs: original drawings, in an icon pack any mod can add to | the user's drawings and choice |
 | The categories' colours | the game's own icon grounds (sampled by the user); weapon and gadget the design's |
 | Glyphs for items without a drawing, from the player's own disc data, keyed in the palette | the mod's own, from the HUD format (OpenRAC, after ReRAC) and the decompilation |
@@ -252,9 +256,9 @@ fails by name.
 | The first push lands on an item, never an empty slot; the d-pad skips empty slots; ties go to items | 1.4.4 | `regression_first_push`, `regression_dpad_skips`, `regression_ties_to_items` |
 | Hold vs Toggle | 1.0.0 | `test_toggle` |
 | The items: the Quick Select page's only, plus registered and provided items | 1.0.2 / 1.4.0 | `test_items`, `test_many_items` |
-| The home ring at its ring directions, innermost (Spiral grows: Outward) | 1.0.3 (fixed 1.4.3) | `regression_home_ring` |
+| The quick select first, in its numbers' order from index 0, empty quick select slots skipped, the rest after (replaces 1.0.3's ring directions) | 1.4.6 | `regression_quick_select_order` |
 | The defaults: counter-clockwise, Outward, Continuous; Size 0.5 to 1.5 | 1.4.5 | `regression_defaults` |
-| The ring whole: all 8 of the quick select at full when the wheel opens on any of them, 6 either side of the pointer whole, blanks only linking the last item round (Outward, Continuous) | 1.4.5 | `regression_ring_whole` |
+| The first loop whole: all 8 of the quick select at full when the wheel opens on any of them, 6 either side of the pointer whole, blanks only linking the last item round (Outward, Continuous) | 1.4.5 | `regression_ring_whole` |
 | No "None" | 1.1.0 | `regression_no_none` |
 | The selection through the loops | 1.0.0 | `test_spiral_selection` |
 | Health orbs hidden and restored on every path | 1.1.1 | `test_health_hidden` |

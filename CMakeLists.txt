@@ -57,7 +57,7 @@ set(gc_copied
   src/gc/hero_update_hit_streak_effect.c
   src/gc/gfx_render_frame_extra_layers.c
   src/gc/func_0029CE38.c)
-set(gc_layer src/gc/rac1_shim.cpp src/gc/rac1_spiral.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp
+set(gc_layer src/gc/rac1_shim.cpp src/gc/rac1_spiral.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/glyph.cpp
   src/spiral/paint.cpp src/spiral/icon_packs.cpp src/spiral/json.cpp src/rac1/hud_set.cpp src/rac1/wad.cpp)
 set(gc_copied_options -w)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
@@ -98,7 +98,7 @@ configure_file(assets/glyphs/LICENSE-glyphs "${spiral_weapon_wheel_package}/asse
 # The spiral's math against Prey Menu's formulas, and the translation layer with the copied code on
 # a fake game (ctest; the workflow runs them on every platform).
 enable_testing()
-add_executable(spiral_test src/spiral_test.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp
+add_executable(spiral_test src/spiral_test.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/glyph.cpp
   src/spiral/paint.cpp)
 target_compile_features(spiral_test PRIVATE cxx_std_17)
 add_test(NAME spiral COMMAND spiral_test)

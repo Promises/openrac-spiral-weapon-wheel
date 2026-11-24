@@ -22,7 +22,6 @@
 
 #include "rac1_shim.hpp"
 #include "../rac1/hud_set.hpp"
-#include "../spiral/arrange.hpp"
 #include "../spiral/glyph.hpp"
 #include "../spiral/icon_packs.hpp"
 
@@ -184,18 +183,17 @@ std::vector<spiral::Item> Shim::collect_items() {
         }
         out.push_back(item);
     }
-    // The game's quick select is the home ring (arrange.hpp): slot i of its eight at the direction
-    // draw_hud_item_selector_panel draws it (games/rac1/decomp
-    // src/overlays/shared/weapon_hud_and_counters.c:1348-1353: FastAddRots(2 * i * pi / count - pi,
-    // pi / 2) with y down, so slot 0 at the top and the others clockwise: 90 - 45 * i degrees
-    // counter-clockwise from 3 o'clock); an empty slot leaves its place to the others.
-    // The debug preview's Everything: after each weapon with a gold version (kGoldWeapons), that
-    // version as an entry of its own (in the rest, where the weapon is or would be).
-    std::vector<spiral::HomeItem> home;
+    // (1.4.6) The game's quick select first, in its numbers' order (slot 1 at index 0, on the start
+    // angle, then 2, 3 ... as consecutive slots; an empty quick select slot takes no place), then the
+    // rest in the providers' order (the weapons grid, the gadgets grid, the registered items, the
+    // other providers'). The debug preview's Everything: after each weapon with a gold version
+    // (kGoldWeapons), that version as an entry of its own (in the rest, where the weapon is or
+    // would be).
+    std::vector<spiral::Item> home;
     std::vector<spiral::Item> rest;
     for (const spiral::Item& item : out) {
         if (item.hot > 0) {
-            home.push_back({item, 90.0f - 45.0f * static_cast<float>(item.hot - 1)});
+            home.push_back(item);
         } else {
             rest.push_back(item);
         }
@@ -208,7 +206,9 @@ std::vector<spiral::Item> Shim::collect_items() {
             rest.push_back(gold);
         }
     }
-    std::vector<spiral::Item> arranged = spiral::arrange(home, rest, m_wheel_options.look.spiral);
+    std::stable_sort(home.begin(), home.end(), [](const spiral::Item& a, const spiral::Item& b) { return a.hot < b.hot; });
+    std::vector<spiral::Item> arranged = std::move(home);
+    arranged.insert(arranged.end(), rest.begin(), rest.end());
     for (spiral::Item& item : arranged) {
         attach_glyph(item);
     }

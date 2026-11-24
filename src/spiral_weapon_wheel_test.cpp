@@ -424,12 +424,11 @@ constexpr std::int32_t kOwned[] = {0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0
                                    0x12, 0x13, 0x14, 0x15, 0x18, 0x02, 0x05, 0x06, 0x1C, 0x1E, 0x23};
 constexpr std::int32_t kItemsPage[] = {0x08, 0x02, 0x05, 0x06, 0x1C, 0x1E, 0x23};
 constexpr int kWheelItems = 14;
-// The wheel's order (arrange.hpp): the quick select (kItems, slot 3 empty) at its ring's directions
-// on the first loop, item 0 on the start angle (0x10 up at 0, 0x11 at 11, 0x12 at 9, 0x13 at 6,
-// 0x14 at 5, 0x15 at 3, 0x18 at 1), then the page's others (weapons grid, then gadgets) in the free
-// slots 2, 4, 7, 8, 10, then 12 and 13.
-constexpr std::int32_t kWheelOrder[kWheelItems] = {0x10, 0x18, 0x0A, 0x15, 0x0F, 0x14, 0x13,
-                                                   0x0E, 0x09, 0x12, 0x0B, 0x11, 0x0D, 0x0C};
+// The wheel's order (1.4.6): the quick select in its numbers' order from index 0 (kItems: 0x10,
+// 0x11, 0x12, its empty slot 4 skipped, 0x13, 0x14, 0x15, 0x18), then the page's others in the
+// grids' order (weapons, then gadgets).
+constexpr std::int32_t kWheelOrder[kWheelItems] = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x18,
+                                                   0x0A, 0x0F, 0x0E, 0x09, 0x0B, 0x0D, 0x0C};
 int wheel_index(std::int32_t id) {
     for (int i = 0; i < kWheelItems; ++i) {
         if (kWheelOrder[i] == id) {
@@ -786,7 +785,7 @@ void test_items() {
     set_up(f, true, false);
     const std::vector<spiral::Item> items = gc::shim().collect_items();
     CHECK_EQ(items.size(), static_cast<std::size_t>(kWheelItems));
-    // The Quick Select page's owned items, arranged around the quick select.
+    // The Quick Select page's owned items, the quick select's first in its order.
     for (std::size_t i = 0; i < items.size() && i < static_cast<std::size_t>(kWheelItems); ++i) {
         CHECK_EQ(items[i].id, kWheelOrder[i]);
         CHECK_EQ(items[i].icon, 0xE900 + kWheelOrder[i]);
@@ -815,7 +814,7 @@ void test_items() {
     CHECK(items[static_cast<std::size_t>(wheel_index(0x10))].equipped && !items[1].equipped);
     // The opening's line lists them in order.
     open_hud(f);
-    CHECK(f.logged("the wheel opens with 14 items: 0x10 0x18 0xA 0x15 0xF 0x14 0x13 0xE 0x9 0x12 0xB 0x11 0xD 0xC"));
+    CHECK(f.logged("the wheel opens with 14 items: 0x10 0x11 0x12 0x13 0x14 0x15 0x18 0xA 0xF 0xE 0x9 0xB 0xD 0xC"));
     // Every item has its glyph (a picture made from its icon, white: the look colours it) but 0x0C,
     // whose icon's bank is not linked: the game's own icon for it. The hand gadgets' grid's items
     // are gadgets (0x0C, 0x16, 0x1A...), the weapons grid's weapons.
@@ -825,14 +824,14 @@ void test_items() {
     }
     CHECK(f.white_glyphs);
     CHECK(f.logged("(frame 13, 32x32): not a glyph") == false);
-    // Each quick select item is drawn where the game's ring has it (slot i at 90 - 45 * i).
+    // (1.4.6) The quick select's items are the first slots in its numbers' order, the empty slot 4
+    // taking no place.
+    int rank = 0;
     for (int slot = 0; slot < 8; ++slot) {
-        if (kItems[slot] == 0) {
-            continue;
+        if (kItems[slot] != 0) {
+            CHECK_EQ(wheel_index(kItems[slot]), rank);
+            ++rank;
         }
-        const int index = wheel_index(kItems[slot]);
-        const float drawn = static_cast<float>(index * 30 + 90);
-        CHECK(std::fabs(std::remainder(drawn - (90.0f - 45.0f * static_cast<float>(slot)), 360.0f)) <= 15.01f);
     }
 }
 
@@ -1731,7 +1730,7 @@ void test_gold_label() {
 
 // (1.4.5, TEMPORARY with the setting) The debug preview's Everything: every Quick Select weapon and
 // gadget, owned or not, and a gold entry for each of the ten weapons the game sells gold (the gold
-// weapon case's table) after its weapon; the home ring the real quick select's as always. Letting
+// weapon case's table) after its weapon; the real quick select first as always. Letting
 // go on an item not owned or on a gold entry picks nothing (a log line says so), and the game's
 // state is not written; an owned item still picks.
 void test_everything() {
@@ -1766,8 +1765,8 @@ void test_everything() {
     }
     CHECK_EQ(gold, 10);      // the weapons grid holds all ten
     CHECK(unowned > 0);
-    // The quick select's items still on their ring directions; each gold entry right after its
-    // weapon along the path (past the home ring's slots), or after where it would be when that
+    // The quick select's items first; each gold entry right after its
+    // weapon along the path (past the quick select's slots), or after where it would be when that
     // weapon is on the quick select.
     std::vector<std::int32_t> home_ids;
     for (int i = 0; i < 8; ++i) {
@@ -1901,6 +1900,7 @@ void test_slow_down() {
 
     // Let go in the slow-down: the pick at once, no pause, the time back up from where it got to.
     f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
+    f.wr<std::int32_t>(f.d.hero + gcw::kHeroItem, 0x15);  // in hand: one on is 0x18
     const int freezes = f.freeze_inits;
     for (int i = 0; i < 30; ++i) {
         play(f, 0);
@@ -1917,7 +1917,7 @@ void test_slow_down() {
     }
     CHECK_EQ(f.freeze_inits, freezes);
     CHECK(!f.open() && !gc::shim().ramping() && f.stretch == 1.0f);
-    // One on from 0x10: 0x18, picked by its own rule (hero+0x1FF5).
+    // One on from 0x15: 0x18, picked by its own rule (hero+0x1FF5).
     CHECK_EQ(f.rd<std::uint8_t>(f.d.hero + gcw::kHeroItem18), 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
 
@@ -2079,14 +2079,14 @@ void test_paused_path() {
     CHECK_EQ(f.sound_updates, 2);
     // Held: phase 1 holds (the layer keeps g_modal_timer armed), the world too.
     float x, y;
-    stick_toward(60.0f, x, y);
+    stick_toward(120.0f, x, y);
     for (int i = 0; i < 30; ++i) {
         freeze(f, 0x10, i < 2 ? 0.0f : x, i < 2 ? 0.0f : y);
     }
     CHECK_EQ(modal(gc::kModalPhase), 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
-    // The stick at 60 degrees: 0x11, the game's slot 1 (up-right, nearer the vertical), one slot
-    // clockwise of 0x10 in hand at 12 o'clock.
+    // The stick at 120 degrees: 0x11, the quick select's 2, one slot counter-clockwise of 0x10 in
+    // hand at 12 o'clock.
     CHECK_EQ(selected(f), wheel_index(0x11));
     CHECK_EQ(f.play_ticks, ticks_before + held - 1);
     // Let go: phase 2 counts down, phase 3 ends: back to play, the sounds and the music on, the
@@ -2679,29 +2679,64 @@ void regression_dpad() {
     }
 }
 
-// The quick select's home ring: its items on the first loop at their ring directions, and, as
-// 1.0 to 1.1 had it (the "Spiral grows" default, outward), innermost, the rest further out.
-void regression_home_ring() {
-    Fake f;
-    set_up(f, true, false);
-    open_hud(f);
-    play(f, 0x10);
-    const spiral::Frame frame = gc::shim().picture().frame;
-    float home_max = 0.0f, rest_min = 1e9f;
-    for (const spiral::Slot& sl : frame.slots) {
-        if (sl.empty || sl.index < 0) {
-            continue;
+// (1.4.6) The quick select's order: its items at indices 0 to n-1 in their numbers' order (slot 1
+// on the start angle), an empty quick select slot taking no place, the rest after them in the
+// grids' order; the same with other quick selects (all eight, gaps elsewhere, none), and the wheel
+// still opens on the item in hand.
+void regression_quick_select_order() {
+    const std::int32_t layouts[][8] = {
+        {0x10, 0x11, 0x12, 0, 0x13, 0x14, 0x15, 0x18},     // the tests' own (slot 4 empty)
+        {0x0A, 0x0F, 0x0C, 0x15, 0x09, 0x0B, 0x12, 0x0D},  // all eight
+        {0, 0x0E, 0, 0, 0x09, 0, 0, 0x0A},                 // gaps, slot 1 empty
+        {0, 0, 0, 0, 0, 0, 0, 0},                          // none
+    };
+    for (const auto& layout : layouts) {
+        Fake f;
+        set_up(f, true, false);
+        std::vector<std::int32_t> want;
+        for (int i = 0; i < 8; ++i) {
+            f.wr<std::int32_t>(f.d.slot_items + 4u * static_cast<std::uint32_t>(i), layout[i]);
+            if (layout[i] != 0) {
+                want.push_back(layout[i]);
+            }
         }
-        const spiral::Item& it = gc::shim().wheel().items()[static_cast<std::size_t>(sl.index)];
-        (sl.index < 12 ? home_max : rest_min) =
-            sl.index < 12 ? std::max(home_max, sl.radius) : std::min(rest_min, sl.radius);
-        if (it.hot > 0) {
-            CHECK(sl.index < 12);  // on the first loop
-            const float want = 90.0f - 45.0f * static_cast<float>(it.hot - 1);
-            CHECK(std::fabs(std::remainder(sl.angle_deg - want, 360.0f)) <= 15.01f);
+        const std::size_t quick = want.size();
+        // The rest: the grids' owned items not on the quick select, in the grids' order.
+        auto add_rest = [&](const std::int32_t* cells, int count) {
+            for (int i = 0; i < count; ++i) {
+                const std::int32_t id = cells[i];
+                const bool owned = std::find(std::begin(kOwned), std::end(kOwned), id) != std::end(kOwned);
+                if (owned && std::find(want.begin(), want.end(), id) == want.end()) {
+                    want.push_back(id);
+                }
+            }
+        };
+        add_rest(kWeaponCellItems, 15);
+        add_rest(kGadgetCellItems, 6);
+        const std::vector<spiral::Item> items = gc::shim().collect_items();
+        CHECK_EQ(items.size(), want.size());
+        for (std::size_t i = 0; i < items.size() && i < want.size(); ++i) {
+            CHECK_EQ(items[i].id, want[i]);
+            CHECK(items[i].id != 0);  // no holes
+            CHECK((items[i].hot > 0) == (i < quick));
+            if (i > 0 && i < quick) {
+                CHECK(items[i].hot > items[i - 1].hot);  // the numbers' order
+            }
+        }
+        // Opened: on the item in hand (0x10 where it is listed), slot 1's item on the start angle.
+        open_hud(f);
+        play(f, 0x10);
+        const std::vector<spiral::Item>& in = gc::shim().wheel().items();
+        const auto hand = std::find_if(in.begin(), in.end(), [](const spiral::Item& it) { return it.id == 0x10; });
+        if (hand != in.end()) {
+            CHECK_EQ(selected(f), static_cast<int>(hand - in.begin()));
+        }
+        for (const spiral::Slot& sl : gc::shim().picture().frame.slots) {
+            if (sl.index == 0) {
+                CHECK(std::fabs(std::remainder(sl.angle_deg - 90.0f, 360.0f)) < 1e-3f);
+            }
         }
     }
-    CHECK(rest_min >= home_max - 1e-3f || rest_min == 1e9f);
 }
 
 // (1.4.5) The defaults as shipped (the manifest's, which the layer gets as they are): counter-
@@ -2982,7 +3017,7 @@ int run_regressions() {
         {"ties between an empty slot and an item go to the item", regression_ties_to_items},
         {"hold vs toggle", test_toggle},
         {"the items: the Quick Select page's only", test_items},
-        {"the home ring at its directions, innermost", regression_home_ring},
+        {"the quick select first, in its numbers' order, empty slots skipped", regression_quick_select_order},
         {"the defaults: counter-clockwise, outward, continuous, size 0.5 to 1.5", regression_defaults},
         {"the ring whole (all 8 at opening, 6 either side), blanks only linking", regression_ring_whole},
         {"no \"None\"", regression_no_none},

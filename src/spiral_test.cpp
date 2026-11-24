@@ -13,7 +13,6 @@
 #include <map>
 #include <vector>
 
-#include "spiral/arrange.hpp"
 #include "spiral/glyph.hpp"
 #include "spiral/spiral.hpp"
 #include "spiral/look.hpp"
@@ -871,8 +870,8 @@ void test_full_ring() {
                 }
             }
             if (at < 12) {
-                // The first loop (the quick select's home ring: its 8 are on it, wherever the
-                // arrangement puts them) whole, whichever of its items the wheel opens on.
+                // The first loop (the quick select's 8 are its first slots) whole, whichever of its
+                // items the wheel opens on.
                 for (int i = 0; i < 12; ++i) {
                     CHECK(drawn(i) && near(opacity[static_cast<std::size_t>(i)], 1.0f));
                 }
@@ -1006,130 +1005,6 @@ void test_paint() {
     CHECK(at(pointer, pointer.width / 2, pointer.height / 2, 3) == 255);
     CHECK(at(pointer, pointer.width / 2, pointer.height / 2, 0) == 0xE2);  // filled yellow
     CHECK(at(pointer, 0, 0, 3) == 0 && at(pointer, pointer.width - 1, 0, 3) == 0);  // the tip is narrow
-}
-
-// The game's quick select as the home ring: its eight items at the directions of its own ring
-// (slot i at 90 - 45 * i degrees: games/rac1/decomp draw_hud_item_selector_panel).
-std::vector<spiral::HomeItem> home_ring(const std::vector<std::int32_t>& ids) {
-    std::vector<spiral::HomeItem> out;
-    for (std::size_t i = 0; i < ids.size(); ++i) {
-        if (ids[i] != 0) {
-            spiral::HomeItem h;
-            h.item.id = ids[i];
-            h.item.hot = static_cast<int>(i) + 1;
-            h.angle_deg = 90.0f - 45.0f * static_cast<float>(i);
-            out.push_back(h);
-        }
-    }
-    return out;
-}
-
-std::vector<spiral::Item> others(std::initializer_list<std::int32_t> ids) {
-    std::vector<spiral::Item> out;
-    for (std::int32_t id : ids) {
-        spiral::Item it;
-        it.id = id;
-        out.push_back(it);
-    }
-    return out;
-}
-
-int index_of(const std::vector<spiral::Item>& slots, std::int32_t id) {
-    int found = -100, count = 0;
-    for (std::size_t i = 0; i < slots.size(); ++i) {
-        if (slots[i].id == id) {
-            found = static_cast<int>(i);
-            ++count;
-        }
-    }
-    CHECK(count == 1);  // no duplicates, none lost
-    return found;
-}
-
-void test_home_ring() {
-    const std::vector<std::int32_t> ring = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
-    // Counter-clockwise from 12 o'clock (the defaults): item slot 0 is on the start angle (no
-    // "None"); the cardinals exactly; the diagonals to the slot nearer the vertical (45 -> 60,
-    // -45 -> -60, -135 -> -120, 135 -> 120).
-    {
-        spiral::Options o;
-        const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05, 0x06}), o);
-        const int expect[8] = {0, 11, 9, 7, 6, 5, 3, 1};
-        for (int i = 0; i < 8; ++i) {
-            CHECK(index_of(slots, ring[static_cast<std::size_t>(i)]) == expect[i]);
-        }
-        // The others fill the first loop's free slots in order (2, 4, 8, 10), then outward (12, 13).
-        CHECK(index_of(slots, 0x01) == 2 && index_of(slots, 0x02) == 4 && index_of(slots, 0x03) == 8);
-        CHECK(index_of(slots, 0x04) == 10 && index_of(slots, 0x05) == 12 && index_of(slots, 0x06) == 13);
-        CHECK(slots.size() == 14u);
-    }
-    // Every direction within 15 degrees of its slot (exactly for the cardinals when the start angle
-    // is a multiple of 30), both directions, other start angles; all eight on the first loop; no two
-    // items share a slot.
-    for (bool clockwise : {false, true}) {
-        for (float start : {90.0f, 0.0f, 150.0f, -60.0f, -45.0f, 200.0f}) {
-            spiral::Options o;
-            o.clockwise = clockwise;
-            o.start_deg = start;
-            const auto slots = spiral::arrange(home_ring(ring), others({0x01, 0x02, 0x03, 0x04, 0x05}), o);
-            for (int i = 0; i < 8; ++i) {
-                const int index = index_of(slots, ring[static_cast<std::size_t>(i)]);
-                const float want = 90.0f - 45.0f * static_cast<float>(i);
-                const float off = std::fabs(std::remainder(spiral::slot_angle(index, o) - want, 360.0f));
-                CHECK(off <= 15.01f);
-                if (std::fabs(std::remainder(start, 30.0f)) < 0.01f && i % 2 == 0) {
-                    CHECK(off < 0.01f);
-                }
-                CHECK(index >= 0 && index < spiral::kFirstLoop);
-            }
-            for (std::int32_t id : {0x01, 0x02, 0x03, 0x04, 0x05}) {
-                index_of(slots, id);
-            }
-            // The wheel draws slot i where slot_angle says.
-            spiral::Look look = inward_look();
-            look.spiral = o;
-            spiral::Wheel w;
-            auto items = slots;
-            items[0].equipped = items[0].id != 0;
-            w.open(items, look);
-            w.advance(1.0f);
-            const float drawn = spiral::tile(spiral::pointer(static_cast<int>(items.size()), w.input(), w.spiral_options()), 5,
-                                             w.spiral_options())
-                                    .angle_deg;
-            CHECK(std::fabs(std::remainder(drawn - spiral::slot_angle(5, o), 360.0f)) < 0.01f);
-        }
-    }
-    // Empty quick select slots leave their places to the others; with few others, holes (id 0)
-    // stay in the first loop.
-    {
-        spiral::Options o;
-        const auto slots = spiral::arrange(home_ring({0x10, 0, 0x12, 0, 0, 0, 0x15, 0}), others({0x01}), o);
-        CHECK(index_of(slots, 0x10) == 0 && index_of(slots, 0x12) == 9 && index_of(slots, 0x15) == 3);
-        CHECK(index_of(slots, 0x01) == 1);  // the first free slot
-        int holes = 0;
-        for (const spiral::Item& it : slots) {
-            holes += it.id == 0;
-        }
-        CHECK(slots.size() == 10u && holes == 6);
-        // A hole, and the spiral's slot before the first item (Prey Menu's "None"), are blanks: no
-        // border, no icon, not lit, not picked.
-        spiral::Look look = inward_look();
-        spiral::Wheel w;
-        auto items = slots;
-        items[static_cast<std::size_t>(index_of(slots, 0x12))].equipped = true;
-        w.open(items, look);
-        w.advance(1.0f);
-        CHECK(w.selected() == 9);
-        // The d-pad (1.4.4) steps past the holes and blanks, to the next item.
-        CHECK(w.step(-1) && w.is_item(w.selected()) && w.selected() < 9);
-        int filled = 0, lit = 0;
-        for (const spiral::Slot& sl : w.frame().slots) {
-            filled += !sl.empty;
-            lit += sl.selected;
-        }
-        CHECK(filled == 4 && lit == 1);  // the 4 items (one pointed at), no "None"
-        CHECK(!w.is_item(-1));
-    }
 }
 
 // A synthetic HUD icon, as the game's look, indexed: a diagonal ground gradient (lighter top left), a
@@ -1288,7 +1163,6 @@ int main() {
     test_outward();
     test_full_ring();
     test_paint();
-    test_home_ring();
     test_glyphs();
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

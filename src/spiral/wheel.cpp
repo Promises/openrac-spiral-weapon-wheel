@@ -222,8 +222,8 @@ bool Wheel::steer(float x, float y, float deadzone) {
     const float length = std::sqrt(x * x + y * y);
     if (m_stick.first && length > 0.0f && length >= deadzone) {
         // (the mod's) The first push of an opening points on the first loop, where the game's own
-        // quick select has its items (arrange.hpp): the slot at the stick's direction there, not
-        // the nearest turn from the item in hand (UpdatePointer.gek's first input), which from item
+        // quick select has its items (its slots 1 to 8 first): the slot at the stick's direction
+        // there, not the nearest turn from the item in hand (UpdatePointer.gek's first input), which from item
         // 0 would go back into the blanks before it. Then the stick turns the pointer as Prey
         // Menu's.
         const Options o = m_look.spiral;
@@ -395,7 +395,7 @@ Frame Wheel::frame() const {
         }
         const Item* item = t.index >= 0 && t.index < n ? &m_items[static_cast<std::size_t>(t.index)] : nullptr;
         if (item != nullptr && item->id == 0) {
-            item = nullptr;  // a hole (arrange.hpp): a first-loop slot no item took
+            item = nullptr;  // a hole: drawn and picked as a blank
         }
         Slot s;
         s.index = t.index;

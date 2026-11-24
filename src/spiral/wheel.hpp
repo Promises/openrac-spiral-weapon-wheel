@@ -19,7 +19,7 @@ namespace spiral {
 
 // One item the wheel offers.
 struct Item {
-    std::int32_t id = 0;      // the game's item; 0 a hole (arrange.hpp)
+    std::int32_t id = 0;      // the game's item; 0 a hole (drawn and picked as a blank)
     std::int32_t icon = 0;    // the game's icon for it
     int hot = 0;              // its place on the game's own quick select, 1 to 8; 0 none
     bool equipped = false;    // in hand
@@ -174,7 +174,7 @@ public:
 
     // The pointed-at item (an index into items()), below 0 a blank.
     int selected() const;
-    // Whether slot `index` holds an item (not a blank or a hole: arrange.hpp).
+    // Whether slot `index` holds an item (not a blank or a hole).
     bool is_item(int index) const;
     // The spiral's own options for the look's: the first item on the start angle (Prey Menu's
     // "None" slot, one before it, is a blank here: the mod has no "None").
