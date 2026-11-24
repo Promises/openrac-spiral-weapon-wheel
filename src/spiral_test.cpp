@@ -241,6 +241,7 @@ void test_wheel_frame() {
         items.push_back(it);
     }
     spiral::Look look;
+    look.continuous = false;  // loop steps (the continuous motion: test_continuous)
     spiral::Wheel w;
     w.open(items, look);
     // Opened on the equipped item, zooming from nothing.
@@ -366,13 +367,73 @@ void test_wheel_frame() {
     // Fewer than 12 items: one loop, each slot once, no fading.
     std::vector<spiral::Item> few(items.begin(), items.begin() + 5);
     spiral::Wheel ring;
-    ring.open(few, spiral::Look{});
+    ring.open(few, look);
     ring.advance(1.0f);
     const spiral::Frame rf = ring.frame();
     CHECK(rf.slots.size() == 12u);
     for (const spiral::Slot& s : rf.slots) {
         CHECK(s.opacity == (s.empty ? 0.6f : 1.0f));
     }
+}
+
+// "Spiral motion" Continuous (the default): the spiral follows the pointer at all times, each slot's
+// radius and opacity by its distance from the pointer (the pointed-at slot 6 into the 12 shown
+// whole: radius 284 - 66), no easing and no snapping at a loop's end; switched live, the loop steps.
+void test_continuous() {
+    std::vector<spiral::Item> items(30);
+    for (int i = 0; i < 30; ++i) {
+        items[static_cast<std::size_t>(i)].id = 0x40 + i;
+    }
+    items[10].equipped = true;
+    spiral::Look look;
+    CHECK(look.continuous);
+    spiral::Wheel w;
+    w.open(items, look);
+    w.advance(1.0f);
+    auto radius_of = [&w](int index) {
+        for (const spiral::Slot& s : w.frame().slots) {
+            if (s.index == index) {
+                return s.radius;
+            }
+        }
+        return -1.0f;
+    };
+    auto opacity_of = [&w](int index) {
+        for (const spiral::Slot& s : w.frame().slots) {
+            if (s.index == index) {
+                return s.opacity;
+            }
+        }
+        return 0.0f;
+    };
+    CHECK(w.selected() == 10);
+    CHECK(near(radius_of(10), 284.0f - 66.0f));
+    CHECK(near(radius_of(4), 284.0f) && near(opacity_of(4), 1.0f));  // 6 before: the window's first
+    CHECK(near(radius_of(15), 284.0f - 11.0f * 11.0f) && near(opacity_of(15), 1.0f));  // 5 after
+    CHECK(near(opacity_of(3), 0.55f) && near(opacity_of(0), 0.22f) && opacity_of(29) == 0.0f);
+    CHECK(near(opacity_of(16), 0.50f) && near(opacity_of(18), 0.18f) && opacity_of(19) == 0.0f);
+    // Across a loop's end (11 to 12 and on) nothing snaps: each step moves every slot 11 out.
+    for (int target = 11; target <= 14; ++target) {
+        const float before = radius_of(13);
+        CHECK(w.step(1) && w.selected() == target);
+        CHECK(near(radius_of(13), before + 11.0f));  // no advance needed: no easing
+        CHECK(near(radius_of(target), 284.0f - 66.0f));
+    }
+    // The stick between two slots: the spiral half a step on.
+    const float r20 = radius_of(20);
+    float x = 0.0f, y = 0.0f;
+    const float at = (w.pointer_deg() + 15.0f * (w.look().spiral.clockwise ? -1.0f : 1.0f)) * spiral::kPi / 180.0f;
+    x = std::cos(at);
+    y = -std::sin(at);
+    w.steer(x, y, 0.0f);
+    CHECK(near(radius_of(20), r20 + 5.5f, 0.05f));
+    // Switched live to the loop steps: the pointer's loop at once (items 12 to 23), whole.
+    w.set_continuous(false);
+    CHECK(near(w.anchor(), 12.0f));
+    CHECK(near(radius_of(12), 284.0f) && near(opacity_of(23), 1.0f) && near(opacity_of(11), 0.55f));
+    // And back: following the pointer again.
+    w.set_continuous(true);
+    CHECK(near(radius_of(w.selected()), 284.0f - 66.0f, 6.0f));
 }
 
 // The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
@@ -389,8 +450,10 @@ void test_paint() {
     items[4].gadget = true;
     items[4].glyph_width = 100;
     items[4].glyph_height = 50;
+    spiral::Look look;
+    look.continuous = false;
     spiral::Wheel w;
-    w.open(items, spiral::Look{});
+    w.open(items, look);
     w.advance(1.0f);
     const spiral::Frame f = w.frame();
     const std::vector<spiral::Quad> quads = spiral::paint(f);
@@ -727,6 +790,7 @@ int main() {
     test_depth_and_fading();
     test_stick_and_opening();
     test_wheel_frame();
+    test_continuous();
     test_paint();
     test_home_ring();
     test_glyphs();

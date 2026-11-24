@@ -148,6 +148,7 @@ void read_settings(openrac::Mod& mod) {
     w.look.spiral.start_deg = static_cast<float>(mod.setting<int>("start_angle"));
     w.look.spiral.clockwise = mod.setting<bool>("clockwise");
     w.look.spiral.depth = static_cast<float>(mod.setting<double>("depth"));
+    w.look.continuous = mod.setting<std::string>("spiral_motion") != "loop_steps";
     w.toggle = mod.setting<std::string>("mode") == "toggle";
     w.ramp_frames = ramp_frames(mod.setting<std::string>("slowdown"));
     w.ease_back = mod.setting<bool>("ease_back");
@@ -341,4 +342,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.2.0", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.2.1", load)

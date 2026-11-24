@@ -79,11 +79,22 @@ struct Frame {
     float detail_y = 0;
 };
 
-// The look: the mod's settings (the size, and the spiral's start, direction and depth).
+// The look: the mod's settings (the size, the spiral's start, direction and depth, and how it
+// moves).
 struct Look {
     Options spiral;
     float scale = 1.0f;  // 1: the design's size (its 720 pixels a screen's height)
+    // How the spiral moves with the pointer ("Spiral motion"). Continuous: it follows the pointer
+    // at all times, as Prey Menu's does, the pointed-at slot kContinuousIn slots into the window
+    // the design shows whole (each slot's radius and opacity by its distance from the pointer).
+    // Loop steps: the pointer's loop is the window, and the spiral eases to the next loop as the
+    // pointer crosses into it.
+    bool continuous = true;
 };
+
+// Continuous motion: where the pointer sits in the 12 slots shown whole (6: the 6 before it and
+// the 5 after it whole, then the design's fades either side).
+constexpr float kContinuousIn = 6.0f;
 
 // The radius step between slots for the depth setting (Prey Menu's fDepth): the design's 11 pixels
 // at the default 0.75, otherwise Prey Menu's per-slot shrink (1 - shallowness) in proportion, held
@@ -108,6 +119,8 @@ public:
     bool step(int slots);
     // The opening's zoom and the spiral's move to the pointer's loop, `seconds` on.
     void advance(float seconds);
+    // The spiral's motion, changed while open (the setting is read live).
+    void set_continuous(bool continuous);
 
     // The pointed-at item (an index into items()), below 0 a blank.
     int selected() const;
@@ -122,8 +135,9 @@ public:
     // Where the pointer points, degrees counter-clockwise from 3 o'clock.
     float pointer_deg() const;
     float anim() const { return m_anim; }
-    // The first slot of the loop the spiral shows as its own, in slots from item 0 (0 up to the
-    // spiral's slots): the pointer's loop, eased to as the pointer moves into another.
+    // The first slot of the window the spiral shows whole, in slots from item 0 (0 up to the
+    // spiral's slots): continuous, kContinuousIn before the pointer; in loop steps, the pointer's
+    // loop's first, eased to as the pointer moves into another.
     float anchor() const;
     // The loop's first slot the anchor eases to: the pointer's loop's.
     float anchor_target() const;

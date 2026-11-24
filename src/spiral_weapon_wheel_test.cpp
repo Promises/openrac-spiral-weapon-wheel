@@ -1086,7 +1086,8 @@ void test_draw() {
     }
     CHECK_EQ(small.size(), shown.badges.size());
     for (const Text& t : small) {
-        CHECK(t.text.size() == 1 && t.text[0] >= '1' && t.text[0] <= '8' && t.colour == 0x80E4E4E4u);
+        CHECK(t.text.size() == 1 && t.text[0] >= '1' && t.text[0] <= '8' && (t.colour & 0x00FFFFFFu) == 0x00E4E4E4u);
+        CHECK(t.colour >> 24 > 0 && t.colour >> 24 <= 0x80);  // faded with its slot
     }
     CHECK(large.empty());
     CHECK_EQ(normal.size(), 2u);

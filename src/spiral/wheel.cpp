@@ -86,8 +86,26 @@ float Wheel::anchor_target() const {
 }
 
 float Wheel::anchor() const {
-    const float total = static_cast<float>(pointer(static_cast<int>(m_items.size()), m_input, spiral_options()).total);
-    return total > 0.0f ? wrap_into(m_anchor, 0.0f, total) : 0.0f;
+    const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
+    const float total = static_cast<float>(p.total);
+    if (total <= 0.0f) {
+        return 0.0f;
+    }
+    if (m_look.continuous && p.spiral) {
+        // The pointer's place in items (its index is signed by the direction).
+        return wrap_into(p.index * static_cast<float>(sign(spiral_options())) - kContinuousIn, 0.0f, total);
+    }
+    return wrap_into(m_anchor, 0.0f, total);
+}
+
+void Wheel::set_continuous(bool continuous) {
+    if (continuous == m_look.continuous) {
+        return;
+    }
+    m_look.continuous = continuous;
+    // Into loop steps: at the pointer's loop at once.
+    m_loop = target_loop();
+    m_anchor = m_loop;
 }
 
 float Wheel::pointer_deg() const {

@@ -240,7 +240,10 @@ public:
     // The settings: Going Commando's option byte (pause while open), the click, and the HUD-open
     // request's countdown in Going Commando's frames (its own 4, or longer: "Hold before pausing").
     void set_options(bool pause, bool click, int open_delay_frames = kGcOpenDelay);
-    void set_wheel_options(const WheelOptions& options) { m_wheel_options = options; }
+    void set_wheel_options(const WheelOptions& options) {
+        m_wheel_options = options;
+        m_wheel.set_continuous(options.look.continuous);
+    }
     const WheelOptions& wheel_options() const { return m_wheel_options; }
     // The level whose program is loaded (-1: none): its addresses, again only when it changed.
     void connect(int level);

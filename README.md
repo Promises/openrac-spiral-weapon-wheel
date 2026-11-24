@@ -23,9 +23,11 @@ names, numbers and font are Ratchet & Clank's own.*
   the stick points where you know them (the first push of each opening lands on that loop); the
   others fill the free slots, then the next loops. The spiral winds inward, each slot a little
   further in than the one before. Turn the stick around and the pointer goes round and round through
-  the loops: the pointer's loop is shown whole, the end of the loop before it and the start of the
-  one after it fade out either side, and the spiral turns to the next loop as the pointer reaches
-  it. The d-pad steps one item at a time.
+  the loops; twelve slots are shown whole and the ones beyond fade out either side. With "Spiral
+  motion" *Continuous* (the default) the spiral follows the pointer all the time, as Prey Menu's
+  does, the pointed-at slot in the middle of the twelve; with *Loop steps* the pointer's whole loop
+  is shown, and the spiral turns to the next loop as the pointer crosses into it. The d-pad steps
+  one item at a time.
 - **What it shows.** Every slot is a menu panel bent into its sector: scanlines, a khaki frame and
   a white glint, washed blue for a weapon and green for a gadget. Each item's glyph is cut out of
   your game's own icon and redrawn sharp, light blue or light green with a dark drop shadow. The
@@ -50,6 +52,7 @@ names, numbers and font are Ratchet & Clank's own.*
 | Size | 1 | 1 is the design's size: the first loop is about nine tenths of the screen's height across. |
 | Start angle | 90 | Where the spiral starts, in degrees counter-clockwise from 3 o'clock (90 is 12 o'clock). |
 | Clockwise | on | Which way the spiral turns (on is the design's; Prey Menu's default was off). |
+| Spiral motion | Continuous | *Continuous*: the spiral follows the pointer at all times (Prey Menu's way), the pointed-at slot in the middle of the twelve shown whole. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
 | Spiral depth | 0.75 | How far in each slot is from the one before: the design's 11 pixels (of 720) at 0.75 and below, less above it, down to 5 at 1. |
 | Click sound | off | A sound as the pointer moves to another item (Ratchet & Clank's quick select is silent; this is a stand-in). |
 
@@ -100,9 +103,11 @@ Ratchet & Clank PAL and NTSC-U.
   - Its look is the design's (`src/spiral/look.hpp`): a continuous spiral, the pointer's loop's
     first slot 284 pixels out (of 720), each slot after it 11 further in; a panel 0.33 of its
     radius thick across 25.2 of its 30 degrees, its glyph 0.64 of the thickness (0.7 selected); the
-    4 slots before the loop and the 3 after it at 55, 42, 30, 22 % and 50, 32, 18 %; an empty slot
-    of the loop at 60 %. When the pointer moves into another loop, the spiral eases there (0.06 s),
-    turning the way the pointer went.
+    4 slots before the twelve shown whole and the 3 after them at 55, 42, 30, 22 % and 50, 32,
+    18 %; an empty slot among the twelve at 60 %. *Continuous*: the twelve are the pointer's 6
+    before it and 5 after it, so every slot's radius and opacity follow the pointer's distance
+    from it. *Loop steps*: the twelve are the pointer's loop; when the pointer moves into another
+    loop, the spiral eases there (0.06 s), turning the way the pointer went.
   - The painter (`src/spiral/paint.cpp`) draws it all as quads of four pictures it makes as the
     mod loads (the scanlines, white, the badge, the pointer) and the glyphs: the panels in strips
     of a few degrees, the frame's four strokes centred on each edge, widest first.
@@ -194,8 +199,9 @@ The tests:
 - `src/spiral_test.cpp` checks the spiral against Prey Menu's own formulas, written out as its XML
   evaluates them, over millions of pointer angles. It covers both directions, start angles, depths
   and item counts, plus the stick and the opening. It checks the look against the design's values:
-  each slot's radius, opacity, push, glyph and badge places, the fades either side, the spiral's
-  turn to another loop (both ways), the depth's step; and the painter's quads (the washes, the
+  each slot's radius, opacity, push, glyph and badge places, the fades either side, both spiral
+  motions (following the pointer with no snap at a loop's end; the turn to another loop both ways;
+  switched while open), the depth's step; and the painter's quads (the washes, the
   yellow frame, the glyphs' colours, sizes and shadows, the badges, the pointer) and its pictures.
 - `src/spiral_weapon_wheel_test.cpp` runs the layer, the copied code and the wheel on a fake game:
   - the items offered (none of the Items page), the selection through the loops, the d-pad and the picks (an item, item 0x18,
