@@ -124,13 +124,10 @@ constexpr std::uint32_t kModalWorldDrawn = 0x88;
 // What the layer calls in the game. mod.cpp fills it from the SDK (the game's functions by name,
 // its stack for pointers to locals); the tests from a fake. The math entries are optional: without
 // one the layer uses a faithful C stand-in.
-// The game's three fonts (FontPrintCenterSmall, FontPrintCenter, FontPrintCenterLarge), and the
-// height of a line of each in the game's 2D units, to centre one on a place: the normal one's 16
-// (the port's "16 pixels a glyph"); the small and large ones' are estimates.
+// The game's three fonts (FontPrintCenterSmall, FontPrintCenter, FontPrintCenterLarge). All three
+// are drawn 16 units a glyph (port/game/rac1/host/save_marks.c: "The game's three fonts are drawn at
+// a fixed 16 pixels a glyph"): they differ in their letters' shapes and advances, not their height.
 enum class TextSize { Small, Normal, Large };
-constexpr int kSmallTextHeight = 12;
-constexpr int kNormalTextHeight = 16;
-constexpr int kLargeTextHeight = 20;
 // The pause menu's text colour (pause.c's FontPrintCenter calls: 0x80FFA888, the game's blue), and
 // an ammo line that is out (Going Commando's red).
 constexpr std::uint32_t kMenuBlue = 0x80FFA888u;
@@ -343,12 +340,17 @@ public:
     // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
     std::string item_name(std::int32_t id, bool gold) const;
     bool shows_gold(std::int32_t id) const;
-    // A line of text in the middle disc at `y` (rac1_spiral.cpp): the size it fits in, the text.
-    struct Fitted {
+    // The middle's text (rac1_spiral.cpp): the room for a line at `y` (game units across), and the
+    // lines (label, name, ammo) as they are drawn.
+    int centre_room(const spiral::Frame& f, float y) const;
+    struct CentreLine {
         TextSize size;
         std::string text;
+        std::uint32_t colour;
+        float y;  // its middle, screen heights from the screen's
     };
-    Fitted fit_line(const spiral::Frame& f, float y, std::initializer_list<TextSize> sizes, const std::string& text) const;
+    std::vector<CentreLine> centre_lines(const spiral::Frame& f, const std::string& label, const std::string& name,
+                                         const std::string& ammo, std::uint32_t ammo_colour) const;
     std::string gold_label(std::int32_t id) const;
     std::string item_ammo(std::int32_t id, bool& empty) const;
     // The wheel's picture for the overlay (any thread).
@@ -472,6 +474,7 @@ private:
     // the effect textures from game memory, the vignette from the disc's HUD set.
     spiral::PanelArt m_panel_art;
     bool m_panel_tried = false;
+    int m_openings = 0;
     void load_panel_art();
     void forget_panel_art();
     std::uint16_t item_icon(std::int32_t id, std::uint16_t fallback) const;

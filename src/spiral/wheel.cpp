@@ -259,20 +259,26 @@ Frame Wheel::frame() const {
     // Each slot k on from the loop shown's first (the anchor): the 4 before it as negative k, the
     // loops wrapping (a spiral's slots are a loop of `total`).
     std::vector<std::pair<float, Slot>> drawn;
-    // Where the last item is in the window (k), and the end of its loop along the path.
+    // Where the first and the last items are in the window (k), their radii, and the end of the last
+    // item's loop along the path.
+    const float first_k = wrap_into(-anchor(), -5.0f, total);
     const float last_k = n > 0 ? wrap_into(static_cast<float>(n - 1) - anchor(), -5.0f, total) : 0.0f;
+    auto radius_at = [step](float k) { return std::min(look::kMaxRadius, look::kFirstRadius - step * k); };
     const int last_loop_end = (n + kPerLoop - 1) / kPerLoop * kPerLoop;
     for (const Tile& t : tiles(n, p, o)) {
         const float at = static_cast<float>(wrap_index(t.index, p.total)) - anchor();
         const float k = p.spiral ? wrap_into(at, -5.0f, total) : wrap_into(at, -0.5f, total);
-        // The blanks (the slots after the last item, to the spiral's whole loops) link the last
-        // item's loop on round to its end, so the spiral reads as one path: drawn only after the last
-        // item in the window, which shows it (inside it, so never larger than the items), and within
-        // that loop; not the ones the window shows before the first item while the last is out of it
-        // (they would be an outer ring of blanks), nor any with one loop or less. Holes between items (arrange.hpp) are drawn as ever.
-        if (t.index < 0 && (!p.spiral || slot_opacity(last_k, true) <= 0.0f || k <= last_k ||
-                            static_cast<int>(total) + t.index >= last_loop_end)) {
-            continue;
+        // The blanks (the slots after the last item, to the end of its loop) link the spiral into
+        // one path, wherever the window shows them from its first slot on: on from the last item,
+        // and on into the first (the loop round to item 0). Never larger than the item they link
+        // to (inside the last; at most the first's size), never in the window's fading start (they
+        // would lie over the next loop's items there: an outer ring), none with one loop or less.
+        float link_cap = look::kMaxRadius;
+        if (t.index < 0) {
+            if (!p.spiral || k < 0.0f || static_cast<int>(total) + t.index >= last_loop_end) {
+                continue;
+            }
+            link_cap = k > last_k && last_k >= 0.0f ? radius_at(last_k) : radius_at(first_k < k ? first_k + total : first_k);
         }
         const float fade = slot_opacity(k, p.spiral);
         if (fade <= 0.0f) {
@@ -294,7 +300,7 @@ Frame Wheel::frame() const {
         }
         s.selected = item != nullptr && t.hover;
         s.angle_deg = t.angle_deg;
-        s.radius = std::min(look::kMaxRadius, look::kFirstRadius - step * k);
+        s.radius = std::min({look::kMaxRadius, look::kFirstRadius - step * k, link_cap});
         s.push = s.selected ? look::kPush : 0.0f;
         for (const auto& [index, flash] : m_flashes) {
             if (index == t.index) {

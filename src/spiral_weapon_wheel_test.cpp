@@ -1154,7 +1154,7 @@ void test_draw() {
     const std::vector<Text> ammo = lines(gc::TextSize::Large);
     CHECK_EQ(ammo.size(), 2u);
     if (ammo.size() == 2) {
-        CHECK(ammo[1].text == "12/40" && ammo[1].y + gc::kLargeTextHeight / 2 > 208 && ammo[1].colour == gc::kMenuBlue);
+        CHECK(ammo[1].text == "12/40" && ammo[1].y + 8 > 208 && ammo[1].colour == gc::kMenuBlue);
     }
     // No ammo left: red.
     f.wr<std::int32_t>(f.d.ammo + 4 * 0x11, 0);
@@ -1555,41 +1555,70 @@ void test_many_items() {
     fs::remove_all(pack);
 }
 
-// The middle's text fits the disc's chord at its line (1.4.1), not a square: by the fake's measure
-// (10 units a letter, 7 small) the longest names step down to the small font or are cut with "...";
-// a line nearer the disc's edge has less room.
+// The middle's text (1.4.2). The room pinned to the game's units: 384 across a screen height (512
+// over the 4:3 picture: in game, a game unit across is 2.04 pixels of a 785 pixel tall picture),
+// the disc's inner radius 105.5 of the design's pixels at 0.95, less 4 a side: at the middle, 103
+// units. Lines are 16 units (all three fonts), 6 apart, centred as a block. With the in-game
+// measure of "Suck Cannon" (111 units, its width in 1.1's capture, 227 of 785 pixels: wider than
+// the disc), the name goes to the small font if that fits, else onto two lines in the normal font;
+// a single long word ("Hydrodisplacer") to the small font, else is cut.
 void test_text_fit() {
     Fake f;
     set_up(f, true, false);
     open_hud(f);
     play(f, 0x10);
     const spiral::Frame frame = gc::shim().picture().frame;
-    auto fit = [&frame](float y, std::initializer_list<gc::TextSize> sizes, const char* text) {
-        return gc::shim().fit_line(frame, y, sizes, text);
+    const float inner = (105.5f - 4.0f) * frame.unit;
+    CHECK(std::abs(gc::shim().centre_room(frame, frame.centre_y) -
+                   static_cast<int>(2.0f * std::sqrt(inner * inner - std::pow(6.0f / 416.0f, 2.0f)) * 384.0f)) <= 2);
+    CHECK(gc::shim().centre_room(frame, frame.centre_y) >= 100 && gc::shim().centre_room(frame, frame.centre_y) <= 104);
+    // The measure as the game gives it: "Suck Cannon" 111 units in both fonts (the in-game case),
+    // the others 10 a letter (7 small).
+    gc::Game g = gc::shim().game;
+    gc::shim().game.text_width = [](gc::TextSize size, const char* text) {
+        const std::string t = text;
+        if (t == "Suck Cannon") {
+            return 111;
+        }
+        return static_cast<int>(t.size()) * (size == gc::TextSize::Small ? 7 : 10);
     };
-    auto width = [](const gc::Shim::Fitted& r) {
-        return static_cast<int>(r.text.size()) * (r.size == gc::TextSize::Small ? 7 : 10);
+    auto names = [&](const std::string& name, const std::string& ammo, const std::string& label = "") {
+        return gc::shim().centre_lines(frame, label, name, ammo, gc::kMenuBlue);
     };
-    // At the name's line the disc's chord leaves 91 units (the design's: 2 x (sqrt(105.5^2 - 47.8^2)
-    // - 8) of its pixels, as the fake's game sees them).
-    const auto suck = fit(frame.name_y, {gc::TextSize::Normal, gc::TextSize::Small}, "Suck");
-    CHECK(suck.size == gc::TextSize::Normal && suck.text == "Suck");
-    for (const char* name : {"Glove of Doom", "Gadgetron PDA", "Morph-o-Ray"}) {
-        const auto r = fit(frame.name_y, {gc::TextSize::Normal, gc::TextSize::Small}, name);
-        CHECK(r.size == gc::TextSize::Small && r.text == name);
+    // "Suck Cannon": not on one line in either font: two lines, the normal font.
+    auto suck = names("Suck Cannon", "");
+    CHECK(suck.size() == 2u && suck[0].text == "Suck" && suck[1].text == "Cannon" && suck[0].size == gc::TextSize::Normal);
+    // A short name: one normal line; with its ammo, two lines 22 units apart around the middle.
+    auto short_name = names("Suck", "12/40");
+    CHECK(short_name.size() == 2u && short_name[0].size == gc::TextSize::Normal && short_name[1].size == gc::TextSize::Large);
+    if (short_name.size() == 2u) {
+        CHECK(std::fabs((short_name[1].y - short_name[0].y) * 416.0f - 22.0f) < 0.01f);
+        CHECK(std::fabs((short_name[0].y + short_name[1].y) * 0.5f - frame.centre_y) < 1e-5f);
     }
-    for (const char* name : {"Hydrodisplacer", "Gold Devastator"}) {
-        const auto r = fit(frame.name_y, {gc::TextSize::Normal, gc::TextSize::Small}, name);
-        CHECK(r.size == gc::TextSize::Small && r.text.size() > 3 && r.text.compare(r.text.size() - 3, 3, "...") == 0);
-        CHECK(width(r) <= 91);
+    // One long word: the small font (98 of 7 a letter: fits 103 at the middle less its line's
+    // chord: else cut).
+    auto hydro = names("Hydrodisplacer", "");
+    CHECK(hydro.size() == 1u && hydro[0].size == gc::TextSize::Small);
+    for (const char* n : {"Gadgetron PDA", "Gold Devastator", "Glove of Doom", "Morph-o-Ray"}) {
+        for (const auto& l : names(n, "16/20")) {
+            CHECK(gc::shim().game.text_width(l.size, l.text.c_str()) <= gc::shim().centre_room(frame, l.y));
+        }
     }
-    // Nearer the edge (90 % of the way to the disc's frame) the chord is narrower: cut sooner.
-    const float edge = frame.centre_y - 0.9f * 105.5f * frame.unit;
-    const auto near_edge = fit(edge, {gc::TextSize::Small}, "Morph-o-Ray");
-    CHECK(near_edge.text != "Morph-o-Ray" && width(near_edge) < 77);
-    // The ammo line: large when it fits.
-    CHECK(fit(frame.detail_y, {gc::TextSize::Large, gc::TextSize::Normal, gc::TextSize::Small}, "12/40").size ==
-          gc::TextSize::Large);
+    // The gold block: the label, the name, the ammo, 22 units apart, centred, each within the disc.
+    auto gold = names("Visibomb Gun", "16/20", "Gold");
+    CHECK(gold.size() == 3u);
+    if (gold.size() == 3u) {
+        CHECK(gold[0].text == "Gold" && gold[0].size == gc::TextSize::Small && gold[0].colour == 0x80AACFEFu);
+        CHECK(std::fabs((gold[1].y - gold[0].y) * 416.0f - 22.0f) < 0.01f && std::fabs((gold[2].y - gold[1].y) * 416.0f - 22.0f) < 0.01f);
+        CHECK(std::fabs(gold[1].y - frame.centre_y) < 1e-5f);
+        for (const auto& l : gold) {
+            CHECK(gc::shim().game.text_width(l.size, l.text.c_str()) <= gc::shim().centre_room(frame, l.y));
+        }
+    }
+    // A name no font and no wrap fits: cut with "...".
+    auto huge = names("Supercalifragilistic", "");
+    CHECK(huge.size() == 1u && huge[0].text.size() > 3 && huge[0].text.compare(huge[0].text.size() - 3, 3, "...") == 0);
+    gc::shim().game = g;
 }
 
 // The gold weapon's centre (1.4.1): the game's word ("Gold Visibomb Gun" less "Visibomb Gun") on a

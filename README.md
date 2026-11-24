@@ -29,8 +29,9 @@ Clank's own. The Devastator here is a gold one.*
   motion" *Continuous* (the default) the spiral follows the pointer all the time, as Prey Menu's
   does, the pointed-at slot in the middle of the twelve; with *Loop steps* the pointer's whole loop
   is shown, and the spiral turns to the next loop as the pointer crosses into it. Empty slots link
-  the last item's loop on round to its end, so the spiral reads as one path; they are drawn faint,
-  inside the items, and never as an extra ring of their own. The d-pad steps one item at a time.
+  the last item's loop on round into the first item, so the spiral reads as one path, wherever the
+  window shows them; they are drawn faint, never larger than the item they link, and never in the
+  window's fading start (where they would lie over the next loop's items). The d-pad steps one item at a time.
 - **What it shows.** Every slot is a menu panel bent into its sector: scanlines, a khaki frame and
   a white glint, washed in its item's category colour, as the game colours its icons: blue for a
   weapon, orange-tan for a weapon whose gold version you own, green for a gadget (and for mods'
@@ -173,12 +174,14 @@ Ratchet & Clank PAL and NTSC-U.
   wheel. Nothing is capped: any number of items, any item ids, as many loops as it takes.
 - **The pictures** (the panels and the glyphs) are drawn under the game's HUD by the mod's overlay
   (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
-  the game's own HUD calls. Each line is fitted to the middle disc's chord at that line (the
-  narrower of its top and bottom), by the game's own measure (`measure_text_width_regular`,
-  `_small`): the name in the normal font, or the small one, or cut with "..." as a last resort; the
-  ammo in the large font where it fits. A gold weapon gets a third line over its name: the game's
-  own word for it (its gold name less its name: "Gold"), in the gold tint and the small font, the
-  three lines then centred in the disc as a block. The name and ammo are drawn the name and ammo over a dark copy a unit down and right (as
+  the game's own HUD calls. The game draws all three of its fonts 16 units a glyph; the middle's
+  lines (a gold weapon's label, the name, the ammo) are such lines 6 apart (the design's gap),
+  centred in the disc as one block, each fitted to the disc's chord at it by the game's own measure
+  (`measure_text_width_regular`, `_small`: units of the 512-wide 2D, 384 a screen height). The name
+  takes the normal font, else the small one, else wraps at a word onto two lines (normal, else
+  small), and is cut with "..." only as a last resort; the ammo the large font where it fits. A gold
+  weapon's label is the game's own word for it (its gold name less its name: "Gold") in the gold
+  tint. The log has, once an opening, each name's measure and the room it had. The name and ammo are drawn the name and ammo over a dark copy a unit down and right (as
   the game shadows its own text).
 - **The health meter** (its HUD record: slot 1, id 0x7535) is closed on every tick the wheel shows,
   from its first: Ratchet & Clank's own Triangle shows it on each press (`hero_update_transitions`).

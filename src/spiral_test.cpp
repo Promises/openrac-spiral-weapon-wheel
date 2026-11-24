@@ -647,9 +647,14 @@ void test_fit() {
                     CHECK((sl.index == 5 || sl.index < 0) && sl.opacity <= 0.6f + 1e-4f);
                 }
             }
+            float first = -1.0f;
             for (const spiral::Slot& sl : f.slots) {
-                if (sl.index < 0 && last >= 0.0f) {
-                    CHECK(sl.radius <= last + 1e-3f);  // a linking blank: after the last item, never outside it
+                first = sl.index == 0 ? sl.radius : first;
+            }
+            for (const spiral::Slot& sl : f.slots) {
+                if (sl.index < 0) {
+                    // A linking blank: never larger than the items it links.
+                    CHECK(sl.radius <= std::max(first, last) + 1e-3f);
                 }
             }
             for (const spiral::Quad& q : spiral::paint(f)) {
@@ -695,10 +700,11 @@ void test_fit() {
     CHECK(digits == static_cast<int>(f.badges.size()) && digits == 7);  // 8 hot, one of them the hole
 }
 
-// The blanks link the spiral (1.4.1): with 14 items (two loops of 12: items 12 and 13, then 10
-// blanks), the blanks after item 13 to the end of its loop are drawn, at 60 % or the fade around
-// them, inside it; the ones the window would show before item 0 (an outer ring) are not; in every
-// motion, wherever the pointer is.
+// The blanks link the spiral (1.4.2: wherever the window shows them): with 14 items (two loops of
+// 12: items 12 and 13, then 10 blanks), the blanks after item 13 and on round into item 0 are
+// drawn wherever they fall from the window's first slot on, at 60 % or the fade around them, never
+// larger than the item they link (inside the last item; at most the first's size), never in the
+// window's fading start; in every motion, wherever the pointer is.
 void test_links() {
     std::vector<spiral::Item> items(14);
     for (int i = 0; i < 14; ++i) {
@@ -707,7 +713,7 @@ void test_links() {
     for (const bool continuous : {true, false}) {
         spiral::Look look;
         look.continuous = continuous;
-        for (const int at : {0, 7, 13}) {
+        for (const int at : {0, 5, 7, 13}) {
             for (spiral::Item& it : items) {
                 it.equipped = false;
             }
@@ -716,11 +722,12 @@ void test_links() {
             w.open(items, look);
             w.advance(1.0f);
             const spiral::Frame f = w.frame();
-            float first = -1.0f, last = -1.0f;
+            float first = -1.0f, last = -1.0f, smallest_item = 1e9f;
             int blanks = 0;
             for (const spiral::Slot& sl : f.slots) {
                 first = sl.index == 0 ? sl.radius : first;
                 last = sl.index == 13 ? sl.radius : last;
+                smallest_item = sl.index >= 0 ? std::min(smallest_item, sl.radius) : smallest_item;
             }
             for (const spiral::Slot& sl : f.slots) {
                 if (sl.index >= 0) {
@@ -729,20 +736,21 @@ void test_links() {
                 ++blanks;
                 CHECK(sl.empty && sl.opacity <= 0.6f + 1e-4f);
                 CHECK(sl.index >= -10);  // within item 13's loop (path places 14 to 23)
-                CHECK(last >= 0.0f && sl.radius < last);  // after the last item, which shows, inside it
+                CHECK(sl.radius <= std::max(first, last) + 1e-3f);
+                CHECK(sl.radius >= smallest_item - 1e-3f || sl.radius < last);  // never an outer ring
             }
             if (!continuous && at == 13) {
                 CHECK(blanks == 10);  // the pointer's loop (12 to 23) whole: its 10 blanks link it round
             }
-            if (continuous && at == 13) {
-                CHECK(blanks >= 5);  // linking on after the last item
-            }
-            if (at == 0) {
-                // The pointer at the start: no outer ring of blanks before item 0.
+            if (at == 0 && continuous) {
+                // The pointer on item 0: the blanks before it link into it, its size at most.
+                CHECK(blanks > 0);
                 for (const spiral::Slot& sl : f.slots) {
-                    CHECK(sl.index >= 0 || sl.radius < first);
+                    CHECK(sl.index >= 0 || sl.radius <= first + 1e-3f);
                 }
-                CHECK(!continuous || blanks == 0);
+            }
+            if (at == 5 && continuous) {
+                CHECK(blanks >= 1);  // the link before item 0 (the captures' gap left of the bomb)
             }
         }
     }
