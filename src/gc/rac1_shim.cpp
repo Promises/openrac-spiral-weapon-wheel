@@ -7,6 +7,7 @@
 #include "rac1_shim.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -672,6 +673,7 @@ void Shim::update_play(const std::function<void()>& original) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     ++m_play_ticks;
+    log_presses();
     const bool pressed = ((m.read<std::uint32_t>(a.pad + kPadPressed) |
                            m.read<std::uint32_t>(a.pad + kPadPressedUnmasked)) & kTriangle) != 0;
     std::string gate;
@@ -707,6 +709,33 @@ void Shim::update_play(const std::function<void()>& original) {
     explain_double_tap(before);
 }
 
+// Each Triangle press and release in the log (play and freeze ticks alike), with the game's
+// ticks, the wall clock, and the double tap's timers: the timing a double tap is made of.
+void Shim::log_presses() {
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    ++m_ticks;
+    const auto now = std::chrono::steady_clock::now();
+    const bool held = (m.read<std::uint32_t>(a.pad + kPadHeldUnmasked) & kTriangle) != 0;
+    if (held == m_triangle_held) {
+        return;
+    }
+    m_triangle_held = held;
+    const double ms = std::chrono::duration<double, std::milli>(now - m_triangle_since).count();
+    const int ticks = m_ticks - m_triangle_tick;
+    m_triangle_since = now;
+    m_triangle_tick = m_ticks;
+    char line[256];
+    std::snprintf(line, sizeof line,
+                  "Triangle %s at tick %d (%s; after %d ticks, %.0f ms: %.1f ms a tick); tap timer %d, window %d",
+                  held ? "down" : "up", m_ticks, in_wheel_freeze() ? "freeze" : "play", ticks, ms,
+                  ticks > 0 ? ms / ticks : 0.0, m.read<std::int16_t>(a.hero + kHeroTapTimer),
+                  m.read<std::int16_t>(a.hero + kHeroTapWindow));
+    if (game.info) {
+        game.info(line);
+    }
+}
+
 // The HUD-open request in the log, one line a request: the tick it was asked at, then each tick's
 // state before and after (the state machine, then the gate: "21" a cancel the gate asked again, "23"
 // done) with the masked held word's Triangle bit (H held, - not), and how it ended.
@@ -719,9 +748,11 @@ void Shim::trace_request(int before, bool held, bool swap_flag) {
         m_request_tick = m_play_ticks;
         m_request_trace.clear();
     }
-    char step[8];
-    std::snprintf(step, sizeof step, " %d%d%c", before, after, held ? 'H' : '-');
-    if (m_request_trace.size() < 400) {
+    char step[32];
+    std::snprintf(step, sizeof step, " %d%d%c(%d,%d)", before, after, held ? 'H' : '-',
+                  game.memory.read<std::int16_t>(m_level.at.hero + kHeroTapTimer),
+                  game.memory.read<std::int16_t>(m_level.at.hero + kHeroTapWindow));
+    if (m_request_trace.size() < 900) {
         m_request_trace += step;
     }
     const char* end = nullptr;
@@ -733,9 +764,11 @@ void Shim::trace_request(int before, bool held, bool swap_flag) {
     if (end == nullptr) {
         return;
     }
-    char line[640];
-    std::snprintf(line, sizeof line, "HUD-open request asked at play tick %d, %s after %d ticks:%s", m_request_tick, end,
-                  m_play_ticks - m_request_tick, m_request_trace.c_str());
+    char line[1100];
+    std::snprintf(line, sizeof line,
+                  "HUD-open request asked at play tick %d, %s after %d ticks (state before/after, Triangle held, "
+                  "tap timer, window):%s",
+                  m_request_tick, end, m_play_ticks - m_request_tick, m_request_trace.c_str());
     if (game.info) {
         game.info(line);
     }
@@ -802,11 +835,9 @@ void Shim::explain_double_tap(const TapSnapshot& b) {
 // (its prologue and case 7), then the game's (sound_update once, the two countdowns, and the sounds
 // and the music back on once the mode was left).
 //
-// Going Commando's phase 1 ends when g_modal_timer reaches 0, and nothing in its C writes that
-// timer (rac2-decomp at 4ea93cea): read literally, the pause would end after a frame and the
-// counter, while Going Commando holds it as long as Triangle is. The writer is elsewhere; here the
-// layer keeps the timer at 2 (1 after the copied decrement) while Triangle is held in phases 0 and
-// 1, so phase 1 lasts until it is let go. An assumption: README says so.
+// Going Commando's phase 1 ends when g_modal_timer reaches 0; menu_set_state_word_three sets it to
+// 3, in phase 0 and in the quick select's update each frame the quick select is active, so phase 1
+// lasts as long as the quick select (its commit moves it on: menu_advance_state_in_mode_seven).
 //
 // Every way out ends the freeze: a freeze of the mod's kind that is not the paused quick select (or
 // whose callbacks are gone) is ended at once, and one whose wheel never opened is ended after half
@@ -829,11 +860,7 @@ void Shim::freeze_update(const std::function<void()>& original) {
         return;
     }
     ++m_freeze_ticks;
-    std::int32_t phase = 0;
-    std::memcpy(&phase, gc_shim_modal_state + kModalPhase, sizeof phase);
-    if (phase <= 1 && (m.read<std::uint32_t>(m_level.at.pad + kPadHeldUnmasked) & kTriangle) != 0) {
-        gc_shim_modal_timer = 2;
-    }
+    log_presses();
     {
         CopyScope scope(*this);
         UpdateModalState();
@@ -1051,12 +1078,15 @@ int gc_shim_snd_play_from_global_bank(int sound, int, void*) {
 // hud_close_element_by_key: Ratchet & Clank's remove_hud_item.
 int gc_shim_hud_close_element_by_key(int handle) { return shim().game.remove_hud_item(handle); }
 
-// menu_set_state_word_three (a word of Going Commando's set to 3, ref_L00_002F3458_00) and
 // menu_set_screen_value_restart_six_fades (its resident HUD's fades): nothing of Ratchet & Clank's.
-void gc_shim_menu_set_state_word_three(void) {}
 void gc_shim_menu_set_screen_value_restart_six_fades(void*, int) {}
-// stub_empty_20: empty in Going Commando too.
-void gc_shim_stub_empty_20(void) {}
+// stub_empty_20 (func_0026F7B0): empty in the executable, which rac2-decomp's UpdateModalState is. The
+// game runs a level program's copy of UpdateModalState, which calls hero_update_button_hold_timers in
+// its place: USA v2.00's level 0 (UpdateModalState at 0x002F2AF0) calls 0x002CB4C0
+// (func_L00_002CB218, hero_update_button_hold_timers) at 0x002F3ADC, 0x002F3B14, 0x002F3BE8 and
+// 0x002F3CA4, mode 7's four phases, where the C calls stub_empty_20. So the double tap's timers run
+// while the quick select holds the world: a release, then a press and release, in the pause swap.
+void gc_shim_stub_empty_20(void) { hero_update_button_hold_timers(); }
 // UpdateSoundVoices: Ratchet & Clank's sound_update, which update_mode_freeze runs right after.
 int gc_shim_UpdateSoundVoices(void) { return 0; }
 

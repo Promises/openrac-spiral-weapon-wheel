@@ -48,6 +48,7 @@ set(gc_copied
   src/gc/menu_set_mode.c
   src/gc/menu_end.c
   src/gc/menu_state_seven.c
+  src/gc/menu_set_state_word_three.c
   src/gc/hud_letterbox.c
   src/gc/hud_open_request.c
   src/gc/level_update_countdown_state_machine.c

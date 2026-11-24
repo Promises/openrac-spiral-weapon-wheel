@@ -84,6 +84,38 @@ struct Fake {
     int swaps = 0;
     std::int32_t last_mode = 0;
     std::vector<std::string> logs;
+    // The logs with the request trace's "(tap timer,window)" groups left out.
+    static std::string plain(const std::string& l) {
+        std::string out;
+        int depth = 0;
+        for (char c : l) {
+            if (c == '(' && !out.empty() && (out.back() == 'H' || out.back() == '-')) {
+                ++depth;
+                continue;
+            }
+            if (depth > 0) {
+                depth -= c == ')' ? 1 : 0;
+                continue;
+            }
+            out += c;
+        }
+        return out;
+    }
+    bool traced(const char* what) const {
+        for (const std::string& l : logs) {
+            if (plain(l).find(what) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+    int count_traced(const char* what) const {
+        int n = 0;
+        for (const std::string& l : logs) {
+            n += plain(l).find(what) != std::string::npos ? 1 : 0;
+        }
+        return n;
+    }
     bool logged(const char* what) const {
         for (const std::string& l : logs) {
             if (l.find(what) != std::string::npos) {
@@ -772,7 +804,7 @@ void test_paused_path() {
     CHECK_EQ(held, 5);
     CHECK_EQ(f.play_ticks, ticks_before + held - 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
-    CHECK(f.logged("done: the paused open after 4 ticks: 01H 12H 22H 22H 23H"));
+    CHECK(f.traced("done: the paused open after 4 ticks (state before/after, Triangle held, tap timer, window): 01H 12H 22H 22H 23H"));
     CHECK_EQ(f.rd<std::int32_t>(f.d.mode_freeze_info), gc::kFreezeKind);
     CHECK_EQ(f.rd<std::int32_t>(f.d.mode_freeze_info + 0x14), 0);
     CHECK_EQ(modal(gc::kModalMode), 7);
@@ -1053,9 +1085,11 @@ void test_watchdog_record_never_opens() {
         freeze(f, 0x10);
         ++n;
     }
+    // Going Commando's own phases end it: with no quick select to set its timer again
+    // (menu_set_state_word_three), phase 1 ends after 3 frames and the counter after 6.
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
-    CHECK(n > 20 && n < 40);
-    CHECK(f.logged("freeze left: watchdog: the wheel's HUD record never opened"));
+    CHECK(n < 12);
+    CHECK(f.logged("freeze left: mode 7's phases done"));
     CHECK(f.continue_group >= 1);
 }
 
@@ -1070,9 +1104,9 @@ void test_hold_timing() {
         for (int i = 0; i < 30; ++i) {
             play(f, 0);
         }
-        const int logs = f.count_logs("done: the paused open after 5 ticks: 01H 12H 22H 22H 22H 23H");
+        const int logs = f.count_traced("after 5 ticks (state before/after, Triangle held, tap timer, window): 01H 12H 22H 22H 22H 23H");
         CHECK_EQ(hold_until_freeze(f), 6);
-        CHECK_EQ(f.count_logs("done: the paused open after 5 ticks: 01H 12H 22H 22H 22H 23H"), logs + 1);
+        CHECK_EQ(f.count_traced("after 5 ticks (state before/after, Triangle held, tap timer, window): 01H 12H 22H 22H 22H 23H"), logs + 1);
         int n = 0;
         while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 20) {
             freeze(f, 0);
@@ -1094,7 +1128,7 @@ void test_hold_timing() {
     }
     CHECK_EQ(f.freeze_inits, 3);
     CHECK_EQ(f.count_logs("cancelled: Triangle let go"), 1);
-    CHECK(f.logged(" 01H 12H 22H 21-"));
+    CHECK(f.traced(" 01H 12H 22H 21-"));
 
     // A tap in the 8 ticks after a freeze: the gate does not open, the game's own double tap gets it.
     hold_until_freeze(f);
@@ -1196,6 +1230,48 @@ void test_wheel_picks_then_double_tap() {
     CHECK_EQ(f.freeze_inits, 2);
 }
 
+// A tick of whichever mode the game is in.
+void tick(Fake& f, std::uint32_t held) {
+    if (f.rd<std::int32_t>(f.d.game_mode) == 4) {
+        freeze(f, held);
+    } else {
+        play(f, held);
+    }
+}
+
+// A natural double tap with "Pause while open" on: two presses of `hold` ticks, `gap` ticks apart.
+// Going Commando's mode 7 runs the double tap's timers too (its level programs' UpdateModalState
+// calls hero_update_button_hold_timers where rac2-decomp's C calls stub_empty_20), so a second press
+// long enough to open the paused quick select still swaps as it is let go.
+void test_natural_double_tap() {
+    for (int hold : {2, 3, 4, 5, 6}) {
+        for (int gap : {3, 5, 7}) {
+            Fake f;
+            f.opener = true;
+            f.rac1_timers = true;
+            f.rac1_switch = true;
+            set_up(f, true, true);
+            f.wr<std::int32_t>(f.d.hero + gcw::kHeroItem, 0x12);
+            f.wr<std::int32_t>(f.d.hero + gcw::kHeroRequestedItem, 0x12);
+            f.wr<std::int32_t>(f.d.last_weapon, 0x12);
+            f.wr<std::int32_t>(f.d.quick_swap_item, 0x11);
+            for (int i = 0; i < 30; ++i) {
+                play(f, 0);
+            }
+            for (int i = 0; i < hold; ++i) tick(f, 0x10);
+            for (int i = 0; i < gap; ++i) tick(f, 0);
+            for (int i = 0; i < hold; ++i) tick(f, 0x10);
+            for (int i = 0; i < 40; ++i) tick(f, 0);
+            if (f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem) != 0x11) {
+                std::fprintf(stderr, "natural double tap: hold %d, gap %d: item 0x%X, freezes %d\n", hold, gap,
+                             f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), f.freeze_inits);
+            }
+            CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
+            CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+        }
+    }
+}
+
 void test_quick_swap() {
     Fake f;
     set_up(f, false, true);
@@ -1270,6 +1346,7 @@ int main() {
     test_hold_timing();
     test_double_tap_logs();
     test_wheel_picks_then_double_tap();
+    test_natural_double_tap();
     test_unavailable_paused_open();
     test_watchdog_update_bypassed();
     test_watchdog_record_never_opens();

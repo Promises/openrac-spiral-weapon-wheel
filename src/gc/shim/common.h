@@ -131,7 +131,9 @@ extern unsigned char gc_shim_hero[];
 #define g_modal_counter gc_shim_modal_counter
 #define ref_00286738_00 gc_shim_modal_counter_start
 #define g_modal_clear_flag gc_shim_modal_clear_flag
+/* Mode 7's phase-1 timer: menu_set_state_word_three's word too (USA v2.00: gp-0x6240). */
 #define g_modal_timer gc_shim_modal_timer
+#define ref_L00_002F3458_00 gc_shim_modal_timer
 #define g_letterbox_grow_flag gc_shim_letterbox_grow_flag
 /* The quick select's HUD-open request (hud_open_request.c, level_update_countdown_state_machine.c).
    In a level, Going Commando keeps it in two words, the same in every function that names them
@@ -203,7 +205,6 @@ extern unsigned char gc_shim_hero[];
 #define menu_draw_message_panel gc_shim_menu_draw_message_panel
 #define menu_draw_pause_panels gc_shim_menu_draw_pause_panels
 #define menu_set_screen_value_restart_six_fades gc_shim_menu_set_screen_value_restart_six_fades
-#define menu_set_state_word_three gc_shim_menu_set_state_word_three
 #define mode_get_stack_top gc_shim_mode_get_stack_top
 #define music_Pause gc_shim_music_Pause
 #define music_Unpause gc_shim_music_Unpause

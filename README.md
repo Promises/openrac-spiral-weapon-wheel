@@ -121,14 +121,26 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
 
 ## Assumptions and what is not verified
 
-- **Going Commando's `g_modal_timer` has no writer in its C** (rac2-decomp at `4ea93cea`). Read
-  literally, phase 1 would end on its first frame and the pause after about 7 frames; Going
-  Commando holds it while Triangle is. The layer keeps the timer armed (2) while Triangle is held in
-  phases 0 and 1 (from the open, before the record is registered, so while the record is open and
-  Triangle held), so phase 1 lasts until Triangle is let go; then phase 2's counter ends it and the
-  ring fades and commits in play. To check against Going Commando on a real console or the port.
-- Mode 7's counter starts at 6 frames (`ref_00286738_00`: a value of Going Commando's data, from
-  rac2-decomp's note; no writer found either).
+- **Read from Going Commando's binary (USA v2.00, the level 0 program), where rac2-decomp's C is
+  the executable's and the game runs a level's copy:**
+  - mode 7's phase-1 timer (`g_modal_timer`) is `menu_set_state_word_three`'s word
+    (`ref_L00_002F3458_00`): it writes 3 to it (0x002F4238, `sw $v0, -0x6240($gp)`), which phase 1
+    counts down (0x002F3BAC-0x002F3BC4). Mode 7's phase 0 and the quick select's update (each frame it
+    is active) call it, so the pause lasts as long as the quick select; `menu_set_state_word_three`
+    is copied (`src/gc/menu_set_state_word_three.c`). 1.0.0-1.0.4 kept the timer up while Triangle
+    was held instead.
+  - mode 7's four phases call `hero_update_button_hold_timers` (0x002CB4C0) where the C calls
+    `stub_empty_20` (UpdateModalState at 0x002F2AF0: calls at 0x002F3ADC, 0x002F3B14, 0x002F3BE8,
+    0x002F3CA4). So Triangle's double tap counts in the pause too: a second press long enough to open
+    the paused quick select still swaps as it is let go, which is how a natural double tap swaps in
+    Going Commando with its pause on. 1.0.0-1.0.4 ran nothing there: a double tap whose second press
+    opened the pause never swapped.
+  - the gate (0x003706F0) is the C's order: the HUD-open countdown (0x002FCC88) before
+    `PadPressedWithin(16, window)` (window at 0x001A8FB8, which only the press window's update
+    writes, 10 frames), the countdown's start 4 (0x001A9374, written by nothing), the swap flag on
+    the second release (`raw_released`, pad + 0x1B8, 0x002CB53C).
+- Mode 7's counter starts at 6 frames (`ref_00286738_00`, 0x001A8D94 in the level programs: 6, and
+  nothing writes it but mode 7's phase 0).
 - **Where Going Commando's code does not say, Ratchet & Clank's behaviour is kept** (none of these is
   a guess at Going Commando's):
   - the quick select's place on the screen (above);
@@ -171,8 +183,9 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
   picture, never the freeze dialog.
 - The gate asks again each tick a press is within its window (10 frames), as Going Commando's does:
   a tap's request ends for good once the press is out of the window; a hold opens 4 frames after.
-  So a double tap whose second press is held about 3 to 5 ticks opens the paused quick select
-  instead of swapping. That is Going Commando's own order, copied: the countdown runs first each
+  So a double tap whose second press is held about 3 to 5 ticks opens the paused quick select,
+  then swaps as it is let go (the double tap's timers run in mode 7, above). The order is Going
+  Commando's, copied: the countdown runs first each
   tick (`L00_0036F488-g8.c:106`), then the gate asks again while `PadPressedWithin` still finds the
   press (108-112); case 1 of the countdown arms without looking at Triangle, case 2 cancels only on
   a release or the swap flag (`L00_002FC058-g8.c:22-38`); nothing clears the pad's history or the

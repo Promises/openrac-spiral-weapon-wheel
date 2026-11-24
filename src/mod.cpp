@@ -198,4 +198,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.4", load)
+OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.5", load)
