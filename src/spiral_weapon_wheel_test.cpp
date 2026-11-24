@@ -171,20 +171,30 @@ struct Fake {
         wr<std::int32_t>(kRecord + 0x70, 0);
         return handle_next++;
     }
-    // The health meter's record (slot 1, two before the quick select's): show_health_hud opens it
-    // (handle 0x7535), hud_keep_visible keeps it for at least that long, remove closes it.
+    // The health meter's record, as Ratchet & Clank's queue_animation_update keeps it: slot 1 (two
+    // before the quick select's), its id 0x7535 at +0x20, its handle a running number at +0x64
+    // (a new one when it is queued again after a close); hud_keep_visible keeps it for at least that
+    // long, remove_hud_item (by handle) closes it.
     static constexpr std::uint32_t kHealth = kRecord - 2 * 0x90;
     int health_removed = 0;
+    int health_handle_next = 900;
+    bool health_on_triangle = false;  // Ratchet & Clank's own Triangle shows it (scale_ticks(0xB4))
     bool health_open() const { return rd<std::uint32_t>(kHealth + 0x34) != 0; }
-    void show_health() {
+    int show_health() {
         ++health_shown;
-        wr<std::int32_t>(kHealth + 0x64, gcw::kHealthHandle);
+        if (!health_open()) {
+            wr<std::int32_t>(kHealth + 0x64, health_handle_next++);
+            wr<std::int32_t>(kHealth + 0x7C, 0);
+        }
+        wr<std::int32_t>(kHealth + 0x20, gcw::kHealthHandle);
         wr<std::uint32_t>(kHealth + 0x34, 0x00235000u);
         wr<std::int32_t>(kHealth + 0x6C, 0);
+        return rd<std::int32_t>(kHealth + 0x64);
     }
     int remove(int handle) {
-        if (handle == gcw::kHealthHandle && health_open()) {
+        if (handle == rd<std::int32_t>(kHealth + 0x64) && health_open()) {
             wr<std::uint32_t>(kHealth + 0x34, 0);
+            wr<std::int32_t>(kHealth + 0x20, 0xFFFF);
             ++health_removed;
             return 1;
         }
@@ -240,6 +250,12 @@ struct Fake {
         }
         if (rac1_switch) {
             hero_switch();
+        }
+        // Ratchet & Clank's Triangle shows the health meter for scale_ticks(0xB4) on each press
+        // (hero_update_transitions), whether or not its quick select opens.
+        if (health_on_triangle && (rd<std::uint32_t>(d.pad + gcw::kPadPressed) & 0x10) != 0) {
+            show_health();
+            wr<std::int32_t>(kHealth + 0x7C, std::max(rd<std::int32_t>(kHealth + 0x7C), d.ntsc ? 180 : 150));
         }
         if (opener && (rd<std::uint32_t>(d.pad + gcw::kPadPressed) & 0x10) != 0) {
             const gcw::LevelCallbacks cb = gcw::level_callbacks(d.ntsc, level);
@@ -535,12 +551,9 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         }
         return g_fake->text(name);
     };
-    g.show_health_hud = [] {
-        g_fake->show_health();
-        return gcw::kHealthHandle;
-    };
+    g.show_health_hud = [] { return g_fake->show_health(); };
     g.hud_keep_visible = [](int handle, int ticks) {
-        if (handle == gcw::kHealthHandle) {
+        if (handle == g_fake->rd<std::int32_t>(Fake::kHealth + 0x64) && g_fake->health_open()) {
             const std::uint32_t at = Fake::kHealth + 0x7C;
             g_fake->wr<std::int32_t>(at, std::max(g_fake->rd<std::int32_t>(at), ticks));
         }
@@ -1212,49 +1225,80 @@ void tick(Fake& f, std::uint32_t held) {
     }
 }
 
-// The health meter hidden while the wheel shows (Prey hides its HUD), and shown again for as long
-// as it had to show when the wheel closes, on every way out: a pick, Circle, after the watchdog.
-// The bolt counter is shown as before; nothing else of the HUD is closed.
+// The health meter hidden while the wheel shows (Prey hides its HUD): Ratchet & Clank's own
+// Triangle shows it on every press, and it is closed on the wheel's first tick and every tick after,
+// so no picture of the wheel has it; when the wheel closes, whichever way (a pick, Circle, after the
+// watchdog), it is shown again as a Triangle press shows it, for scale_ticks(0xB4). The bolt counter
+// is shown as before; nothing else of the HUD is closed.
 void test_health_hidden() {
     for (int way = 0; way < 3; ++way) {
         Fake f;
         set_up(f, true, true);
+        f.health_on_triangle = true;
         for (int i = 0; i < 12; ++i) {
             play(f, 0);
         }
-        // Hurt in play: the health meter up, for 100 ticks.
-        f.show_health();
-        f.wr<std::int32_t>(Fake::kHealth + 0x7C, 100);
-        const int shown = f.health_shown;
-        hold_until_freeze(f);
-        for (int i = 0; i < 4; ++i) {
-            freeze(f, 0x10);
+        const int handle_before = f.health_handle_next;
+        // Held: the game's Triangle shows the health meter at once (before the wheel), the wheel opens.
+        int n = 0;
+        while (!f.open() && n < 20) {
+            tick(f, 0x10);
+            ++n;
         }
-        CHECK(f.open() && !f.health_open() && gc::shim().health_hidden());
+        CHECK(f.open());
+        CHECK(!f.health_open() && gc::shim().health_hidden());  // the wheel's first tick closed it
+        CHECK(f.logged("the health meter (slot 1 at "));
+        CHECK(f.logged(("id 0x7535, handle " + std::to_string(handle_before) + ",").c_str()));
+        CHECK(f.logged("up, closed (remove_hud_item 1)"));
+        // And kept closed every tick while the wheel shows, though the game shows it again.
+        for (int i = 0; i < 6; ++i) {
+            f.show_health();
+            tick(f, 0x10);
+            CHECK(!f.health_open() || !f.open());
+            CHECK(!f.health_open());
+        }
         CHECK(f.bolts_shown > 0);
-        // The game shows it again while the wheel is up (a hit in the slow-down): hidden again.
-        f.show_health();
-        freeze(f, 0x10);
-        CHECK(!f.health_open());
         if (way == 2) {
             // The watchdog ends the pause: the wheel goes on in play until it is let go.
             gc::shim().end_paused("a test");
             CHECK(f.rd<std::int32_t>(f.d.game_mode) == 0 && f.open());
+            play(f, 0x10);
+            CHECK(!f.health_open());
         }
-        // Let go (or Circle): the wheel closes, the health meter shows again, for its 100 ticks.
+        // Let go (or Circle): the wheel closes, the health meter shows again for scale_ticks(0xB4).
         for (int i = 0; i < 20 && f.open(); ++i) {
             tick(f, way == 1 ? (i == 0 ? 0x10 | gcw::kCircle : 0x10) : 0);
+            if (f.open()) {
+                CHECK(!f.health_open());
+            }
         }
         for (int i = 0; i < 20 && f.open(); ++i) {
             tick(f, 0);
         }
         CHECK(!f.open());
         CHECK(f.health_open() && !gc::shim().health_hidden());
-        CHECK(f.rd<std::int32_t>(Fake::kHealth + 0x7C) >= 100);
-        CHECK(f.health_shown > shown);
+        CHECK_EQ(f.rd<std::int32_t>(Fake::kHealth + 0x7C), 180);
         CHECK_EQ(f.others_removed, 0);
     }
-    // Not up when the wheel opened: not shown after it either.
+    // PAL: scale_ticks(0xB4) is 150.
+    {
+        Fake f;
+        set_up(f, false, true);
+        f.health_on_triangle = true;
+        for (int i = 0; i < 12; ++i) {
+            play(f, 0);
+        }
+        for (int i = 0; i < 20 && !f.open(); ++i) {
+            tick(f, 0x10);
+        }
+        CHECK(f.open() && !f.health_open());
+        for (int i = 0; i < 40 && (f.open() || f.rd<std::int32_t>(f.d.game_mode) == 4); ++i) {
+            tick(f, 0);
+        }
+        CHECK(f.health_open());
+        CHECK_EQ(f.rd<std::int32_t>(Fake::kHealth + 0x7C), 150);
+    }
+    // Not up while the wheel showed: not shown after it either.
     Fake f;
     set_up(f, true, true);
     for (int i = 0; i < 12; ++i) {
@@ -1264,6 +1308,7 @@ void test_health_hidden() {
     for (int i = 0; i < 4; ++i) {
         freeze(f, 0x10);
     }
+    CHECK(f.logged("not up"));
     for (int i = 0; i < 40 && (f.open() || f.rd<std::int32_t>(f.d.game_mode) == 4); ++i) {
         tick(f, 0);
     }

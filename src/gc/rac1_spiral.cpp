@@ -206,22 +206,38 @@ int Shim::glyph_image(int frame) const {
     return 0;
 }
 
-// (the mod's) The health meter hidden while the wheel shows, as Prey hides its HUD: its record
-// (slot 1, two before the quick select's, handle 0x7535) closed whenever it is open, and how long
-// it had to show kept; on close it is shown again for that long. The bolt counter and the ammo stay.
+// (the mod's) The health meter hidden while the wheel shows, as Prey hides its HUD. Its record is
+// hud_chan_slots' slot 1, two before the quick select's (queue_animation_update: slot = key & 0xF;
+// show_health_hud queues key 1 with id 0x7535, kept at +0x20; +0x64 is the record's handle, a
+// running number the game hands out, not the id). Ratchet & Clank's own Triangle shows it on every
+// press (hero_update_transitions, hero_item_input_and_hud.c:127-128, for scale_ticks(0xB4)), so it
+// is closed (remove_hud_item with its handle) on every tick of the wheel's, before the HUD is drawn.
+// When the wheel closes it is shown again as that press would show it: scale_ticks(0xB4), 180
+// frames. The bolt counter and the ammo stay.
 void Shim::hide_health(std::uint32_t record) {
     const Memory& m = game.memory;
     if (record < 2 * kRecordBytes || !game.remove_hud_item) {
         return;
     }
     const std::uint32_t health = record - 2 * kRecordBytes;
-    if (m.read<std::int32_t>(health + kRecordHandle) != kHealthHandle || m.read<std::uint32_t>(health + kRecordUpdate) == 0 ||
-        m.read<std::int32_t>(health + kRecordSlide) < 0) {
-        return;
+    const std::int32_t id = m.read<std::int32_t>(health + kRecordId);
+    const std::int32_t handle = m.read<std::int32_t>(health + kRecordHandle);
+    const bool up = id == kHealthHandle && m.read<std::uint32_t>(health + kRecordUpdate) != 0;
+    int closed = -1;
+    if (up) {
+        m_health_hidden = true;
+        closed = game.remove_hud_item(handle);
     }
-    m_health_ticks = std::max(m_health_ticks, m.read<std::int32_t>(health + kRecordTimeout));
-    m_health_hidden = true;
-    game.remove_hud_item(kHealthHandle);
+    if (!m_health_logged && game.info) {
+        m_health_logged = true;
+        char line[200];
+        std::snprintf(line, sizeof line,
+                      "the health meter (slot 1 at 0x%08X: id 0x%X, handle %d, update 0x%08X, timeout %d): %s%s", health,
+                      static_cast<unsigned>(id), handle, m.read<std::uint32_t>(health + kRecordUpdate),
+                      m.read<std::int32_t>(health + kRecordTimeout), up ? "up, closed" : "not up",
+                      up ? (closed == 1 ? " (remove_hud_item 1)" : " (remove_hud_item 0: NOT closed)") : "");
+        game.info(line);
+    }
 }
 
 void Shim::restore_health() {
@@ -230,9 +246,8 @@ void Shim::restore_health() {
     }
     m_health_hidden = false;
     if (game.show_health_hud && game.hud_keep_visible) {
-        game.hud_keep_visible(game.show_health_hud(), std::max(1, m_health_ticks));
+        game.hud_keep_visible(game.show_health_hud(), ticks(0xB4));
     }
-    m_health_ticks = 0;
 }
 
 std::string Shim::item_name(std::int32_t id) const {
@@ -413,6 +428,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         m_cancelled = false;
         m_stick_logged = 0;
         m_touched = false;
+        m_health_logged = false;
         write_i32(record, kSelected, m_wheel.selected());
         if (game.info) {
             std::string line = "the wheel opens with " + std::to_string(m_wheel.items().size()) + " items:";

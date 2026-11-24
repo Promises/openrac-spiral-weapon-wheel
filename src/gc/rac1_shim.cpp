@@ -177,7 +177,7 @@ void Shim::reset() {
     m_ramp_elapsed = 0.0f;
     // A new level's HUD: what was hidden went with the old one.
     m_health_hidden = false;
-    m_health_ticks = 0;
+    m_health_logged = false;
     publish();
 }
 

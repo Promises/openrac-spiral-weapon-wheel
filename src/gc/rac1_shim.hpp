@@ -384,7 +384,7 @@ private:
     void attach_glyph(spiral::Item& item);
     // The health meter hidden while the wheel shows, and how long it showed for when it was.
     bool m_health_hidden = false;
-    int m_health_ticks = 0;
+    bool m_health_logged = false;
     void hide_health(std::uint32_t record);
     void restore_health();
 

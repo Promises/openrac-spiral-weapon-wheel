@@ -114,9 +114,10 @@ Ratchet & Clank PAL and NTSC-U.
 - **The pictures** (the art and the glyphs) are drawn under the game's HUD by the mod's overlay
   (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
   the game's own HUD calls.
-- **The health meter** (its HUD record, handle 0x7535) is closed whenever it is up while the wheel
-  shows, and shown again for as long as it had to show when the wheel closes, whichever way it
-  closes. Going Commando's pause shows it; the mod leaves that out.
+- **The health meter** (its HUD record: slot 1, id 0x7535) is closed on every tick the wheel shows,
+  from its first: Ratchet & Clank's own Triangle shows it on each press (`hero_update_transitions`).
+  When the wheel closes, whichever way, it is shown again as that press shows it, for
+  `scale_ticks(0xB4)` (3 seconds). Going Commando's pause also shows it; the mod leaves that out.
 - **The slow-down** uses the port's slow motion (`time_stretch`). The game's time scale goes down
   evenly from 1 to an eighth over the setting's length, then Going Commando's pause begins.
 

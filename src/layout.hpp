@@ -101,9 +101,12 @@ constexpr int kGadgetCells = 6;
 constexpr std::uint32_t kHudFrames = 0x20u;
 constexpr std::uint32_t kHudImages = 0x24u;
 constexpr std::uint32_t kHudPalettes = 0x28u;
-// The health meter's HUD record (show_health_hud: queue_animation_update(1, 0x7535, ...)): slot 1,
-// two records before the quick select's (slot 3), its handle 0x7535.
-constexpr std::int32_t kHealthHandle = 0x7535;
+// The health meter's HUD record (show_health_hud: queue_animation_update(1, 0x7535, ...)): slot 1
+// of hud_chan_slots (the slot is the key & 0xF), two records before the quick select's (slot 3);
+// its id 0x7535 at +0x20. (Its handle, +0x64, is a running number: games/rac1/decomp
+// src/game/ui/hud.c queue_animation_update.)
+constexpr std::int32_t kHealthHandle = 0x7535;  // the id
+constexpr std::uint32_t kRecordId = 0x20u;
 constexpr std::uint32_t kRecordBytes = 0x90u;
 constexpr std::uint32_t kRecordUpdate = 0x34u;
 constexpr std::uint32_t kRecordTimeout = 0x7Cu;
