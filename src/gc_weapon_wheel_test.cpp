@@ -75,7 +75,29 @@ struct Fake {
     std::vector<int> frames_drawn;
     std::vector<std::int32_t> letterbox;
     std::uint32_t next_text = kTexts;
-    bool opener = false;  // Ratchet & Clank's own Triangle opener in the play tick
+    bool opener = false;       // Ratchet & Clank's own Triangle opener in the play tick
+    bool rac1_timers = false;  // Ratchet & Clank's own double-tap timers in the play tick
+    bool match_code = true;    // whether the function table has the callbacks at their places
+    bool block_selector = false;  // queue_animation_update refuses the quick select's record
+    int level = 0;
+    int swaps = 0;
+    std::int32_t last_mode = 0;
+    std::vector<std::string> logs;
+    bool logged(const char* what) const {
+        for (const std::string& l : logs) {
+            if (l.find(what) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+    int count_logs(const char* what) const {
+        int n = 0;
+        for (const std::string& l : logs) {
+            n += l.find(what) != std::string::npos ? 1 : 0;
+        }
+        return n;
+    }
 
     template <class T> T rd(std::uint32_t a) const { return m.read<T>(a); }
     template <class T> void wr(std::uint32_t a, T v) const { m.write<T>(a, v); }
@@ -91,6 +113,9 @@ struct Fake {
     int queue(int key, int, std::uint32_t init, std::uint32_t update, std::uint32_t draw, std::uint32_t, int) {
         if (key != gc::kSelectorKey) {
             return handle_next++;
+        }
+        if (block_selector) {
+            return 0;
         }
         if (rd<std::uint32_t>(kRecord + 0x30) == init && rd<std::uint32_t>(kRecord + 0x34) == update &&
             rd<std::uint32_t>(kRecord + 0x38) == draw) {
@@ -151,15 +176,55 @@ struct Fake {
     // handle_pause_input: Ratchet & Clank's own Triangle opener (when asked), then the HUD's update.
     void play_original() {
         ++play_ticks;
+        if (rac1_timers) {
+            hero_timers();
+        }
         if (opener && (rd<std::uint32_t>(d.pad + gcw::kPadPressed) & 0x10) != 0) {
-            queue(3, 0, kInitCode, kUpdateCode, kDrawCode, 0, 0);
+            const gcw::LevelCallbacks cb = gcw::level_callbacks(d.ntsc, level);
+            queue(3, 0, cb.selector_init, cb.selector_update, cb.selector_draw, 0, 0);
         }
         update_hud(1);
+    }
+    // Ratchet & Clank's own double tap (hero_update_transitions, hero_item_input_and_hud.c:142-170).
+    void hero_timers() {
+        const std::uint32_t h = d.hero;
+        const int twenty = d.ntsc ? 20 : 17;
+        for (std::uint32_t t : {h + gcw::kHeroTapTimer, h + gcw::kHeroTapWindow}) {
+            const std::int16_t v = rd<std::int16_t>(t);
+            if (v != 0) {
+                wr<std::int16_t>(t, static_cast<std::int16_t>(v - 1));
+            }
+        }
+        if (rd<std::uint32_t>(d.pad + gcw::kPadPressed) & 0x10) {
+            wr<std::int16_t>(h + gcw::kHeroTapTimer, static_cast<std::int16_t>(twenty));
+        }
+        if ((rd<std::int16_t>(h + gcw::kHeroTapTimer) != 0 || rd<std::int16_t>(h + gcw::kHeroTapWindow) != 0) &&
+            (rd<std::uint32_t>(d.pad + gcw::kPadRawReleased) & 0x10)) {
+            if (rd<std::int16_t>(h + gcw::kHeroTapWindow) == 0) {
+                wr<std::int16_t>(h + gcw::kHeroTapWindow, static_cast<std::int16_t>(twenty));
+            } else {
+                const std::int32_t swap = rd<std::int32_t>(d.quick_swap_item);
+                const std::int32_t item = rd<std::int32_t>(h + gcw::kHeroItem);
+                const std::int32_t next = item == 8 ? rd<std::int32_t>(d.last_weapon) : swap;
+                if (next != 0 && item != swap) {
+                    wr<std::int32_t>(h + gcw::kHeroPendingItem, next);
+                    wr<std::int16_t>(h + gcw::kHeroTapTimer, 0);
+                    wr<std::int16_t>(h + gcw::kHeroTapWindow, 0);
+                    ++swaps;
+                }
+            }
+        }
     }
 
     // The pad, as UpdatePad leaves it after a poll: held and the edges, and the history.
     std::uint32_t last_held = 0;
     void poll(std::uint32_t held, float x = 0.0f, float y = 0.0f) {
+        // The level's main loop: the ticks since the game mode changed start over at a change.
+        const std::int32_t mode = rd<std::int32_t>(d.game_mode);
+        if (mode != last_mode) {
+            wr<std::int32_t>(d.cinematic_frames, 0);
+            last_mode = mode;
+        }
         const std::uint32_t pressed = held & ~last_held;
         const std::uint32_t released = last_held & ~held;
         last_held = held;
@@ -189,9 +254,14 @@ Fake* g_fake = nullptr;
 // The slot assignment: eight items, slot 3 empty; item 0x18 in slot 7.
 constexpr std::int32_t kItems[8] = {0x10, 0x11, 0x12, 0, 0x13, 0x14, 0x15, 0x18};
 
-void set_up(Fake& f, bool ntsc, bool pause) {
+// exe_shift: the program loaded keeps the executable's game mode word that much further on (its
+// own word left at the executable's address holds a 5).
+void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
     g_fake = &f;
+    gc::shim() = gc::Shim{};
     f.d = gcw::disc_for(ntsc);
+    const std::uint32_t exe_mode = f.d.game_mode;
+    f.d.game_mode += exe_shift;
     f.m = gc::Memory{f.ram.data()};
     const gcw::Disc& d = f.d;
     f.wr<float>(d.frame_scale, ntsc ? 1.0f : 50.0f / 60.0f);
@@ -245,7 +315,24 @@ void set_up(Fake& f, bool ntsc, bool pause) {
     g.memory = f.m;
     g.disc = d;
     g.relocate = [](std::uint32_t a) { return a; };
-    g.relocate_code = [](std::uint32_t a) { return a; };
+    static std::uint32_t s_exe_mode, s_shift;
+    s_exe_mode = exe_mode;
+    s_shift = exe_shift;
+    if (exe_shift != 0) {
+        f.wr<std::int32_t>(exe_mode, 5);
+    }
+    g.relocate_exe = [](std::uint32_t a) { return a == s_exe_mode ? a + s_shift : a; };
+    g.code_matches = [](std::uint32_t address, const char* name) {
+        const gcw::LevelCallbacks cb = gcw::level_callbacks(g_fake->d.ntsc, g_fake->level);
+        const char* const* names = g_fake->d.ntsc ? gcw::kCallbackNamesNtsc : gcw::kCallbackNamesPal;
+        const std::uint32_t at[6] = {cb.selector_init, cb.selector_update, cb.selector_draw,
+                                     cb.bolt_init, cb.bolt_update, cb.bolt_draw};
+        bool known = false;
+        for (int i = 0; i < 6; ++i) {
+            known = known || (at[i] == address && std::strcmp(names[i], name) == 0);
+        }
+        return g_fake->match_code && known;
+    };
     g.mode_freeze_init = [](int k, int a, int b) { g_fake->freeze_init(k, a, b); };
     g.update_hud_elements = [](int w) { return g_fake->update_hud(w); };
     g.help_update = [] { ++g_fake->help_updates; };
@@ -319,11 +406,12 @@ void set_up(Fake& f, bool ntsc, bool pause) {
         g_fake->tint = rgb;
         return before;
     };
-    g.log = [](const char*) {};
+    g.log = [](const char* what) { g_fake->logs.push_back(std::string("WARN ") + what); };
+    g.info = [](const char* what) { g_fake->logs.push_back(what); };
     s.game = g;
     s.set_options(pause, true);
     s.connect(-2);
-    s.connect(0);
+    s.connect(f.level);
 }
 
 // A play tick: the pad polled, then the level's tick through the hook; the world's render after.
@@ -749,18 +837,191 @@ void test_gate_conditions() {
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
 }
 
-void test_refused_hud_open() {
+// The executable's game mode word where the level's program keeps it (Mod::relocate): read and
+// written there, not at the executable's address.
+void test_relocated_game_mode() {
     Fake f;
+    set_up(f, true, true, 0x40);
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
+    CHECK_EQ(f.rd<std::int32_t>(gcw::disc_for(true).game_mode), 5);
+    CHECK(gc::shim().in_wheel_freeze());
+}
+
+// Each level's own callbacks, from the catalogues' places, checked against the function table.
+void test_level_callbacks() {
+    Fake f;
+    f.level = 17;
     set_up(f, true, true);
-    // "Pause while open" on: Ratchet & Clank's own Triangle opener (the gate refused: fewer than 8
-    // ticks) is refused, as Going Commando's decider opens the HUD quick select only with it off.
+    CHECK_EQ(gc::shim().level().selector_init, 0x00232DD0u);
+    CHECK_EQ(gc::shim().level().selector_update, 0x00232E88u);
+    CHECK_EQ(gc::shim().level().selector_draw, 0x00233588u);
+    CHECK_EQ(gc::shim().level().bolt_draw, 0x002350E0u);
+    CHECK(gc::shim().paused_path_available());
+    CHECK(f.logged("level 17: the HUD callbacks found"));
+    Fake p;
+    p.level = 18;
+    set_up(p, false, true);
+    CHECK_EQ(gc::shim().level().selector_init, 0x0023B9E8u);
+    Fake n;
+    n.level = 17;
+    n.match_code = false;
+    set_up(n, true, true);
+    CHECK(!gc::shim().paused_path_available());
+    CHECK(n.logged("WARN level 17: the HUD callbacks NOT all found"));
+    CHECK(n.logged("NOT that function"));
+}
+
+// Level 17 as it was seen: the paused open not possible, "Pause while open" on. The gate does not
+// run the double tap's timers (only the game's do), the game's own quick select is let through and
+// works over the running game, and a single tap switches nothing.
+void test_unavailable_paused_open() {
+    Fake f;
+    f.level = 17;
+    f.match_code = false;
     f.opener = true;
-    f.wr<std::int32_t>(f.d.cinematic_frames, 0);
+    f.rac1_timers = true;
+    set_up(f, true, true);
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    // A single tap.
     play(f, 0x10);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+    CHECK(f.open());
+    CHECK(f.logged("allowed, over the running game"));
+    CHECK(f.logged("Triangle: the gate does not open: the quick select's callbacks were not found"));
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
+    CHECK_EQ(f.swaps, 0);
     CHECK(!f.open());
-    CHECK(f.removed >= 1);
-    CHECK_EQ(f.rd<std::int32_t>(kRecord + gcw::kRecordSlide), -6);
+    // Held, with the stick (after the double tap's window): it selects (Going Commando's code, the
+    // option off for its update).
+    for (int i = 0; i < 25; ++i) {
+        play(f, 0);
+    }
+    float x, y;
+    stick_at(0.0f, x, y);
+    play(f, 0x10);
+    play(f, 0x10);
+    play(f, 0x10, x, y);
+    CHECK_EQ(selected(f), 2);
+    for (int i = 0; i < 10; ++i) {
+        play(f, 0);
+    }
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x12);
+    CHECK_EQ(f.swaps, 0);
+    // A double tap: the game's own quick swap, once.
+    f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
+    for (int i = 0; i < 25; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    play(f, 0);
+    play(f, 0x10);
+    play(f, 0);
+    CHECK_EQ(f.swaps, 1);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x11);
+    // One gate line per press.
+    CHECK_EQ(f.count_logs("Triangle: "), 4);
+}
+
+// A single tap with the paused open: the freeze is entered once, its timers run once (the gate's),
+// a release with nothing selected changes nothing, and the game's own quick select is refused for
+// that press.
+void test_single_tap_paused() {
+    Fake f;
+    f.opener = true;
+    f.rac1_timers = true;
+    set_up(f, true, true);
+    for (int i = 0; i < 25; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
+    CHECK_EQ(f.rd<std::int16_t>(f.d.hero + gcw::kHeroTapTimer), 20);
+    CHECK(f.logged("freeze entered (kind 9, saved mode 0"));
+    int n = 0;
+    while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 20) {
+        freeze(f, 0);
+        ++n;
+    }
+    CHECK(n < 10);
+    CHECK(f.logged("freeze left: mode 7's phases done"));
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
+    CHECK_EQ(f.swaps, 0);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+    CHECK_EQ(f.freeze_inits, 1);
+    // The game's own opener for that same press (no new press since): refused.
+    const gcw::LevelCallbacks cb = gcw::level_callbacks(true, 0);
+    f.queue(3, 0, cb.selector_init, cb.selector_update, cb.selector_draw, 0, 0);
+    f.update_hud(1);
+    CHECK(!f.open());
+    CHECK(f.logged("refused: the paused open was entered for this press"));
+}
+
+// The freeze's tick hook bypassed (a port that calls the game's update_mode_freeze directly): two
+// pictures with no tick end the freeze, the paused open goes off, Triangle then opens the quick
+// select over the running game. The picture of the mod's kind is Going Commando's, not the dialog.
+void test_watchdog_update_bypassed() {
+    Fake f;
+    f.opener = true;
+    set_up(f, true, true);
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
+    bool dialog = false;
+    for (int i = 0; i < 2; ++i) {
+        f.poll(0x10);
+        gc::shim().freeze_draw([&] { dialog = true; });
+    }
+    CHECK(!dialog);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+    CHECK(gc::shim().paused_disabled());
+    CHECK(f.logged("WARN rac1.freeze.update did not run"));
+    CHECK(f.logged("freeze left: watchdog: rac1.freeze.update did not run"));
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+    CHECK(f.open());
+    // Another freeze kind is the game's: its own picture.
+    f.wr<std::int32_t>(f.d.mode_freeze_info, 2);
+    dialog = false;
+    gc::shim().freeze_draw([&] { dialog = true; });
+    CHECK(dialog);
+}
+
+// The wheel's record never opens in the freeze: the watchdog ends it.
+void test_watchdog_record_never_opens() {
+    Fake f;
+    f.block_selector = true;
+    set_up(f, false, true);
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
+    int n = 0;
+    while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 60) {
+        freeze(f, 0x10);
+        ++n;
+    }
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+    CHECK(n > 20 && n < 40);
+    CHECK(f.logged("freeze left: watchdog: the wheel's HUD record never opened"));
+    CHECK(f.continue_group >= 1);
 }
 
 void test_quick_swap() {
@@ -831,7 +1092,12 @@ int main() {
     test_draw();
     test_paused_path();
     test_gate_conditions();
-    test_refused_hud_open();
+    test_relocated_game_mode();
+    test_level_callbacks();
+    test_unavailable_paused_open();
+    test_single_tap_paused();
+    test_watchdog_update_bypassed();
+    test_watchdog_record_never_opens();
     test_quick_swap();
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

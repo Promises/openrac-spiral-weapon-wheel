@@ -125,15 +125,39 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
 - The gate's hero part is Ratchet & Clank's Triangle conditions (the item slot not locked, no timed
   HUD, the item locks, on foot or mode 3). The calls `hero_update_transitions` makes before it
   reaches them (damage, item input, water, firing) are not evaluated: they have side effects.
-- The selector's callbacks are queued by their addresses in the loaded level: level 0's,
-  relocated with `relocate_level` and taken only when `function_at` there is the function of that
-  name; else the paused open waits until the game's own Triangle has opened the quick select once in
-  that level (its record holds the addresses), and opens over the running game that time.
-- With "Pause while open" on, a quick select Ratchet & Clank's own Triangle opens (when the gate
-  did not) is closed at once; the health meter and bolt counter that opener shows still show.
+- The selector's and the bolt counter's callbacks are queued by their addresses in the loaded
+  level: each level's own copy, from the decomps' catalogues (`src/layout.hpp`, levels 0 to 18), taken
+  only when the disc's function table has the function of that name there (the log says, once a
+  level). Without them there is no paused open in that level.
+- The executable's globals are read where the loaded program keeps them (`Mod::relocate`): the game
+  mode word `mode_freeze_init` writes (NTSC 0x15F604) is one a level keeps elsewhere, the same word
+  the level's main loop reads (level 0's 0x15F5C4; the log says whether they agree, once a level).
+- The gate's `blocked` includes whether the paused open can be entered now (callbacks found, the game
+  mode play, no freeze on), so the double tap's timers run in the gate only when the freeze is
+  entered: once a press, never beside the game's own (which made a single tap switch weapons in 1.0.0).
+- With "Pause while open" on, a quick select Ratchet & Clank's own Triangle opens is refused only
+  when the paused open was entered for that press. When the paused open could not happen, it is let
+  through and runs as the HUD quick select (Going Commando's code, with the option off for its
+  update so the stick selects): **not Going Commando's behaviour** (it shows nothing then), so that
+  Triangle always gives a quick select.
+- Every way out of the freeze ends it (back to the saved mode, Going Commando's `menu_end`, the
+  reason in the log): mode 7's phases; a freeze of the mod's kind without the paused quick select or
+  without its callbacks; the wheel's record not open after half a second; and two freeze pictures
+  with no freeze tick between them (a port whose `rac1.freeze.update` does not run), which also
+  turns the paused open off for the session. The mod's freeze kind always draws Going Commando's
+  picture, never the freeze dialog.
+- A double tap with the pause on: the first press opens the paused quick select and its release
+  happens in the freeze, where no double-tap timer runs (in Going Commando's code as copied too:
+  its gate is the only caller during that press); the next press comes within 8 ticks of the mode
+  change, where the gate does not open, and goes to the game's own timers. So the quick swap takes
+  a tap after the paused one; a single tap with nothing selected changes nothing.
 - The NTSC address of `frame_scale` is the port's guess (not checked); a value out of range takes
   the tick rate's factor.
-- Not run in the game yet: built and tested on a fake game (below).
+- The log (`openrac-rac1-ntsc.log`, lines "[mod gc-weapon-wheel]"): the first call of each hook
+  point; once a level, the callbacks found (or which check failed) and the game mode words; on each
+  Triangle press, the gate's result with its first failing condition and the values it read; each
+  freeze entered (kind, saved mode) and left (why); the game's own quick select refused or allowed
+  and why.
 
 ## Placeholder art
 
@@ -160,7 +184,9 @@ page, the fades and the commit (the pending item, item 0x18's flag, the ammo cla
 count, the close), the draw (the ring, the marker's tint, the ammo and name text and their
 colours, the gold name), the paused path (the gate, `mode_freeze_init(9)`, mode 7's phases, the
 release, the counter, the mode back, the music and sound group), the gate's conditions, the press
-window and `PadPressedWithin`, the 50/60 Hz scaling, the letterbox's heights, and the quick swap.
+window and `PadPressedWithin`, the 50/60 Hz scaling, the letterbox's heights, the quick swap, the
+relocated game mode word, each level's callbacks, the HUD fallback when the paused open cannot
+happen (a single tap switches nothing, a double tap swaps once), and the freeze's watchdogs.
 
 ## License
 

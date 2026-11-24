@@ -83,7 +83,8 @@ constexpr int kMarkerSprite = 0xE99C;
 
 struct Disc {
     bool ntsc;
-    // --- The executable's globals ---
+    // --- The executable's globals (Mod::relocate: a level's program keeps some of them elsewhere,
+    // the game mode among them) ---
     std::uint32_t hero;               // g_hero
     std::uint32_t pad;                // g_controller_state
     std::uint32_t slot_items;         // the slot assignment, int[8]
@@ -98,7 +99,7 @@ struct Disc {
     std::uint32_t last_weapon;        // last_weapon_id
     std::uint32_t level_index;        // g_current_level_index
     std::uint32_t event_frames;       // gameplay_event_frame_count
-    std::uint32_t game_mode;          // g_game_mode (mode_freeze_init and update_mode_freeze's)
+    std::uint32_t game_mode;          // g_game_mode (mode_freeze_init's and update_mode_freeze's)
     std::uint32_t frame_scale;        // frame_scale, scale_ticks' factor (float)
     // --- Level 0's data ---
     std::uint32_t item_defs;
@@ -108,7 +109,7 @@ struct Disc {
     std::uint32_t slot_count;         // quick_select_slot_count
     std::uint32_t page0_entries;      // the eight-slot selector's entries
     std::uint32_t default_left;       // quick_select_default_left_slot (right, up, down follow)
-    std::uint32_t cinematic_mode;     // the level's mode
+    std::uint32_t cinematic_mode;     // the game mode as the level's main loop reads it
     std::uint32_t cinematic_frames;   // ticks since it changed
     std::uint32_t level_frame_counter;
     std::uint32_t skip_frame;
@@ -127,9 +128,6 @@ struct Disc {
     std::uint32_t ring_radius;        // float
     std::uint32_t ring_aspect;        // float
     std::uint32_t unselected_alpha;   // float
-    // --- Level 0's code: the HUD callbacks queue_animation_update takes ---
-    std::uint32_t selector_init, selector_update, selector_draw;
-    std::uint32_t bolt_init, bolt_update, bolt_draw;
 };
 
 inline Disc disc_for(bool ntsc) {
@@ -178,12 +176,6 @@ inline Disc disc_for(bool ntsc) {
         d.ring_radius = 0x0015F78Cu;
         d.ring_aspect = 0x0015F7C4u;
         d.unselected_alpha = 0x0015F7C0u;
-        d.selector_init = 0x00237AE8u;
-        d.selector_update = 0x00237BA0u;
-        d.selector_draw = 0x002382A0u;
-        d.bolt_init = 0x00239CC8u;
-        d.bolt_update = 0x00239D00u;
-        d.bolt_draw = 0x00239DF8u;
     } else {
         d.hero = 0x0013F450u;
         d.pad = 0x0013CA40u;
@@ -227,14 +219,73 @@ inline Disc disc_for(bool ntsc) {
         d.ring_radius = 0x0015F86Cu;
         d.ring_aspect = 0x0015F8A4u;
         d.unselected_alpha = 0x0015F8A0u;
-        d.selector_init = 0x00238478u;
-        d.selector_update = 0x00238530u;
-        d.selector_draw = 0x00238C30u;
-        d.bolt_init = 0x0023A658u;
-        d.bolt_update = 0x0023A690u;
-        d.bolt_draw = 0x0023A788u;
     }
     return d;
+}
+
+// --- The HUD callbacks queue_animation_update takes: each level's own copy of the quick select's
+// init, update and draw and the bolt counter's, at that level's code addresses (the decomps'
+// catalogues: PAL games/rac1/decomp config/overlays/functions.tsv, NTSC games/rac1/ntsc-decomp
+// config/us/levels/functions.tsv, "places"). Level programs 0 to 18. ---
+constexpr int kLevels = 19;
+struct LevelCallbacks {
+    std::uint32_t selector_init, selector_update, selector_draw;
+    std::uint32_t bolt_init, bolt_update, bolt_draw;
+};
+// Their names in the disc's function table (every level's copy is listed under level 0's name).
+inline constexpr const char* kCallbackNamesPal[6] = {"func_L00_00238478", "func_L00_00238530", "func_L00_00238C30",
+                                                     "func_L00_0023A658", "func_L00_0023A690", "func_L00_0023A788"};
+inline constexpr const char* kCallbackNamesNtsc[6] = {"FUN_L00_00237ae8", "FUN_L00_00237ba0", "FUN_L00_002382a0",
+                                                      "FUN_L00_00239cc8", "FUN_L00_00239d00", "FUN_L00_00239df8"};
+inline constexpr LevelCallbacks kCallbacksPal[kLevels] = {
+    {0x00238478u, 0x00238530u, 0x00238C30u, 0x0023A658u, 0x0023A690u, 0x0023A788u},  // 0
+    {0x0024DA88u, 0x0024DB40u, 0x0024E240u, 0x0024F1D8u, 0x0024F210u, 0x0024F308u},  // 1
+    {0x0023B0D8u, 0x0023B190u, 0x0023B890u, 0x0023C828u, 0x0023C860u, 0x0023C958u},  // 2
+    {0x00227BB0u, 0x00227C68u, 0x00228368u, 0x00229300u, 0x00229338u, 0x00229430u},  // 3
+    {0x0022B9D8u, 0x0022BA90u, 0x0022C190u, 0x0022DBB8u, 0x0022DBF0u, 0x0022DCE8u},  // 4
+    {0x00261808u, 0x002618C0u, 0x00261FC0u, 0x00262F58u, 0x00262F90u, 0x00263088u},  // 5
+    {0x00247970u, 0x00247A28u, 0x00248128u, 0x00249B50u, 0x00249B88u, 0x00249C80u},  // 6
+    {0x00260260u, 0x00260318u, 0x00260A18u, 0x00262440u, 0x00262478u, 0x00262570u},  // 7
+    {0x00243660u, 0x00243718u, 0x00243E18u, 0x00244DB0u, 0x00244DE8u, 0x00244EE0u},  // 8
+    {0x00258058u, 0x00258110u, 0x00258810u, 0x0025A238u, 0x0025A270u, 0x0025A368u},  // 9
+    {0x0022BA60u, 0x0022BB18u, 0x0022C218u, 0x0022DC40u, 0x0022DC78u, 0x0022DD70u},  // 10
+    {0x0025EE18u, 0x0025EED0u, 0x0025F5D0u, 0x00260568u, 0x002605A0u, 0x00260698u},  // 11
+    {0x00251C68u, 0x00251D20u, 0x00252420u, 0x002533B8u, 0x002533F0u, 0x002534E8u},  // 12
+    {0x00243EE0u, 0x00243F98u, 0x00244698u, 0x002460C0u, 0x002460F8u, 0x002461F0u},  // 13
+    {0x00240EE0u, 0x00240F98u, 0x00241698u, 0x00242630u, 0x00242668u, 0x00242760u},  // 14
+    {0x00229000u, 0x002290B8u, 0x002297B8u, 0x0022A750u, 0x0022A788u, 0x0022A880u},  // 15
+    {0x00233E88u, 0x00233F40u, 0x00234640u, 0x002355D8u, 0x00235610u, 0x00235708u},  // 16
+    {0x002337D8u, 0x00233890u, 0x00233F90u, 0x002359B8u, 0x002359F0u, 0x00235AE8u},  // 17
+    {0x0023B9E8u, 0x0023BAA0u, 0x0023C1A0u, 0x0023D138u, 0x0023D170u, 0x0023D268u},  // 18
+};
+inline constexpr LevelCallbacks kCallbacksNtsc[kLevels] = {
+    {0x00237AE8u, 0x00237BA0u, 0x002382A0u, 0x00239CC8u, 0x00239D00u, 0x00239DF8u},  // 0
+    {0x0024D180u, 0x0024D238u, 0x0024D938u, 0x0024E8D0u, 0x0024E908u, 0x0024EA00u},  // 1
+    {0x0023A7A8u, 0x0023A860u, 0x0023AF60u, 0x0023BEF8u, 0x0023BF30u, 0x0023C028u},  // 2
+    {0x002272B8u, 0x00227370u, 0x00227A70u, 0x00228A08u, 0x00228A40u, 0x00228B38u},  // 3
+    {0x0022B0C8u, 0x0022B180u, 0x0022B880u, 0x0022D2A8u, 0x0022D2E0u, 0x0022D3D8u},  // 4
+    {0x00260E60u, 0x00260F18u, 0x00261618u, 0x002625B0u, 0x002625E8u, 0x002626E0u},  // 5
+    {0x00247010u, 0x002470C8u, 0x002477C8u, 0x002491F0u, 0x00249228u, 0x00249320u},  // 6
+    {0x0025F950u, 0x0025FA08u, 0x00260108u, 0x00261B30u, 0x00261B68u, 0x00261C60u},  // 7
+    {0x00242D58u, 0x00242E10u, 0x00243510u, 0x002444A8u, 0x002444E0u, 0x002445D8u},  // 8
+    {0x002577C8u, 0x00257880u, 0x00257F80u, 0x002599A8u, 0x002599E0u, 0x00259AD8u},  // 9
+    {0x0022B150u, 0x0022B208u, 0x0022B908u, 0x0022D330u, 0x0022D368u, 0x0022D460u},  // 10
+    {0x0025E518u, 0x0025E5D0u, 0x0025ECD0u, 0x0025FC68u, 0x0025FCA0u, 0x0025FD98u},  // 11
+    {0x00251358u, 0x00251410u, 0x00251B10u, 0x00252AA8u, 0x00252AE0u, 0x00252BD8u},  // 12
+    {0x002435D0u, 0x00243688u, 0x00243D88u, 0x002457B0u, 0x002457E8u, 0x002458E0u},  // 13
+    {0x00240550u, 0x00240608u, 0x00240D08u, 0x00241CA0u, 0x00241CD8u, 0x00241DD0u},  // 14
+    {0x002286E0u, 0x00228798u, 0x00228E98u, 0x00229E30u, 0x00229E68u, 0x00229F60u},  // 15
+    {0x00233570u, 0x00233628u, 0x00233D28u, 0x00234CC0u, 0x00234CF8u, 0x00234DF0u},  // 16
+    {0x00232DD0u, 0x00232E88u, 0x00233588u, 0x00234FB0u, 0x00234FE8u, 0x002350E0u},  // 17
+    {0x0023B0C8u, 0x0023B180u, 0x0023B880u, 0x0023C818u, 0x0023C850u, 0x0023C948u},  // 18
+};
+
+// Level `level`'s callbacks; all 0 for a level without a program of its own.
+inline LevelCallbacks level_callbacks(bool ntsc, int level) {
+    if (level < 0 || level >= kLevels) {
+        return {};
+    }
+    return ntsc ? kCallbacksNtsc[level] : kCallbacksPal[level];
 }
 
 // Ratchet & Clank's functions by their names in each disc's build: PAL's "func_<address>"

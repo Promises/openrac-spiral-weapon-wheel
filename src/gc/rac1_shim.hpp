@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "../layout.hpp"
@@ -103,8 +104,11 @@ struct Game {
     Disc disc{};
     // Level 0's data address in the level loaded (Mod::relocate_level(0, a)).
     std::function<std::uint32_t(std::uint32_t)> relocate;
-    // Level 0's code address in the level loaded, 0 when it cannot be found.
-    std::function<std::uint32_t(std::uint32_t)> relocate_code;
+    // The executable's data address for the program loaded (Mod::relocate(a)).
+    std::function<std::uint32_t(std::uint32_t)> relocate_exe;
+    // Whether the function at code address `address` of the level loaded is the one of that name
+    // (Mod::function_at and Mod::function).
+    std::function<bool(std::uint32_t address, const char* name)> code_matches;
 
     std::function<void(int, int, int)> mode_freeze_init;
     std::function<int(int)> update_hud_elements;
@@ -146,7 +150,9 @@ struct Game {
     std::function<float(int)> int_to_float;
     std::function<int(float)> float_to_int;
 
+    // The session log: a warning, and a line of information.
     std::function<void(const char*)> log;
+    std::function<void(const char*)> info;
 };
 
 // Level 0's data and code addresses in the level loaded.
@@ -175,6 +181,12 @@ public:
 
     // Whether the freeze mode is the mod's (its kind, entered by the copied gate, mode 7 on).
     bool in_wheel_freeze() const;
+    // Whether the freeze kind is the mod's (whatever the mode).
+    bool freeze_kind_is_ours() const;
+    // Why the paused open cannot happen now (nullptr: it can).
+    const char* paused_open_refusal() const;
+    // The paused open off for the session: the freeze's tick hook did not run.
+    bool paused_disabled() const { return m_paused_disabled; }
     // Whether the paused quick select can open in this level (its callbacks' addresses known).
     bool paused_path_available() const { return m_level.selector_update != 0; }
     const LevelAddresses& level() const { return m_level; }
@@ -196,7 +208,7 @@ public:
     void fill_weapon_table();
     void rebuild_pages();
     void begin_paused(int arg);
-    void end_paused();
+    void end_paused(const char* reason);
     void quick_swap();
     void letterbox_bars(int height);
     void letterbox_tick();
@@ -205,6 +217,9 @@ public:
     void show_counters_bolts(int frames);
     void draw_ring(std::uint8_t* menu, int x, int y, int alpha);
     bool selector_open_allowed() const;
+    // The gate's conditions, their values and the first that fails, for the log.
+    std::string describe_gate() const;
+    void log_once(const std::string& key, const std::string& line, bool warning = false);
     void* resolve_handle(std::int32_t handle) const;
 
     float math_sqrt(float v) const;
@@ -237,9 +252,21 @@ private:
     // The letterbox the layer wrote last tick.
     bool m_letterbox_wrote = false;
     bool m_letterbox_drew = false;
-    // Records of Ratchet & Clank's own opener refused while the pause is on (Going Commando's
-    // decider opens the HUD quick select only with the option off).
+    // Records of Ratchet & Clank's own opener refused: the paused open was entered for this press
+    // (Going Commando's decider opens the HUD quick select only with the option off).
     std::vector<std::uint32_t> m_refused;
+    // Records of Ratchet & Clank's own opener let through with the pause on because the paused open
+    // could not happen: run as the HUD quick select (not Going Commando's: see selector_init).
+    std::vector<std::uint32_t> m_fallback;
+    // The paused open was entered since Triangle was last pressed.
+    bool m_press_entered = false;
+    // The freeze's watchdog: its update ticks, its pictures since the last update, whether the
+    // wheel's record opened in it.
+    int m_freeze_ticks = 0;
+    int m_draws_since_update = 0;
+    bool m_record_opened = false;
+    bool m_paused_disabled = false;
+    std::vector<std::string> m_logged;
 
     friend class CopyScope;
 };

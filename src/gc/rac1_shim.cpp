@@ -137,6 +137,11 @@ void Shim::reset() {
     m_letterbox_wrote = false;
     m_letterbox_drew = false;
     m_refused.clear();
+    m_fallback.clear();
+    m_press_entered = false;
+    m_freeze_ticks = 0;
+    m_draws_since_update = 0;
+    m_record_opened = false;
     std::memset(gc_shim_modal_state, 0, sizeof gc_shim_modal_state);
     std::memset(gc_shim_hero, 0, sizeof gc_shim_hero);
     std::memset(gc_shim_stats, 0, sizeof gc_shim_stats);
@@ -156,6 +161,17 @@ void Shim::reset() {
     gc_shim_options[3] = m_pause ? 1 : 0;
 }
 
+void Shim::log_once(const std::string& key, const std::string& line, bool warning) {
+    if (std::find(m_logged.begin(), m_logged.end(), key) != m_logged.end()) {
+        return;
+    }
+    m_logged.push_back(key);
+    const auto& out = warning ? game.log : game.info;
+    if (out) {
+        out(line.c_str());
+    }
+}
+
 void Shim::connect(int level) {
     if (level == m_level_number) {
         return;
@@ -166,7 +182,16 @@ void Shim::connect(int level) {
     LevelAddresses l;
     l.at = d;
     auto rel = [this](std::uint32_t a) { return game.relocate ? game.relocate(a) : a; };
-    auto code = [this](std::uint32_t a) { return game.relocate_code ? game.relocate_code(a) : a; };
+    auto exe = [this](std::uint32_t a) { return game.relocate_exe ? game.relocate_exe(a) : a; };
+    // The executable's globals where the program loaded keeps them (OPENRAC_DATA): the game mode
+    // mode_freeze_init and update_mode_freeze write is one a level's program keeps elsewhere.
+    for (std::uint32_t Disc::*f :
+         {&Disc::hero, &Disc::pad, &Disc::slot_items, &Disc::ammo, &Disc::gold, &Disc::usage_stats,
+          &Disc::mode_freeze_info, &Disc::letterbox_height, &Disc::letterbox_enabled, &Disc::bolts,
+          &Disc::quick_swap_item, &Disc::last_weapon, &Disc::level_index, &Disc::event_frames, &Disc::game_mode,
+          &Disc::frame_scale}) {
+        l.at.*f = exe(d.*f);
+    }
     if (level >= 0) {
         for (std::uint32_t Disc::*f :
              {&Disc::item_defs, &Disc::item_price, &Disc::slot_tables, &Disc::page, &Disc::slot_count,
@@ -177,22 +202,43 @@ void Shim::connect(int level) {
               &Disc::center_y, &Disc::ring_radius, &Disc::ring_aspect, &Disc::unselected_alpha}) {
             l.at.*f = rel(d.*f);
         }
-        l.selector_init = code(d.selector_init);
-        l.selector_update = code(d.selector_update);
-        l.selector_draw = code(d.selector_draw);
-        if (l.selector_init == 0 || l.selector_update == 0 || l.selector_draw == 0) {
-            l.selector_init = l.selector_update = l.selector_draw = 0;
+        // The callbacks: this level's own copies (the decomps' catalogues), each taken only when the
+        // disc's function table has the function of that name there.
+        const LevelCallbacks places = level_callbacks(d.ntsc, level);
+        const char* const* names = d.ntsc ? kCallbackNamesNtsc : kCallbackNamesPal;
+        const std::uint32_t found[6] = {places.selector_init, places.selector_update, places.selector_draw,
+                                        places.bolt_init, places.bolt_update, places.bolt_draw};
+        bool ok[6];
+        std::string report;
+        for (int i = 0; i < 6; ++i) {
+            ok[i] = found[i] != 0 && (!game.code_matches || game.code_matches(found[i], names[i]));
+            char part[64];
+            std::snprintf(part, sizeof part, "%s%s at 0x%08X %s", i ? ", " : "", names[i], found[i],
+                          found[i] == 0 ? "(no place)" : ok[i] ? "ok" : "NOT that function");
+            report += part;
         }
-        l.bolt_init = code(d.bolt_init);
-        l.bolt_update = code(d.bolt_update);
-        l.bolt_draw = code(d.bolt_draw);
-        if (l.bolt_init == 0 || l.bolt_update == 0 || l.bolt_draw == 0) {
-            l.bolt_init = l.bolt_update = l.bolt_draw = 0;
+        if (ok[0] && ok[1] && ok[2]) {
+            l.selector_init = found[0];
+            l.selector_update = found[1];
+            l.selector_draw = found[2];
         }
-        if (l.selector_update == 0 && game.log) {
-            game.log("the quick select's callbacks were not found in this level: it opens without the "
-                     "pause until the game's own Triangle has opened it once");
+        if (ok[3] && ok[4] && ok[5]) {
+            l.bolt_init = found[3];
+            l.bolt_update = found[4];
+            l.bolt_draw = found[5];
         }
+        const bool all = ok[0] && ok[1] && ok[2] && ok[3] && ok[4] && ok[5];
+        char head[96];
+        std::snprintf(head, sizeof head, "level %d: the HUD callbacks %s: ", level,
+                      all ? "found" : "NOT all found (the paused open needs the quick select's three)");
+        log_once("callbacks " + std::to_string(level), head + report, !all);
+        // The game mode as mode_freeze_init writes it and as the level's main loop reads it: one word.
+        const std::uint32_t loop = rel(d.cinematic_mode);
+        char modes[160];
+        std::snprintf(modes, sizeof modes, "level %d: the game mode word 0x%08X (the executable's 0x%08X relocated); "
+                      "the main loop's 0x%08X (level 0's 0x%08X relocated)%s", level, l.at.game_mode, d.game_mode, loop,
+                      d.cinematic_mode, loop == l.at.game_mode ? "" : ": NOT the same word");
+        log_once("modes " + std::to_string(level), modes, loop != l.at.game_mode);
     }
     m_level = l;
 
@@ -224,7 +270,7 @@ void Shim::connect(int level) {
 }
 
 int Shim::ticks(int n) const {
-    float scale = game.memory.base != nullptr ? game.memory.read<float>(game.disc.frame_scale) : 0.0f;
+    float scale = game.memory.base != nullptr ? game.memory.read<float>(m_level.at.frame_scale) : 0.0f;
     // frame_scale's NTSC address is the port's guess (rac1_version.h: "not checked"): a value out of
     // range takes the tick rate's own factor.
     if (!(scale >= 0.5f && scale <= 1.5f)) {
@@ -235,12 +281,14 @@ int Shim::ticks(int n) const {
 
 int Shim::frames(int n) const { return game.disc.ntsc ? n : (n * 5 + 2) / 6; }
 
+bool Shim::freeze_kind_is_ours() const {
+    return game.memory.read<std::int32_t>(m_level.at.mode_freeze_info + kFreezeInfoKind) == kFreezeKind;
+}
+
 bool Shim::in_wheel_freeze() const {
-    const Memory& m = game.memory;
     std::int32_t mode = 0;
     std::memcpy(&mode, gc_shim_modal_state + kModalMode, sizeof mode);
-    return m.read<std::int32_t>(m_level.at.game_mode) == kModeFreeze &&
-           m.read<std::int32_t>(m_level.at.mode_freeze_info + kFreezeInfoKind) == kFreezeKind &&
+    return game.memory.read<std::int32_t>(m_level.at.game_mode) == kModeFreeze && freeze_kind_is_ours() &&
            mode == kModalQuickSelect;
 }
 
@@ -370,24 +418,68 @@ void* Shim::resolve_handle(std::int32_t handle) const {
 // Commando's menu_set_mode does not pause the music for mode 7, Ratchet & Clank's mode_freeze_init
 // does: the music is unpaused after it.
 void Shim::begin_paused(int arg) {
+    const Memory& m = game.memory;
+    const std::int32_t from = m.read<std::int32_t>(m_level.at.game_mode);
     game.mode_freeze_init(kFreezeKind, 0, 0);
     menu_set_mode(kModalQuickSelect, arg);
     game.music_unpause();
     m_entered = true;
+    m_press_entered = true;
+    m_freeze_ticks = 0;
+    m_draws_since_update = 0;
+    m_record_opened = false;
+    char line[128];
+    std::snprintf(line, sizeof line, "freeze entered (kind %d, saved mode %d; the game mode now %d)", kFreezeKind,
+                  m.read<std::int32_t>(m_level.at.mode_freeze_info + kFreezeSavedMode),
+                  m.read<std::int32_t>(m_level.at.game_mode));
+    (void)from;
+    if (game.info) {
+        game.info(line);
+    }
 }
 
 // request_end_slot(0, 0): back to the mode the freeze was entered from (as update_mode_freeze's
 // own exits do: g_game_mode = mode_freeze_info + 0x14), then Going Commando's mode switch ends the
 // modal mode: the copied menu_end (the sounds and the music back on, the pad's history cleared).
-void Shim::end_paused() {
+// The layer's watchdog ends it the same way.
+void Shim::end_paused(const char* reason) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     m.write<std::int32_t>(a.game_mode, m.read<std::int32_t>(a.mode_freeze_info + kFreezeSavedMode));
     menu_end();
+    std::memset(gc_shim_modal_state + kModalPhase, 0, sizeof(std::int32_t));
+    m_entered = false;
+    char line[160];
+    std::snprintf(line, sizeof line, "freeze left: %s (the game mode back to %d)", reason,
+                  m.read<std::int32_t>(a.game_mode));
+    if (game.info) {
+        game.info(line);
+    }
 }
 
-bool Shim::selector_open_allowed() const {
+const char* Shim::paused_open_refusal() const {
+    const Memory& m = game.memory;
+    if (m_paused_disabled) {
+        return "the paused open is off: the freeze's tick hook did not run";
+    }
     if (!paused_path_available()) {
+        return "the quick select's callbacks were not found in this level";
+    }
+    if (m.read<std::int32_t>(m_level.at.game_mode) != kModePlay) {
+        return "the game mode is not play";
+    }
+    if (m_entered || (freeze_kind_is_ours() && m.read<std::int32_t>(m_level.at.game_mode) == kModeFreeze)) {
+        return "the freeze is already on";
+    }
+    return nullptr;
+}
+
+// `blocked` in the copied gate (nonzero: the quick select may open): whether the paused open can be
+// entered now (request_begin_slot would take it: this is checked before hero_update_button_hold_timers
+// runs, so the double tap's timers run once a press, as when Going Commando's mode change stops its
+// gate) and Ratchet & Clank's own conditions for opening the quick select with Triangle.
+bool Shim::selector_open_allowed() const {
+    if (paused_open_refusal() != nullptr) {
         return false;
     }
     const Memory& m = game.memory;
@@ -402,6 +494,48 @@ bool Shim::selector_open_allowed() const {
     return m.read<std::uint8_t>(h + kHeroSwitchLock) != 2 && m.read<std::int32_t>(a.timed_hud_visible) == 0 &&
            (m.read<std::uint8_t>(h + kHeroUseLocked) == 0 || override_locks) &&
            (m.read<std::uint8_t>(h + kHeroSelectBlocked) == 0 || override_locks) && (vehicle == 0 || vehicle == 3);
+}
+
+std::string Shim::describe_gate() const {
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    const std::uint32_t h = a.hero;
+    const int window = frames(gc_shim_press_window);
+    const int within = PadPressedWithin(kTriangle, window, nullptr) != 0;
+    const int hold = m.read<std::int32_t>(a.cinematic_frames);
+    const int loop_mode = m.read<std::int32_t>(a.cinematic_mode);
+    const std::uint8_t vehicle = m.read<std::uint8_t>(h + kHeroVehicleMode);
+    const bool override_locks = vehicle == 1 || m.read<std::int16_t>(h + kHeroSelectOverride) != 0;
+    const char* refusal = paused_open_refusal();
+    const char* fail = nullptr;
+    auto first = [&fail](bool bad, const char* what) {
+        if (bad && fail == nullptr) {
+            fail = what;
+        }
+    };
+    first(!within, "Triangle not within the press window");
+    first(hold < 8, "fewer than 8 ticks since the game mode changed");
+    first(refusal != nullptr, refusal != nullptr ? refusal : "");
+    first(m.read<std::uint8_t>(h + kHeroSwitchLock) == 2, "the item slot is locked");
+    first(m.read<std::int32_t>(a.timed_hud_visible) != 0, "a timed HUD shows");
+    first(m.read<std::uint8_t>(h + kHeroUseLocked) != 0 && !override_locks, "the item use is locked");
+    first(m.read<std::uint8_t>(h + kHeroSelectBlocked) != 0 && !override_locks, "the item select is blocked");
+    first(vehicle != 0 && vehicle != 3, "not on foot (vehicle mode)");
+    first(loop_mode != 0, "the level's game mode is not 0");
+    first(gc_shim_input_block != 0, "input blocked");
+    first(gc_shim_options[3] == 0, "\"Pause while open\" is off");
+    char line[640];
+    std::snprintf(line, sizeof line,
+                  "Triangle: %s%s (window %d -> %d polls, within %d; hold frames %d; level game mode %d; game mode %d "
+                  "[0x%08X]; freeze kind %d; path %s; switch lock %d, timed HUD %d, use lock %d, select lock %d, "
+                  "override %d, vehicle mode %d; option %d)",
+                  fail == nullptr ? "the gate opens" : "the gate does not open: ", fail == nullptr ? "" : fail,
+                  gc_shim_press_window, window, within, hold, loop_mode, m.read<std::int32_t>(a.game_mode), a.game_mode,
+                  m.read<std::int32_t>(a.mode_freeze_info + kFreezeInfoKind), paused_path_available() ? "found" : "missing",
+                  m.read<std::uint8_t>(h + kHeroSwitchLock), m.read<std::int32_t>(a.timed_hud_visible),
+                  m.read<std::uint8_t>(h + kHeroUseLocked), m.read<std::uint8_t>(h + kHeroSelectBlocked),
+                  m.read<std::int16_t>(h + kHeroSelectOverride), vehicle, gc_shim_options[3]);
+    return line;
 }
 
 // Going Commando's swap request (hero+0x2538 = 1, level_set_flag_d_true) is Ratchet & Clank's
@@ -557,10 +691,22 @@ void Shim::draw_ring(std::uint8_t* menu, int x, int y, int alpha) {
 // window (hero_update_hit_streak_effect, cut) and the game's tick.
 void Shim::update_play(const std::function<void()>& original) {
     letterbox_tick();
+    const Memory& m = game.memory;
+    const bool pressed = ((m.read<std::uint32_t>(m_level.at.pad + kPadPressed) |
+                           m.read<std::uint32_t>(m_level.at.pad + kPadPressedUnmasked)) & kTriangle) != 0;
+    std::string gate;
+    if (pressed) {
+        // A new press: whether the paused open is entered for it is decided again.
+        m_press_entered = false;
+        gate = describe_gate();
+    }
     int took = 0;
     {
         CopyScope scope(*this);
         took = level_update_game_frame_input();
+    }
+    if (pressed && game.info) {
+        game.info(gate.c_str());
     }
     if (took != 0) {
         return;
@@ -578,12 +724,28 @@ void Shim::update_play(const std::function<void()>& original) {
 // counter, while Going Commando holds it as long as Triangle is. The writer is elsewhere; here the
 // layer keeps the timer at 2 (1 after the copied decrement) while Triangle is held in phases 0 and
 // 1, so phase 1 lasts until it is let go. An assumption: README says so.
+//
+// Every way out ends the freeze: a freeze of the mod's kind that is not the paused quick select (or
+// whose callbacks are gone) is ended at once, and one whose wheel never opened is ended after half
+// a second (the watchdog).
 void Shim::freeze_update(const std::function<void()>& original) {
-    if (!in_wheel_freeze()) {
+    const Memory& m = game.memory;
+    if (!freeze_kind_is_ours() || m.read<std::int32_t>(m_level.at.game_mode) != kModeFreeze) {
         original();
         return;
     }
-    const Memory& m = game.memory;
+    m_draws_since_update = 0;
+    if (!in_wheel_freeze() || !m_entered) {
+        end_paused("watchdog: a freeze of the mod's kind without the paused quick select");
+        original();
+        return;
+    }
+    if (!paused_path_available()) {
+        end_paused("watchdog: the quick select's callbacks are missing");
+        original();
+        return;
+    }
+    ++m_freeze_ticks;
     std::int32_t phase = 0;
     std::memcpy(&phase, gc_shim_modal_state + kModalPhase, sizeof phase);
     if (phase <= 1 && (m.read<std::uint32_t>(m_level.at.pad + kPadHeldUnmasked) & kTriangle) != 0) {
@@ -593,50 +755,71 @@ void Shim::freeze_update(const std::function<void()>& original) {
         CopyScope scope(*this);
         UpdateModalState();
     }
+    if (m_entered && in_wheel_freeze() && !m_record_opened && m_freeze_ticks > frames(30)) {
+        end_paused("watchdog: the wheel's HUD record never opened");
+    }
     original();
 }
 
 // rac1.freeze.draw (draw_dialog_background_and_text): the mod's kind draws Going Commando's
-// picture (gfx_render_frame_extra_layers: the world and its HUD again, no dialog), including the
-// tick it ended in.
+// picture (gfx_render_frame_extra_layers: the world and its HUD again, no dialog), the tick it
+// ended in included. Two pictures with no tick of the freeze between them: the freeze's tick hook
+// does not run (a port that bypasses it), so the freeze is ended here and the paused open is off
+// for the session (the quick select then opens over the running game).
 void Shim::freeze_draw(const std::function<void()>& original) {
     const Memory& m = game.memory;
-    if (!m_entered || m.read<std::int32_t>(m_level.at.mode_freeze_info + kFreezeInfoKind) != kFreezeKind) {
-        m_entered = false;
+    if (!freeze_kind_is_ours()) {
         original();
         return;
     }
+    if (m_entered && m.read<std::int32_t>(m_level.at.game_mode) == kModeFreeze && ++m_draws_since_update >= 2) {
+        m_paused_disabled = true;
+        log_once("hook bypassed", "rac1.freeze.update did not run in the freeze: the paused quick select is off "
+                                  "for this session (it opens over the running game)", true);
+        end_paused("watchdog: rac1.freeze.update did not run");
+    }
     letterbox_tick();
     gfx_render_frame_extra_layers();
-    if (!in_wheel_freeze()) {
-        m_entered = false;
-    }
 }
 
 // rac1.hud.quick_select.init: Going Commando's menu_init_panel_layout (with weapon_menu_init_slots).
-// The record's queued callbacks (+0x30, +0x34, +0x38) are this level's addresses of the selector's
-// init, update and draw: kept, for the paused open. With "Pause while open" on, a record Ratchet &
-// Clank's own Triangle opened (not the mod's freeze) is refused, as Going Commando's decider opens
-// the HUD quick select only with the option off (L00_002CB3A8-decider.c:185, g_option_toggle_b[1]).
+// With "Pause while open" on, a record Ratchet & Clank's own Triangle opened (not the mod's freeze)
+// is refused when the paused open was entered for this press, as Going Commando's decider opens the
+// HUD quick select only with the option off (L00_002CB3A8-decider.c:185, g_option_toggle_b[1]).
+// When the paused open could not happen, it is let through and run as the HUD quick select (with
+// the option off for its update, so Going Commando's code takes the stick): not Going Commando's
+// behaviour (it shows nothing then), so that Triangle always gives a quick select.
 void Shim::selector_init(std::uint32_t record) {
     const Memory& m = game.memory;
-    const std::uint32_t init = m.read<std::uint32_t>(record + 0x30);
-    const std::uint32_t update = m.read<std::uint32_t>(record + 0x34);
-    const std::uint32_t draw = m.read<std::uint32_t>(record + 0x38);
-    const bool had_path = paused_path_available();
-    if (init != 0 && update != 0 && draw != 0) {
-        m_level.selector_init = init;
-        m_level.selector_update = update;
-        m_level.selector_draw = draw;
-    }
     m_refused.erase(std::remove(m_refused.begin(), m_refused.end(), record), m_refused.end());
+    m_fallback.erase(std::remove(m_fallback.begin(), m_fallback.end(), record), m_fallback.end());
     rebuild_pages();
     fill_weapon_table();
     menu_init_panel_layout(m.at(record));
     rebuild_pages();
     fill_weapon_table();
-    if (pause() && had_path && !in_wheel_freeze()) {
+    if (in_wheel_freeze()) {
+        m_record_opened = true;
+        log_once("record in freeze", "the paused quick select's HUD record opened");
+        return;
+    }
+    if (!pause()) {
+        log_once("record hud", "the game's Triangle opened the quick select over the running game (\"Pause while open\" off)");
+        return;
+    }
+    if (m_press_entered) {
         m_refused.push_back(record);
+        if (game.info) {
+            game.info("the game's own quick select refused: the paused open was entered for this press");
+        }
+        return;
+    }
+    m_fallback.push_back(record);
+    const char* why = paused_open_refusal();
+    std::string line = std::string("the game's own quick select allowed, over the running game: the paused open "
+                                   "did not happen (") + (why != nullptr ? why : "the gate's conditions") + ")";
+    if (game.info) {
+        game.info(line.c_str());
     }
 }
 
@@ -650,10 +833,19 @@ void Shim::selector_update(std::uint32_t record) {
         m.write<std::int32_t>(record + kRecordSlide, -6);
         return;
     }
+    const bool fallback = std::find(m_fallback.begin(), m_fallback.end(), record) != m_fallback.end();
     CopyScope scope(*this);
     rebuild_pages();
     fill_weapon_table();
+    const unsigned char option = gc_shim_options[3];
+    if (fallback) {
+        gc_shim_options[3] = 0;
+    }
     weapon_wheel_update_select(m.at(record));
+    gc_shim_options[3] = option;
+    if (fallback && m.read<std::int32_t>(record + kRecordSlide) == -6) {
+        m_fallback.erase(std::remove(m_fallback.begin(), m_fallback.end(), record), m_fallback.end());
+    }
 }
 
 // rac1.hud.quick_select.draw: Going Commando's weapon_wheel_draw.
@@ -847,8 +1039,7 @@ int gc_shim_text_draw_centered_small(int x, int y, unsigned int colour, char* te
 // refused (-1), as Going Commando refuses a request it cannot take.
 int gc_shim_request_begin_slot(int index, int, int arg_a, int arg_b, void*) {
     Shim& s = shim();
-    if (index != gcw::gc::kModeFreeze || arg_a != gcw::gc::kModalQuickSelect || !s.paused_path_available() ||
-        s.game.memory.read<std::int32_t>(s.level().at.game_mode) != gcw::gc::kModePlay) {
+    if (index != gcw::gc::kModeFreeze || arg_a != gcw::gc::kModalQuickSelect || s.paused_open_refusal() != nullptr) {
         return -1;
     }
     s.begin_paused(arg_b);
@@ -856,7 +1047,7 @@ int gc_shim_request_begin_slot(int index, int, int arg_a, int arg_b, void*) {
 }
 
 int gc_shim_request_end_slot(int, int) {
-    shim().end_paused();
+    shim().end_paused("mode 7's phases done (Triangle let go)");
     return 0;
 }
 

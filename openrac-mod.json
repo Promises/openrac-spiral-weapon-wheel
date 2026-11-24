@@ -2,7 +2,7 @@
   "format": 2,
   "id": "gc-weapon-wheel",
   "name": "Going Commando weapon wheel",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Henning Berge",
   "description": "Going Commando's weapon quick select in Ratchet & Clank, running Going Commando's own copied code: Triangle holds the world (Going Commando's pause, its letterbox bars, no freeze dialog) while the stick or the d-pad picks a weapon on the ring, a click on each change, Going Commando's ammo and name text under it; letting go of Triangle equips it. Ratchet & Clank's own ring, icons, names and slots, read from the game. With 'Pause while open' off, it opens over the running game as Going Commando's option does. Needs OpenRAC with mod interface 1.39 and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet).",
   "license": "GPL-3.0-or-later AND GPL-3.0-only",

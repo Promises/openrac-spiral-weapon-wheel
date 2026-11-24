@@ -47,11 +47,9 @@ void read_settings(openrac::Mod& mod) { layer().set_options(mod.setting<bool>("p
 
 void connect() { layer().connect(g_mod->loaded_level()); }
 
-// A level function's name in the disc's build: PAL "func_L00_<ADDRESS>", NTSC "FUN_L00_<address>".
-std::string level_function_name(bool ntsc, std::uint32_t address) {
-    char name[32];
-    std::snprintf(name, sizeof name, ntsc ? "FUN_L00_%08x" : "func_L00_%08X", address);
-    return name;
+// The first time each hook point runs, in the log.
+void first(const char* hook) {
+    layer().log_once(std::string("hook ") + hook, std::string("first call of ") + hook);
 }
 
 template <class Fn>
@@ -67,17 +65,14 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     const gcw::FunctionNames n = gcw::function_names(ntsc);
 
     g.relocate = [m](std::uint32_t a) { return m->relocate_level(0, a); };
-    // A level 0 code address in the level loaded: relocated as data (the level pairs record the
-    // addresses its code forms, the callbacks' among them), and taken only when the function there
-    // is the one of that name (else 0: the quick select's own record teaches it, Shim::selector_init).
-    g.relocate_code = [m, ntsc](std::uint32_t a) -> std::uint32_t {
+    g.relocate_exe = [m](std::uint32_t a) { return m->relocate(a); };
+    // A level's copy of a function, at its place from the decomps' catalogues (layout.hpp): taken
+    // only when the disc's function table has the function of that name there.
+    g.code_matches = [m](std::uint32_t address, const char* name) {
         using Any = void (*)();
-        const std::uint32_t here = m->relocate_level(0, a);
-        const Any at = m->function_at<Any>(here);
-        const Any named = m->function<Any>(level_function_name(ntsc, a).c_str());
-        return at != nullptr && at == named ? here : 0u;
+        const Any at = m->function_at<Any>(address);
+        return at != nullptr && at == m->function<Any>(name);
     };
-
     using V = void (*)();
     using VI = void (*)(int);
     using II = int (*)(int);
@@ -152,6 +147,7 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     if (const auto f = optional_function<int (*)(float)>(mod, n.float_to_int)) g.float_to_int = f;
 
     g.log = [m](const char* what) { m->warn(std::string("Going Commando weapon wheel: ") + what); };
+    g.info = [m](const char* what) { m->info(std::string("Going Commando weapon wheel: ") + what); };
 }
 
 void load(openrac::Mod& mod) {
@@ -168,26 +164,32 @@ void load(openrac::Mod& mod) {
 
     mod.hook<rac1::Level_UpdatePlay>([](auto original) {
         connect();
+        first("rac1.level.update_play");
         layer().update_play([&] { original(); });
     });
     mod.hook<rac1::Freeze_Update>([](auto original) {
         connect();
+        first("rac1.freeze.update");
         layer().freeze_update([&] { original(); });
     });
     mod.hook<rac1::Freeze_Draw>([](auto original) {
         connect();
+        first("rac1.freeze.draw");
         layer().freeze_draw([&] { original(); });
     });
     mod.hook<rac1::Hud_QuickSelect_Init>([](auto, std::uint32_t record) {
         connect();
+        first("rac1.hud.quick_select.init");
         layer().selector_init(record);
     });
     mod.hook<rac1::Hud_QuickSelect_Update>([](auto, std::uint32_t record) {
         connect();
+        first("rac1.hud.quick_select.update");
         layer().selector_update(record);
     });
     mod.hook<rac1::Hud_QuickSelect_Draw>([](auto, std::uint32_t record) -> std::int32_t {
         connect();
+        first("rac1.hud.quick_select.draw");
         return layer().selector_draw(record);
     });
 
@@ -199,4 +201,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.0", load)
+OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.1", load)
