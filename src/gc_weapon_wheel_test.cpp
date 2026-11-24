@@ -392,10 +392,10 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         }
     };
     g.play_click = [] { ++g_fake->clicks; };
-    g.sprite_tint = [](std::uint32_t rgb) {
-        const std::uint32_t before = g_fake->tint;
-        g_fake->tint = rgb;
-        return before;
+    g.hud_screen_position = [](std::uint32_t rec, int& x, int& y) {
+        // Ratchet & Clank's (weapon_hud_and_counters.c): centred by the record's size with flags 0.
+        x -= g_fake->rd<std::int32_t>(rec + 0x58) >> 1;
+        y -= g_fake->rd<std::int32_t>(rec + 0x5C) >> 1;
     };
     g.log = [](const char* what) { g_fake->logs.push_back(std::string("WARN ") + what); };
     g.info = [](const char* what) { g_fake->logs.push_back(what); };
@@ -681,26 +681,26 @@ void test_draw() {
     CHECK(f.sprites.size() >= 5);
     CHECK_EQ(f.sprites[0].frame, gcw::kPanelSprite * 8);
     CHECK_EQ(f.sprites[0].alpha, 128);
-    // Centred on the 2D picture (256, 208), the panel 210 x 200, Ratchet & Clank's ring 200 x 180.
+    // At the record's place (256, 224) as Ratchet & Clank's hud_screen_position anchors Going
+    // Commando's 210 x 200 panel; Ratchet & Clank's ring (200 x 180) centred on it.
     CHECK_EQ(f.sprites[0].x, 256 - 105 + (210 - 200) / 2);
-    CHECK_EQ(f.sprites[0].y, 208 - 100 + (200 - 180) / 2);
-    // The marker at the selection, tinted with Going Commando's highlight, the tint put back.
+    CHECK_EQ(f.sprites[0].y, 224 - 100 + (200 - 180) / 2);
+    // The marker at the selection, pulsing as Ratchet & Clank's (its alpha times 0.75..1).
     bool marker = false;
     for (const Sprite& s : f.sprites) {
         if (s.frame == gcw::kMarkerSprite * 8) {
             marker = true;
-            CHECK(s.tint != UINT32_MAX);
+            CHECK(s.alpha > 0 && s.alpha <= 128);
         }
     }
     CHECK(marker);
-    CHECK_EQ(f.tint, UINT32_MAX);
     // Seven icons (slot 3 is empty).
     CHECK_EQ(f.frames_drawn.size(), 7u);
     // No ammo: the name alone, one line, at y + 100, centred at x + 105.
     CHECK_EQ(f.texts.size(), 1u);
     CHECK(f.texts[0].text == "Suck");
     CHECK_EQ(f.texts[0].x, 256);
-    CHECK_EQ(f.texts[0].y, 208 - 100 + 100);
+    CHECK_EQ(f.texts[0].y, 224 - 100 + 100);
     CHECK_EQ(f.texts[0].colour, 0x80f0f0f0u);
 
     // An ammo weapon: "12/40" at y + 112, the name at y + 75, split at '-' onto +16.
@@ -713,12 +713,12 @@ void test_draw() {
     CHECK_EQ(f.texts.size(), 3u);
     if (f.texts.size() == 3) {
         CHECK(f.texts[0].text == "12/40");
-        CHECK_EQ(f.texts[0].y, 108 + 112);
+        CHECK_EQ(f.texts[0].y, 124 + 112);
         CHECK_EQ(f.texts[0].colour, 0x80f0f0f0u);
         CHECK(f.texts[1].text == "Pyro-");
-        CHECK_EQ(f.texts[1].y, 108 + 75);
+        CHECK_EQ(f.texts[1].y, 124 + 75);
         CHECK(f.texts[2].text == "citor");
-        CHECK_EQ(f.texts[2].y, 108 + 75 + 16);
+        CHECK_EQ(f.texts[2].y, 124 + 75 + 16);
     }
     // No ammo left: red.
     f.wr<std::int32_t>(f.d.ammo + 4 * 0x11, 0);
@@ -749,7 +749,7 @@ void test_paused_path() {
     CHECK_EQ(held, 5);
     CHECK_EQ(f.play_ticks, ticks_before + held - 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
-    CHECK(f.logged("HUD-open request done after 4 ticks"));
+    CHECK(f.logged("done: the paused open after 4 ticks: 01H 12H 22H 22H 23H"));
     CHECK_EQ(f.rd<std::int32_t>(f.d.mode_freeze_info), gc::kFreezeKind);
     CHECK_EQ(f.rd<std::int32_t>(f.d.mode_freeze_info + 0x14), 0);
     CHECK_EQ(modal(gc::kModalMode), 7);
@@ -901,7 +901,7 @@ void test_taps() {
     }
     CHECK_EQ(f.freeze_inits, 0);
     CHECK_EQ(gc_shim_hud_flag_b, 0);
-    CHECK(f.logged("HUD-open request cancelled after"));
+    CHECK(f.logged("cancelled: Triangle let go"));
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
     CHECK_EQ(f.swaps, 0);
     // Held a little, let go before the request is done: cancelled, no freeze.
@@ -927,7 +927,8 @@ void test_taps() {
     CHECK_EQ(f.freeze_inits, 0);
     // (The gate asks again each tick the press is within its window, so the request ends for good
     // once the presses are out of it.)
-    CHECK(f.count_logs("HUD-open request cancelled") >= 3);
+    CHECK(f.count_logs("cancelled: Triangle let go") >= 3);
+    CHECK(f.logged("double tap: swap from item 0x10 to 0x11 (the quick swap item"));
     // Held past the request's frames: the freeze, once.
     f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
     const int held = hold_until_freeze(f);
@@ -1035,6 +1036,82 @@ void test_watchdog_record_never_opens() {
     CHECK(f.continue_group >= 1);
 }
 
+// A held press opens at the same tick every time (NTSC: the state machine's 4 frames after the
+// tick it is asked, tick 5), and a request ends only on a real release.
+void test_hold_timing() {
+    Fake f;
+    f.opener = true;
+    f.rac1_timers = true;
+    set_up(f, true, true);
+    for (int k = 0; k < 3; ++k) {
+        for (int i = 0; i < 30; ++i) {
+            play(f, 0);
+        }
+        const int logs = f.count_logs("done: the paused open after 5 ticks: 01H 12H 22H 22H 22H 23H");
+        CHECK_EQ(hold_until_freeze(f), 6);
+        CHECK_EQ(f.count_logs("done: the paused open after 5 ticks: 01H 12H 22H 22H 22H 23H"), logs + 1);
+        int n = 0;
+        while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 20) {
+            freeze(f, 0);
+            ++n;
+        }
+    }
+    CHECK_EQ(f.count_logs("cancelled"), 0);
+    CHECK_EQ(f.freeze_inits, 3);
+    // Held 3 ticks, let go: cancelled on the release (the gate asks again while the press is in its
+    // window, and the request ends once it is out), no freeze.
+    for (int i = 0; i < 30; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    play(f, 0x10);
+    play(f, 0x10);
+    for (int i = 0; i < 15; ++i) {
+        play(f, 0);
+    }
+    CHECK_EQ(f.freeze_inits, 3);
+    CHECK_EQ(f.count_logs("cancelled: Triangle let go"), 1);
+    CHECK(f.logged(" 01H 12H 22H 21-"));
+
+    // A tap in the 8 ticks after a freeze: the gate does not open, the game's own double tap gets it.
+    hold_until_freeze(f);
+    while (f.rd<std::int32_t>(f.d.game_mode) == 4) {
+        freeze(f, 0);
+    }
+    play(f, 0x10);
+    CHECK(f.logged("fewer than 8 ticks since the game mode changed"));
+    CHECK_EQ(f.rd<std::int16_t>(f.d.hero + gcw::kHeroTapTimer), 20);
+}
+
+// The double tap's logs: a swap (from, to, its timers), and a second release that does not swap
+// and why.
+void test_double_tap_logs() {
+    Fake f;
+    f.opener = true;
+    f.rac1_timers = true;
+    set_up(f, true, true);
+    for (int i = 0; i < 30; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    play(f, 0);
+    play(f, 0x10);
+    play(f, 0);
+    CHECK_EQ(f.swaps, 1);
+    CHECK(f.logged("double tap: swap from item 0x10 to 0x11 (the quick swap item; tap timer 20, window 19 before)"));
+    // The quick swap item already in hand: no swap, and why.
+    f.wr<std::int32_t>(f.d.hero + gcw::kHeroItem, 0x11);
+    for (int i = 0; i < 30; ++i) {
+        play(f, 0);
+    }
+    play(f, 0x10);
+    play(f, 0);
+    play(f, 0x10);
+    play(f, 0);
+    CHECK_EQ(f.swaps, 1);
+    CHECK(f.logged("no swap: the quick swap item is in hand (item 0x11, quick swap 0x11"));
+}
+
 void test_quick_swap() {
     Fake f;
     set_up(f, false, true);
@@ -1106,6 +1183,8 @@ int main() {
     test_relocated_game_mode();
     test_level_callbacks();
     test_taps();
+    test_hold_timing();
+    test_double_tap_logs();
     test_unavailable_paused_open();
     test_watchdog_update_bypassed();
     test_watchdog_record_never_opens();

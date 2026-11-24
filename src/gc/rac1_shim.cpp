@@ -106,10 +106,6 @@ constexpr float kPi = 3.1415927f;
 // Going Commando's state 0x37 (hero_update_button_hold_timers' early return): unknown here, and
 // Ratchet & Clank's own double tap has no such check, so the copy's state never matches it.
 constexpr std::int32_t kNoGcState = -1;
-// The highlight's two colours (PS2 0xAABBGGRR) and its period, Going Commando's (see draw_ring).
-constexpr std::uint32_t kHighlightFrom = 0x60442D00u;
-constexpr std::uint32_t kHighlightTo = 0x70FFFEEDu;
-constexpr int kHighlightFrames = 20;
 
 gc::Memory& mem() { return shim().game.memory; }
 
@@ -118,7 +114,6 @@ std::uint8_t* host(std::uint32_t address) { return mem().at(address); }
 // The record's game address from the host pointer the copied code holds.
 std::uint32_t guest(const void* p) { return mem().address_of(p); }
 
-std::uint32_t clamp_channel(std::uint32_t c) { return std::min<std::uint32_t>(c, 0x80u); }
 
 }  // namespace
 
@@ -157,7 +152,7 @@ void Shim::reset() {
     gc_shim_open_delay_counter = 0;
     gc_shim_open_delay_start = frames(4);
     m_request_tick = 0;
-    m_request_state = 0;
+    m_request_trace.clear();
     gc_shim_press_window = 0;
     gc_shim_modal_counter_start = frames(6);
     for (int i = 0; i < 256; ++i) {
@@ -204,7 +199,8 @@ void Shim::connect(int level) {
               &Disc::level_frame_counter, &Disc::skip_frame, &Disc::draw_mask, &Disc::rendered_frame_count,
               &Disc::timed_hud_visible, &Disc::angle_offset, &Disc::saved_selected, &Disc::saved_state,
               &Disc::close_frame, &Disc::ammo_format, &Disc::width, &Disc::height, &Disc::center_x,
-              &Disc::center_y, &Disc::ring_radius, &Disc::ring_aspect, &Disc::unselected_alpha}) {
+              &Disc::center_y, &Disc::ring_radius, &Disc::ring_aspect, &Disc::unselected_alpha,
+              &Disc::pulse_period}) {
             l.at.*f = rel(d.*f);
         }
         // The callbacks: this level's own copies (the decomps' catalogues), each taken only when the
@@ -605,11 +601,12 @@ void Shim::show_counters_bolts(int frames_shown) {
 // it (games/rac1/decomp weapon_hud_and_counters.c:1303-1360, reimplemented): the four mirrored panel
 // quarters (sprite 0xE934) at quick_select_width x quick_select_height, the items' icons on the ring
 // (quick_select_center_x/y, ring_radius, ring_aspect; a gold weapon's frame 4), the unselected ones
-// at quick_select_unselected_alpha_scale, and the marker (0xE99C) at the selection. The alpha is
-// Going Commando's (fade[0] / 8 * 128). The panel is centred on Going Commando's (its 210 x 200 from
-// menu_init_panel_layout, whose middle, x + 105, Going Commando's text is centred on). The marker
-// is tinted with Going Commando's highlight, back and forth between 0x60442D00 and 0x70FFFEED every
-// 20 frames (unverified: see README).
+// at quick_select_unselected_alpha_scale, and the marker (0xE99C) at the selection, pulsing as
+// Ratchet & Clank's does (its alpha times 0.875 + 0.125 * sin over quick_select_pulse_period ticks).
+// The alpha is Going Commando's (fade[0] / 8 * 128). The ring is centred on Going Commando's panel
+// (its 210 x 200 from menu_init_panel_layout, at the record's place as Ratchet & Clank's
+// hud_screen_position puts it; its middle, x + 105, is where Going Commando's text is centred): where
+// Ratchet & Clank draws its own ring when the record's anchor centres it.
 void Shim::draw_ring(std::uint8_t* menu, int x, int y, int alpha) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
@@ -650,17 +647,14 @@ void Shim::draw_ring(std::uint8_t* menu, int x, int y, int alpha) {
             continue;
         }
         if (selected == i) {
-            const int period = std::max(1, frames(kHighlightFrames));
-            const int phase = m.read<std::int32_t>(a.level_frame_counter) % (2 * period);
-            const float t = static_cast<float>(phase < period ? phase : 2 * period - phase) / static_cast<float>(period);
-            const std::uint32_t colour = tween_colour(kHighlightFrom, kHighlightTo, t);
-            const std::uint32_t tint = clamp_channel(colour & 0xFFu) | (clamp_channel((colour >> 8) & 0xFFu) << 8) |
-                                       (clamp_channel((colour >> 16) & 0xFFu) << 16);
-            const std::uint32_t before = game.sprite_tint ? game.sprite_tint(tint) : UINT32_MAX;
-            game.draw_hud_sprite(game.get_icon_frame(kMarkerSprite, 0), icon_x - 0x13, icon_y - 0x13, 0x26, 0x26, alpha);
-            if (game.sprite_tint) {
-                game.sprite_tint(before);
-            }
+            const int pulse = std::max(1, m.read<std::int32_t>(a.pulse_period));
+            float phase = math_int_to_float(m.read<std::int32_t>(a.level_frame_counter) % pulse);
+            phase /= math_int_to_float(pulse);
+            phase *= 6.28318f;
+            const float wave = math_sin(phase - 3.14159f) * 0.125f + 0.875f;
+            const int marker_alpha = math_float_to_int(static_cast<float>(alpha) * wave);
+            game.draw_hud_sprite(game.get_icon_frame(kMarkerSprite, 0), icon_x - 0x13, icon_y - 0x13, 0x26, 0x26,
+                                 marker_alpha);
         }
         const int icon_alpha = i != selected ? math_float_to_int(static_cast<float>(alpha) * unselected) : alpha;
         const bool gold = item > 0 && item < 256 && m.read<std::uint8_t>(a.gold + static_cast<std::uint32_t>(item)) != 0;
@@ -684,6 +678,11 @@ void Shim::update_play(const std::function<void()>& original) {
     if (pressed) {
         gate = describe_gate();
     }
+    // The request's state before this tick's state machine (run once, inside the copied gate, at
+    // Going Commando's place) and the masked held word it reads.
+    const int request_before = gc_shim_hud_flag_b;
+    const bool held = (m.read<std::uint32_t>(a.pad + kPadHeld) & kTriangle) != 0;
+    const bool swap_flag = gc_shim_hud_flag_a != 0;
     int took = 0;
     {
         CopyScope scope(*this);
@@ -692,43 +691,95 @@ void Shim::update_play(const std::function<void()>& original) {
     if (pressed && game.info) {
         game.info(gate.c_str());
     }
-    log_request();
+    trace_request(request_before, held, swap_flag);
     if (took != 0) {
         return;
     }
     hero_update_hit_streak_effect();
-    // Ratchet & Clank's own double tap runs in the hero's update (hero_update_transitions, the same
-    // timers as Going Commando's hero_update_button_hold_timers, which Going Commando's hero decider
-    // runs in its place): its swap is Going Commando's swap request, whose flag (level_set_flag_d_true)
-    // cancels the HUD-open request. Seen here as the swap's own effect: the window was open, Triangle
-    // was let go, and both timers are cleared.
-    const std::int16_t window = m.read<std::int16_t>(a.hero + kHeroTapWindow);
+    TapSnapshot before;
+    before.tap = m.read<std::int16_t>(a.hero + kHeroTapTimer);
+    before.window = m.read<std::int16_t>(a.hero + kHeroTapWindow);
+    before.item = m.read<std::int32_t>(a.hero + kHeroItem);
+    before.pending = m.read<std::int32_t>(a.hero + kHeroPendingItem);
+    before.swap_item = m.read<std::int32_t>(a.quick_swap_item);
+    before.last_weapon = m.read<std::int32_t>(a.last_weapon);
     original();
-    if (window != 0 && (m.read<std::uint32_t>(a.pad + kPadRawReleased) & kTriangle) != 0 &&
-        m.read<std::int16_t>(a.hero + kHeroTapTimer) == 0 && m.read<std::int16_t>(a.hero + kHeroTapWindow) == 0) {
-        gc_shim_hud_flag_a = 1;
-    }
+    explain_double_tap(before);
 }
 
-// The HUD-open request in the log: asked, then done (the paused open) or cancelled, with its ticks.
-void Shim::log_request() {
-    const int state = gc_shim_hud_flag_b;
-    if (state == m_request_state) {
+// The HUD-open request in the log, one line a request: the tick it was asked at, then each tick's
+// state before and after (the state machine, then the gate: "21" a cancel the gate asked again, "23"
+// done) with the masked held word's Triangle bit (H held, - not), and how it ended.
+void Shim::trace_request(int before, bool held, bool swap_flag) {
+    const int after = gc_shim_hud_flag_b;
+    if (before == 0 && after == 0) {
         return;
     }
-    char line[160];
-    line[0] = 0;
-    if (m_request_state == 0 && state != 0) {
+    if (before == 0) {
         m_request_tick = m_play_ticks;
-    } else if (state == 3) {
-        std::snprintf(line, sizeof line, "HUD-open request done after %d ticks (Triangle held): the paused open",
-                      m_play_ticks - m_request_tick);
-    } else if (state == 0 && m_request_state != 3) {
-        std::snprintf(line, sizeof line, "HUD-open request cancelled after %d ticks (%s)", m_play_ticks - m_request_tick,
-                      gc_shim_hud_flag_a != 0 || m_swap_seen ? "a double tap's swap" : "Triangle let go");
+        m_request_trace.clear();
     }
-    m_swap_seen = gc_shim_hud_flag_a != 0;
-    m_request_state = state;
+    char step[8];
+    std::snprintf(step, sizeof step, " %d%d%c", before, after, held ? 'H' : '-');
+    if (m_request_trace.size() < 400) {
+        m_request_trace += step;
+    }
+    const char* end = nullptr;
+    if (after == 3) {
+        end = "done: the paused open";
+    } else if (after == 0) {
+        end = swap_flag ? "cancelled: a double tap's swap" : !held ? "cancelled: Triangle let go" : "cancelled";
+    }
+    if (end == nullptr) {
+        return;
+    }
+    char line[640];
+    std::snprintf(line, sizeof line, "HUD-open request asked at play tick %d, %s after %d ticks:%s", m_request_tick, end,
+                  m_play_ticks - m_request_tick, m_request_trace.c_str());
+    if (game.info) {
+        game.info(line);
+    }
+    m_request_trace.clear();
+}
+
+// Ratchet & Clank's own double tap (hero_update_transitions, hero_item_input_and_hud.c:142-170: the
+// same timers as Going Commando's hero_update_button_hold_timers, which Going Commando's hero decider
+// runs in its place), seen from its effect on a tick Triangle is let go: both timers count down,
+// then a release with the window open swaps (the quick swap item, or the last weapon with the
+// wrench in hand) unless there is none or it is the item in hand. Its swap is Going Commando's swap
+// request, whose flag (level_set_flag_d_true) cancels the HUD-open request. In the log: each swap,
+// and each release in the window that does not swap, and why.
+void Shim::explain_double_tap(const TapSnapshot& b) {
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    if ((m.read<std::uint32_t>(a.pad + kPadRawReleased) & kTriangle) == 0) {
+        return;
+    }
+    const std::int16_t tap = m.read<std::int16_t>(a.hero + kHeroTapTimer);
+    const std::int16_t window = m.read<std::int16_t>(a.hero + kHeroTapWindow);
+    const std::int32_t pending = m.read<std::int32_t>(a.hero + kHeroPendingItem);
+    const std::int16_t tap_counted = b.tap != 0 ? static_cast<std::int16_t>(b.tap - 1) : 0;
+    const std::int16_t window_counted = b.window != 0 ? static_cast<std::int16_t>(b.window - 1) : 0;
+    const std::int32_t next = b.item == 8 ? b.last_weapon : b.swap_item;
+    char line[256];
+    line[0] = 0;
+    if (b.window != 0 && tap == 0 && window == 0 && pending == next && next != 0) {
+        gc_shim_hud_flag_a = 1;
+        std::snprintf(line, sizeof line, "double tap: swap from item 0x%X to 0x%X (%s; tap timer %d, window %d before)",
+                      b.item, next, b.item == 8 ? "the wrench: the last weapon" : "the quick swap item", b.tap, b.window);
+    } else if (window_counted != 0) {
+        const char* why = next == 0 ? (b.item == 8 ? "no last weapon" : "no quick swap item")
+                          : b.item == b.swap_item ? "the quick swap item is in hand"
+                          : (tap == tap_counted && window == window_counted)
+                              ? "the hero's update did not reach its double tap (hurt, an item's input, water or firing first)"
+                              : "the game's rule refused it";
+        std::snprintf(line, sizeof line,
+                      "double tap: a second release in the window, no swap: %s (item 0x%X, quick swap 0x%X, last weapon "
+                      "0x%X; tap timer %d -> %d, window %d -> %d)",
+                      why, b.item, b.swap_item, b.last_weapon, b.tap, tap, b.window, window);
+    } else if (b.window != 0) {
+        std::snprintf(line, sizeof line, "double tap: the window ran out as Triangle was let go (window %d)", b.window);
+    }
     if (line[0] != 0 && game.info) {
         game.info(line);
     }
@@ -996,16 +1047,12 @@ void gc_shim_stub_empty_20(void) {}
 // UpdateSoundVoices: Ratchet & Clank's sound_update, which update_mode_freeze runs right after.
 int gc_shim_UpdateSoundVoices(void) { return 0; }
 
-// hud_screen_position (the copied draw's only call): where Going Commando draws its quick select. Its
-// place is its HUD's data (hud_set_slot_contents' element table, a disc's), not code; Going
-// Commando's quick select is centred on the screen, so the panel (the record's 210 x 200) is centred
-// on Ratchet & Clank's 2D picture, 512 x 416 (the port's 2D pixels, docs/port/MODS.md; Ratchet &
-// Clank centres its own text panels at x 0x100). Its ring (draw_ring) and text share that centre.
-// Ratchet & Clank's own anchor for the record (+0x50, +0x54, its quick select's place) is not used.
+// hud_screen_position: Ratchet & Clank's (func_L00_00236400), on the record's game address: the
+// record's place (+0x50, +0x54: Ratchet & Clank's for its quick select) anchored by its flags and
+// size (Going Commando's 210 x 200). Going Commando's own place is its HUD's disc data, which the code
+// does not give: Ratchet & Clank's is kept.
 int gc_shim_hud_screen_position(void* record, int* x, int* y) {
-    const gcw::gc::Memory rec{static_cast<std::uint8_t*>(record)};
-    *x = gcw::gc::kScreenCentreX - rec.read<std::int32_t>(gcw::kRecordWidth) / 2;
-    *y = gcw::gc::kScreenCentreY - rec.read<std::int32_t>(gcw::kRecordHeight) / 2;
+    shim().game.hud_screen_position(guest(record), *x, *y);
     return 0;
 }
 

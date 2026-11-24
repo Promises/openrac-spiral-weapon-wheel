@@ -126,6 +126,7 @@ struct Disc {
     std::uint32_t ring_radius;        // float
     std::uint32_t ring_aspect;        // float
     std::uint32_t unselected_alpha;   // float
+    std::uint32_t pulse_period;       // quick_select_pulse_period: the marker's pulse, in ticks
 };
 
 inline Disc disc_for(bool ntsc) {
@@ -172,6 +173,7 @@ inline Disc disc_for(bool ntsc) {
         d.ring_radius = 0x0015F78Cu;
         d.ring_aspect = 0x0015F7C4u;
         d.unselected_alpha = 0x0015F7C0u;
+        d.pulse_period = 0x0015F7B0u;
     } else {
         d.hero = 0x0013F450u;
         d.pad = 0x0013CA40u;
@@ -213,6 +215,7 @@ inline Disc disc_for(bool ntsc) {
         d.ring_radius = 0x0015F86Cu;
         d.ring_aspect = 0x0015F8A4u;
         d.unselected_alpha = 0x0015F8A0u;
+        d.pulse_period = 0x0015F890u;
     }
     return d;
 }
@@ -299,6 +302,7 @@ struct FunctionNames {
     const char* font_print_center;
     const char* msg_string;
     const char* fast_tween_color;
+    const char* hud_screen_position;
     const char* show_health_hud;
     const char* hud_keep_visible;
     const char* queue_animation_update;
@@ -324,7 +328,7 @@ inline FunctionNames function_names(bool ntsc) {
     if (ntsc) {
         return {"FUN_001fbab8", "FUN_L00_0023ac78", "FUN_001fde90", "music_unpause", "music_pause",
                 "FUN_0012e3e8", "FUN_0012e418", "FUN_0012dc80", "FUN_001ffc30", "FUN_001ff960",
-                "FUN_L00_0023b120", "FUN_001f6af0", "FUN_001fdd10", "FUN_001fa6e0",
+                "FUN_L00_0023b120", "FUN_001f6af0", "FUN_001fdd10", "FUN_001fa6e0", "FUN_L00_00235a70",
                 "FUN_L00_00234e00", "FUN_L00_00235e18", "FUN_001ff308", "FUN_001ff480", "FUN_001fb368",
                 "FUN_001f39d0", "FUN_0022db10",
                 "FUN_001f9988", "FUN_001f9e90", "FUN_001fa688", "FUN_001fa5c8", "FUN_001fa610",
@@ -332,7 +336,7 @@ inline FunctionNames function_names(bool ntsc) {
     }
     return {"func_001FBC80", "func_L00_0023B610", "func_001FE6C0", "func_00216F28", "func_00216EF0",
             "func_0012E528", "func_0012E558", "func_0012DDC0", "func_00200468", "func_00200198",
-            "func_L00_0023BAB8", "func_001F6EA8", "func_001FE540", "func_001FA8A8",
+            "func_L00_0023BAB8", "func_001F6EA8", "func_001FE540", "func_001FA8A8", "func_L00_00236400",
             "func_L00_00235790", "func_L00_002367A8", "func_001FFB38", "func_001FFCB0", "func_001FB530",
             "func_001F3D78", "func_0022EE28",
             "func_001F9B50", "func_001FA058", "func_001FA850", "func_001FA790", "func_001FA7D8",

@@ -2,9 +2,9 @@
   "format": 2,
   "id": "gc-weapon-wheel",
   "name": "Going Commando weapon wheel",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Henning Berge",
-  "description": "Going Commando's weapon quick select in Ratchet & Clank, running Going Commando's own copied code: holding Triangle holds the world (Going Commando's pause, no freeze dialog) while the stick or the d-pad picks a weapon on the ring, centred on the screen, a click on each change, Going Commando's ammo and name text under it; letting go of Triangle equips it; a double tap is the quick swap. Ratchet & Clank's own ring, icons, names and slots, read from the game. With 'Pause while open' off, it opens over the running game as Going Commando's option does. Needs OpenRAC with mod interface 1.39 and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet).",
+  "description": "Going Commando's weapon quick select in Ratchet & Clank, running Going Commando's own copied code: holding Triangle holds the world (Going Commando's pause, no freeze dialog) while the stick or the d-pad picks a weapon on the ring, Going Commando's ammo and name text under it; letting go of Triangle equips it; a double tap is the quick swap. Ratchet & Clank's own ring, icons, names and slots, read from the game. With 'Pause while open' off, it opens over the running game as Going Commando's option does. Needs OpenRAC with mod interface 1.39 and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet).",
   "license": "GPL-3.0-or-later AND GPL-3.0-only",
   "homepage": "https://github.com/Promises/rac1-gc-weapon-wheel",
   "api": "1.39",
@@ -40,8 +40,8 @@
       "key": "click",
       "name": "Click sound",
       "type": "bool",
-      "default": true,
-      "description": "A sound as the selection moves, where Going Commando clicks. Ratchet & Clank has no UI click: it is the level's sound bank's first entry, the one a help message opens with."
+      "default": false,
+      "description": "A sound as the selection moves, where Going Commando clicks. Ratchet & Clank's quick select is silent and has no UI click: on, it plays the level's sound bank's first entry (the one a help message opens with), a stand-in, not Going Commando's sound. Off (the default) keeps Ratchet & Clank's silence."
     }
   ]
 }

@@ -70,9 +70,7 @@ constexpr std::int32_t kModeFreeze = 4;
 // Commando's (hud_set_slot_contents' 0x23).
 constexpr std::int32_t kSelectorKey = 3;
 constexpr std::int32_t kGcSelectorKey = 0x23;
-// The middle of Ratchet & Clank's 2D picture (512 x 416), where the quick select is centred.
-constexpr int kScreenCentreX = 256;
-constexpr int kScreenCentreY = 208;
+
 
 // Sizes of the layer's copies (Going Commando's offsets).
 constexpr std::size_t kHeroBytes = 0x2540;
@@ -128,6 +126,8 @@ struct Game {
     std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center;
     std::function<std::uint32_t(int)> msg_string;
     std::function<std::uint32_t(std::uint32_t, std::uint32_t, float)> fast_tween_color;
+    // hud_screen_position(record, &x, &y): mod.cpp passes x and y on the game's stack.
+    std::function<void(std::uint32_t, int&, int&)> hud_screen_position;
     std::function<int()> show_health_hud;
     std::function<int(int, int)> hud_keep_visible;
     std::function<int(int, int, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, int)>
@@ -137,8 +137,6 @@ struct Game {
     std::function<void()> draw_debug_profiler;
     // The click: allocate_voice_for_bank_entry(0, 1, 0), the level bank's entry 0.
     std::function<void()> play_click;
-    // The SDK's sprite tint (0x00BBGGRR, 0..128 a channel; UINT32_MAX off), returning the one before.
-    std::function<std::uint32_t(std::uint32_t)> sprite_tint;
 
     std::function<float(float)> square_root;
     std::function<float(float, float)> fast_arc_tan;
@@ -161,6 +159,12 @@ struct LevelAddresses {
     Disc at{};
     std::uint32_t selector_init = 0, selector_update = 0, selector_draw = 0;
     std::uint32_t bolt_init = 0, bolt_update = 0, bolt_draw = 0;
+};
+
+// Ratchet & Clank's double tap as the hero's update found it (Shim::explain_double_tap).
+struct TapSnapshot {
+    std::int16_t tap = 0, window = 0;
+    std::int32_t item = 0, pending = 0, swap_item = 0, last_weapon = 0;
 };
 
 class Shim {
@@ -211,7 +215,8 @@ public:
     void begin_paused(int arg);
     void end_paused(const char* reason);
     void quick_swap();
-    void log_request();
+    void trace_request(int before, bool held, bool swap_flag);
+    void explain_double_tap(const TapSnapshot& before);
     void queue_selector();
     void show_counters_health(int frames);
     void show_counters_bolts(int frames);
@@ -252,9 +257,8 @@ private:
     // The HUD-open request, for the log: the play ticks, the state last seen, the tick it was asked
     // at, whether a swap set its flag.
     int m_play_ticks = 0;
-    int m_request_state = 0;
     int m_request_tick = 0;
-    bool m_swap_seen = false;
+    std::string m_request_trace;
     // Records of Ratchet & Clank's own opener refused with the pause on (Going Commando's decider
     // opens the HUD quick select only with the option off).
     std::vector<std::uint32_t> m_refused;

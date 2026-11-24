@@ -3,8 +3,8 @@
 A native mod for [OpenRAC](https://github.com/OpenRAC/OpenRAC)'s port of Ratchet & Clank: Going
 Commando's **weapon quick select**, running **Going Commando's own code**. Hold Triangle and, after a
 few frames (Going Commando's HUD-open request), the world holds, as in Going Commando: no freeze
-dialog, no dim, the quick select centred on the screen; the stick (or the d-pad) picks a weapon on the ring with Going Commando's
-sectors, hysteresis and snapping, a click on each change, and Going Commando's ammo and name text
+dialog, no dim; the stick (or the d-pad) picks a weapon on the ring with Going Commando's
+sectors, hysteresis and snapping, and Going Commando's ammo and name text
 under the ring; let go of Triangle and the weapon is equipped. A tap does not pause: a double tap
 is the quick swap, as in Going Commando. Going Commando's black bars at the top and bottom are left
 out on purpose (Ratchet & Clank's letterbox changes its viewport: the world would zoom). The ring, its icons, the slots and
@@ -12,7 +12,8 @@ their neighbours, the names and the ammo format are Ratchet & Clank's own, read 
 
 Settings: **Pause while open** (on: Going Commando's option byte; off: the quick select opens over
 the running game from Ratchet & Clank's own Triangle, Going Commando's code running it, as Going
-Commando does with the option off); **Click sound** (on).
+Commando does with the option off); **Click sound** (off: Ratchet & Clank's quick select is silent;
+on, a stand-in sound where Going Commando clicks, see below).
 
 **Needs OpenRAC with mod interface 1.39 and three hook points that are not in a release or in
 OpenRAC's develop yet**: `rac1.level.update_play`, `rac1.freeze.update` and `rac1.freeze.draw`, on
@@ -84,12 +85,12 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
 - **The ring**: Going Commando's ring is its resident HUD's labels, which Ratchet & Clank does not
   have. In its place (marked) the layer draws Ratchet & Clank's own, as `draw_hud_item_selector_panel`
   does (the four mirrored panel quarters, the icons on the ring, the unselected ones fainter, the
-  marker), at Going Commando's alpha, on the centre Going Commando's text is drawn at, the marker
-  tinted with Going Commando's highlight.
+  marker, pulsing as Ratchet & Clank's), at Going Commando's alpha, on the centre Going Commando's
+  text is drawn at.
 - **Where**: Going Commando's quick select's place is its HUD's data (the element table
-  `hud_set_slot_contents` loads from the disc), not code. It is centred on the screen, so the layer
-  centres the panel (210 x 200) on Ratchet & Clank's 2D picture (512 x 416, the port's 2D pixels;
-  Ratchet & Clank centres its own text panels at x 0x100): `hud_screen_position` is the layer's.
+  `hud_set_slot_contents` loads from the disc), which its code does not give, so Ratchet & Clank's is
+  kept: the quick select's record at Ratchet & Clank's place (+0x50, +0x54), anchored by Ratchet &
+  Clank's `hud_screen_position` with Going Commando's 210 x 200 panel.
 - **No letterbox**: Going Commando's bars (`hud_update_letterbox_bars`) are cut, on purpose: Ratchet
   & Clank's letterbox changes the viewport, which zoomed the frozen world. Nothing of the mod writes
   Ratchet & Clank's letterbox, camera or projection.
@@ -128,13 +129,23 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
   ring fades and commits in play. To check against Going Commando on a real console or the port.
 - Mode 7's counter starts at 6 frames (`ref_00286738_00`: a value of Going Commando's data, from
   rac2-decomp's note; no writer found either).
-- The highlight's colours and period (0x60442D00 to 0x70FFFEED and back, 20 frames) are not in
-  rac2-decomp's C: 0x60442D00 is Going Commando's menu box colour (`00288D88.c`), 0x70FFFEED is not
-  found there.
-- The click: Ratchet & Clank has no UI click in its global bank and the SDK's `ui_sound` plays only
-  while one of the mod's pages is on the screen, so the click is the level bank's entry 0
-  (`allocate_voice_for_bank_entry(0, 1, 0)`, the sound a help message opens with). Not heard yet;
-  nor whether it plays with sound group 0x1D paused.
+- **Where Going Commando's code does not say, Ratchet & Clank's behaviour is kept** (none of these is
+  a guess at Going Commando's):
+  - the quick select's place on the screen (above);
+  - the ring, icons and marker: Ratchet & Clank's sprites and layout, its unselected icons' alpha
+    scale, its marker's pulse (Going Commando's ring and highlight are its resident HUD's, not code);
+  - the names (the gold name for a gold weapon) and the ammo format, Ratchet & Clank's;
+  - no class preload before the commit, no notice or scripted-sequence hold, no hit-streak input
+    block, no check of Going Commando's hero state 0x37 in the double tap: Ratchet & Clank has none;
+  - the commit of item 0x18 (hero+0x1FF5), Ratchet & Clank's rule;
+  - the quick swap itself (Ratchet & Clank's `hero_update_transitions` rule) and its usage count;
+  - the health meter and bolt counter as Ratchet & Clank's Select shows them, for Going Commando's
+    `level_forward_value_b`/`level_forward_value`; `Help_Update` for `level_run_callbacks` (where both
+    games' play ticks call them, after the HUD records' update);
+  - the click: Going Commando's code plays its global bank's sound 3; Ratchet & Clank's quick select
+    is silent and has no UI click (the SDK's `ui_sound` plays only on the mod's own pages), so "Click
+    sound" is off by default. On, it plays the level bank's entry 0 (`allocate_voice_for_bank_entry(0,
+    1, 0)`, the sound a help message opens with): a stand-in, not Going Commando's sound.
 - The gate's hero part is Ratchet & Clank's Triangle conditions (the item slot not locked, no timed
   HUD, the item locks, on foot or mode 3). The calls `hero_update_transitions` makes before it
   reaches them (damage, item input, water, firing) are not evaluated: they have side effects.
@@ -165,8 +176,12 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
 - The log (`openrac-rac1-ntsc.log`, lines "[mod gc-weapon-wheel]"): the first call of each hook
   point; once a level, the callbacks found (or which check failed) and the game mode words; on each
   Triangle press, the gate's result with its first failing condition and the values it read; each
-  freeze entered (kind, saved mode) and left (why); each HUD-open request done or cancelled (Triangle
-  let go, or a double tap's swap) with its ticks; the game's own quick select refused.
+  freeze entered (kind, saved mode) and left (why); each HUD-open request, one line: the play tick
+  it was asked at, how it ended (done: the paused open; cancelled: Triangle let go or a double tap's
+  swap) after how many ticks, and each tick's state before and after with the masked held word's
+  Triangle bit (`01H 12H 22H 22H 22H 23H`: asked, counting, done; `21-` a cancel the gate asked again
+  while the press was in its window); each double-tap swap (from, to, the timers) and each second
+  release in the window that does not swap, and why; the game's own quick select refused.
 
 ## Placeholder art
 
@@ -190,13 +205,14 @@ release's `url` and `sha256`, once the hook points are merged.
 The test (`src/gc_weapon_wheel_test.cpp`) runs the copied code and the layer on a fake game: the
 selection math (sectors, hysteresis, snap, nudge), the d-pad's neighbours from a Ratchet & Clank
 page, the fades and the commit (the pending item, item 0x18's flag, the ammo clamp, the usage
-count, the close), the draw (the ring, the marker's tint, the ammo and name text and their
+count, the close), the draw (the ring, the marker, the ammo and name text and their
 colours, the gold name), the paused path (the gate, `mode_freeze_init(9)`, mode 7's phases, the
 release, the counter, the mode back, the music and sound group), the gate's conditions, the press
 window and `PadPressedWithin`, the 50/60 Hz scaling, the quick swap, the relocated game mode word,
 each level's callbacks, the taps (a tap does nothing and never freezes, a release before the request
 is done cancels it, a double tap swaps once, a hold freezes), Ratchet & Clank's letterbox never
-written, the centred position, and the freeze's watchdogs.
+written, the place, a held press opening at the same tick each time, the cancel only on a
+release, the double tap's logs, and the freeze's watchdogs.
 
 ## License
 
