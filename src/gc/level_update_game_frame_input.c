@@ -3,7 +3,7 @@
  * COPIED from Going Commando's decompilation: OpenRAC/rac2-decomp
  * (https://github.com/OpenRAC/rac2-decomp, GNU GPL version 3) at commit
  * 4ea93ceaf43aec055e19211d36512e847860bac2, file src/levels/shared/L00_0036F488-g8.c,
- * lines 1-81, 83-86, 93, 107, 112-116 and 118-120. Code of that project from before its relicensing (d46a3539, 2026-10-11) is also
+ * lines 1-81, 83-86, 93, 106-107, 112-116 and 118-120. Code of that project from before its relicensing (d46a3539, 2026-10-11) is also
  * under its MIT notice: THIRD_PARTY_NOTICES.md.
  *
  * level_update_game_frame_input (USA v1.01 func_L00_0036F488): Going Commando's game mode 0 tick,
@@ -122,14 +122,15 @@ int level_update_game_frame_input(void) /* (gc-weapon-wheel) returns 1 when it t
        own (handle_pause_input) run after, when this returns 0. */
     gc_shim_view_hero(); /* (gc-weapon-wheel) */
 
-    /* (gc-weapon-wheel) In place of lines 94-106 (`blocked` from Going Commando's hero states 0x31 and its
-       vehicles' moby classes, its level checks, and its countdown's update): `blocked` (Going
+    /* (gc-weapon-wheel) In place of lines 94-105 (`blocked` from Going Commando's hero states 0x31 and its
+       vehicles' moby classes, and its level checks): `blocked` (Going
        Commando's name for it, though nonzero lets the quick select open) from Ratchet & Clank's own
        conditions for opening it with Triangle (hero_update_transitions,
        hero_item_input_and_hud.c:110-116: the slot not locked, no timed HUD, the item locks, on foot
        or in mode 3). */
     special = 0; /* (gc-weapon-wheel) */
     blocked = gc_shim_selector_open_allowed(); /* (gc-weapon-wheel) */
+    level_update_countdown_state_machine();
 
     if (PadPressedWithin(16, gc_shim_frames(g_pad_press_window), 0) && g_pad_hold_frame_count >= 8) { /* (gc-weapon-wheel) the window in the game's ticks, as Going Commando's PAL build (L00_00371E28-tick-g8.c:119) */
         if (blocked && !g_game_l00_mode && !g_input_block_flag && g_language_settings[3]) { /* (gc-weapon-wheel) lines 109-111 with the hero's part (Going Commando's states 0x6F, 0x31, 0x1C, its hero mode 2, its transition value, its mode byte < 2) Ratchet & Clank's, in `blocked` above */

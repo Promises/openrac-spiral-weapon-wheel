@@ -17,7 +17,8 @@
  *    Going Commando's offsets), the usage statistics, the weapon table (one Going Commando record
  *    for each Ratchet & Clank item, from item_defs and item_price_table). The layer fills it before
  *    the copied code runs and writes back what it changed.
- *  - The mod's own, where Ratchet & Clank has none: the modal state of game mode 4, the letterbox,
+ *  - The mod's own, where Ratchet & Clank has none: the modal state of game mode 4, the HUD-open
+ *    request,
  *    the press window, the HUD flags.
  * gc/rac1_shim.hpp says which is which.
  */
@@ -132,9 +133,24 @@ extern unsigned char gc_shim_hero[];
 #define g_modal_clear_flag gc_shim_modal_clear_flag
 #define g_modal_timer gc_shim_modal_timer
 #define g_letterbox_grow_flag gc_shim_letterbox_grow_flag
-#define g_letterbox_level gc_shim_letterbox_level
-#define g_hud_flag_a gc_shim_hud_flag_a
+/* The quick select's HUD-open request (hud_open_request.c, level_update_countdown_state_machine.c).
+   In a level, Going Commando keeps it in two words, the same in every function that names them
+   (USA v2.00's level programs: gp-0x5C80 and gp-0x5C84): the request's state, which
+   hud_request_open, hud_is_open_done, the state machine and hud_clear_flag_b (level_clear_flag_f)
+   use, and the double tap's swap flag, which level_set_flag_d_true, level_get_flag_d and
+   hud_clear_flag_a (level_clear_flag_e) use. The countdown's start (ref_L00_002FC058_01, 4 frames in
+   Going Commando's data) is set in the game's ticks by the layer. */
 #define g_hud_flag_b gc_shim_hud_flag_b
+#define ref_L00_002FC030_00 gc_shim_hud_flag_b
+#define ref_L00_002FC048_00 gc_shim_hud_flag_b
+#define ref_L00_002FC058_00 gc_shim_hud_flag_b
+#define g_hud_flag_a gc_shim_hud_flag_a
+#define ref_L00_002FC058_01 gc_shim_open_delay_start
+#define ref_L00_002FC058_02 gc_shim_open_delay_counter
+#define level_clear_flag_e hud_clear_flag_a
+#define level_clear_flag_f hud_clear_flag_b
+/* The pad's held word the state machine tests (D_00138320, the pad + 0x1A0: Ratchet & Clank's held). */
+#define g_pad_pressed_flags (*gc_shim_pad_held)
 #define g_pad_press_window gc_shim_press_window
 #define ref_L00_003266D8_00 gc_shim_press_window
 #define g_input_block_flag gc_shim_input_block
@@ -171,15 +187,13 @@ extern unsigned char gc_shim_hero[];
 #define fast_subtract_rotations gc_shim_fast_subtract_rotations
 #define func_001157AC gc_shim_strlen
 #define gfx_append_draw_list_buffer_tag gc_shim_gfx_append_draw_list_buffer_tag
-#define gfx_set_clear_color_packet gc_shim_gfx_set_clear_color_packet
 #define hud_close_element_by_key gc_shim_hud_close_element_by_key
-#define hud_is_open_done gc_shim_hud_is_open_done
-#define hud_request_open gc_shim_hud_request_open
 #define hud_screen_position gc_shim_hud_screen_position
 #define hud_set_slot_contents gc_shim_hud_set_slot_contents
 #define hud_update_record_timers gc_shim_hud_update_record_timers
 #define level_forward_value gc_shim_level_forward_value
 #define level_forward_value_b gc_shim_level_forward_value_b
+#define level_get_flag_d gc_shim_level_get_flag_d
 #define level_run_callbacks gc_shim_level_run_callbacks
 #define level_set_flag_d_true gc_shim_level_set_flag_d_true
 #define load_is_class_cached gc_shim_load_is_class_cached

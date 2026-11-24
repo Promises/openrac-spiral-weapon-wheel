@@ -92,8 +92,6 @@ struct Disc {
     std::uint32_t gold;               // the gold weapons' flags (item_text_variant), u8 per item
     std::uint32_t usage_stats;        // usage_stats
     std::uint32_t mode_freeze_info;   // mode_freeze_info
-    std::uint32_t letterbox_height;   // letterbox_bar_height
-    std::uint32_t letterbox_enabled;  // letterbox_enabled
     std::uint32_t bolts;              // gBolts
     std::uint32_t quick_swap_item;    // quick_swap_item
     std::uint32_t last_weapon;        // last_weapon_id
@@ -141,8 +139,6 @@ inline Disc disc_for(bool ntsc) {
         d.gold = 0x0013E520u;
         d.usage_stats = 0x00141848u;
         d.mode_freeze_info = 0x00193300u;
-        d.letterbox_height = 0x0015F448u;
-        d.letterbox_enabled = 0x0015F444u;
         d.bolts = 0x0015ED98u;
         d.quick_swap_item = 0x0015ED8Cu;
         d.last_weapon = 0x00141660u;
@@ -184,8 +180,6 @@ inline Disc disc_for(bool ntsc) {
         d.gold = 0x0013E620u;
         d.usage_stats = 0x00141948u;
         d.mode_freeze_info = 0x00193400u;
-        d.letterbox_height = 0x0015F548u;
-        d.letterbox_enabled = 0x0015F544u;
         d.bolts = 0x0015EE98u;
         d.quick_swap_item = 0x0015EE8Cu;
         d.last_weapon = 0x00141760u;
@@ -305,7 +299,6 @@ struct FunctionNames {
     const char* font_print_center;
     const char* msg_string;
     const char* fast_tween_color;
-    const char* hud_screen_position;
     const char* show_health_hud;
     const char* hud_keep_visible;
     const char* queue_animation_update;
@@ -331,7 +324,7 @@ inline FunctionNames function_names(bool ntsc) {
     if (ntsc) {
         return {"FUN_001fbab8", "FUN_L00_0023ac78", "FUN_001fde90", "music_unpause", "music_pause",
                 "FUN_0012e3e8", "FUN_0012e418", "FUN_0012dc80", "FUN_001ffc30", "FUN_001ff960",
-                "FUN_L00_0023b120", "FUN_001f6af0", "FUN_001fdd10", "FUN_001fa6e0", "FUN_L00_00235a70",
+                "FUN_L00_0023b120", "FUN_001f6af0", "FUN_001fdd10", "FUN_001fa6e0",
                 "FUN_L00_00234e00", "FUN_L00_00235e18", "FUN_001ff308", "FUN_001ff480", "FUN_001fb368",
                 "FUN_001f39d0", "FUN_0022db10",
                 "FUN_001f9988", "FUN_001f9e90", "FUN_001fa688", "FUN_001fa5c8", "FUN_001fa610",
@@ -339,7 +332,7 @@ inline FunctionNames function_names(bool ntsc) {
     }
     return {"func_001FBC80", "func_L00_0023B610", "func_001FE6C0", "func_00216F28", "func_00216EF0",
             "func_0012E528", "func_0012E558", "func_0012DDC0", "func_00200468", "func_00200198",
-            "func_L00_0023BAB8", "func_001F6EA8", "func_001FE540", "func_001FA8A8", "func_L00_00236400",
+            "func_L00_0023BAB8", "func_001F6EA8", "func_001FE540", "func_001FA8A8",
             "func_L00_00235790", "func_L00_002367A8", "func_001FFB38", "func_001FFCB0", "func_001FB530",
             "func_001F3D78", "func_0022EE28",
             "func_001F9B50", "func_001FA058", "func_001FA850", "func_001FA790", "func_001FA7D8",

@@ -70,10 +70,16 @@ int gc_shim_modal_counter;
 int gc_shim_modal_counter_start;
 int gc_shim_modal_clear_flag;
 int gc_shim_modal_timer;
+// hud_request_letterbox_bars' flag: Going Commando's bars are left out (README), nothing reads it.
 int gc_shim_letterbox_grow_flag;
-int gc_shim_letterbox_level;
+// The HUD-open request (gc/shim/common.h): its state (_b), the double tap's swap flag (_a), the
+// countdown and its start (4 frames in Going Commando's data, in the game's ticks: Shim::reset).
 int gc_shim_hud_flag_a;
 int gc_shim_hud_flag_b;
+int gc_shim_open_delay_start;
+int gc_shim_open_delay_counter;
+// The pad's held word (pad + 0x1A0), which the request's state machine tests.
+void* gc_shim_pad_held;
 int gc_shim_press_window;
 // Going Commando's input block (D_L00_001A8FB4: its hit streak's): Ratchet & Clank has none.
 int gc_shim_input_block;
@@ -134,11 +140,7 @@ bool Shim::pause() const { return gc_shim_options[3] != 0; }
 void Shim::reset() {
     m_copy_depth = 0;
     m_entered = false;
-    m_letterbox_wrote = false;
-    m_letterbox_drew = false;
     m_refused.clear();
-    m_fallback.clear();
-    m_press_entered = false;
     m_freeze_ticks = 0;
     m_draws_since_update = 0;
     m_record_opened = false;
@@ -150,9 +152,12 @@ void Shim::reset() {
     gc_shim_modal_timer = 0;
     gc_shim_modal_clear_flag = 0;
     gc_shim_letterbox_grow_flag = 0;
-    gc_shim_letterbox_level = 0;
     gc_shim_hud_flag_a = 0;
     gc_shim_hud_flag_b = 0;
+    gc_shim_open_delay_counter = 0;
+    gc_shim_open_delay_start = frames(4);
+    m_request_tick = 0;
+    m_request_state = 0;
     gc_shim_press_window = 0;
     gc_shim_modal_counter_start = frames(6);
     for (int i = 0; i < 256; ++i) {
@@ -187,7 +192,7 @@ void Shim::connect(int level) {
     // mode_freeze_init and update_mode_freeze write is one a level's program keeps elsewhere.
     for (std::uint32_t Disc::*f :
          {&Disc::hero, &Disc::pad, &Disc::slot_items, &Disc::ammo, &Disc::gold, &Disc::usage_stats,
-          &Disc::mode_freeze_info, &Disc::letterbox_height, &Disc::letterbox_enabled, &Disc::bolts,
+          &Disc::mode_freeze_info, &Disc::bolts,
           &Disc::quick_swap_item, &Disc::last_weapon, &Disc::level_index, &Disc::event_frames, &Disc::game_mode,
           &Disc::frame_scale}) {
         l.at.*f = exe(d.*f);
@@ -244,6 +249,7 @@ void Shim::connect(int level) {
 
     const Disc& a = m_level.at;
     gc_shim_pad = host(a.pad);
+    gc_shim_pad_held = host(a.pad + kPadHeld);
     gc_shim_slot_items = host(a.slot_items);
     gc_shim_ammo = host(a.ammo);
     gc_shim_wheel_timer = host(a.hero + kHeroCloseTimer);
@@ -424,7 +430,6 @@ void Shim::begin_paused(int arg) {
     menu_set_mode(kModalQuickSelect, arg);
     game.music_unpause();
     m_entered = true;
-    m_press_entered = true;
     m_freeze_ticks = 0;
     m_draws_since_update = 0;
     m_record_opened = false;
@@ -568,26 +573,6 @@ void Shim::quick_swap() {
     copy.write<std::int16_t>(kGcHeroTapWindow, 0);
 }
 
-// The letterbox: Going Commando's hud_update_letterbox_bars (copied) each tick, its bars drawn by
-// Ratchet & Clank's own draw_letterbox_bars, which while letterbox_enabled is clear shrinks
-// letterbox_bar_height by one and draws two strips that high. Setting letterbox_enabled would hide
-// the whole HUD (update_hud returns early), so the layer writes the height Going Commando asks for,
-// plus the one it takes off, before the world is drawn; and 0 once Going Commando's bars are gone.
-void Shim::letterbox_bars(int height) {
-    game.memory.write<std::int32_t>(m_level.at.letterbox_height, height + 1);
-    m_letterbox_drew = true;
-}
-
-void Shim::letterbox_tick() {
-    m_letterbox_drew = false;
-    hud_update_letterbox_bars();
-    const Memory& m = game.memory;
-    if (!m_letterbox_drew && m_letterbox_wrote && m.read<std::int32_t>(m_level.at.letterbox_enabled) == 0) {
-        m.write<std::int32_t>(m_level.at.letterbox_height, 0);
-    }
-    m_letterbox_wrote = m_letterbox_drew;
-}
-
 // hud_set_slot_contents(0x23, 0, menu_init_panel_layout, weapon_wheel_update_select,
 // weapon_wheel_draw, 0, 0): Ratchet & Clank's queue_animation_update(3, 0, its selector's init,
 // update and draw, 0, 0), as hero_update_transitions queues it; the hook points run the copied
@@ -690,14 +675,13 @@ void Shim::draw_ring(std::uint8_t* menu, int x, int y, int alpha) {
 // select the tick is the freeze's (Going Commando returns before its world update), else the press
 // window (hero_update_hit_streak_effect, cut) and the game's tick.
 void Shim::update_play(const std::function<void()>& original) {
-    letterbox_tick();
     const Memory& m = game.memory;
-    const bool pressed = ((m.read<std::uint32_t>(m_level.at.pad + kPadPressed) |
-                           m.read<std::uint32_t>(m_level.at.pad + kPadPressedUnmasked)) & kTriangle) != 0;
+    const Disc& a = m_level.at;
+    ++m_play_ticks;
+    const bool pressed = ((m.read<std::uint32_t>(a.pad + kPadPressed) |
+                           m.read<std::uint32_t>(a.pad + kPadPressedUnmasked)) & kTriangle) != 0;
     std::string gate;
     if (pressed) {
-        // A new press: whether the paused open is entered for it is decided again.
-        m_press_entered = false;
         gate = describe_gate();
     }
     int took = 0;
@@ -708,11 +692,46 @@ void Shim::update_play(const std::function<void()>& original) {
     if (pressed && game.info) {
         game.info(gate.c_str());
     }
+    log_request();
     if (took != 0) {
         return;
     }
     hero_update_hit_streak_effect();
+    // Ratchet & Clank's own double tap runs in the hero's update (hero_update_transitions, the same
+    // timers as Going Commando's hero_update_button_hold_timers, which Going Commando's hero decider
+    // runs in its place): its swap is Going Commando's swap request, whose flag (level_set_flag_d_true)
+    // cancels the HUD-open request. Seen here as the swap's own effect: the window was open, Triangle
+    // was let go, and both timers are cleared.
+    const std::int16_t window = m.read<std::int16_t>(a.hero + kHeroTapWindow);
     original();
+    if (window != 0 && (m.read<std::uint32_t>(a.pad + kPadRawReleased) & kTriangle) != 0 &&
+        m.read<std::int16_t>(a.hero + kHeroTapTimer) == 0 && m.read<std::int16_t>(a.hero + kHeroTapWindow) == 0) {
+        gc_shim_hud_flag_a = 1;
+    }
+}
+
+// The HUD-open request in the log: asked, then done (the paused open) or cancelled, with its ticks.
+void Shim::log_request() {
+    const int state = gc_shim_hud_flag_b;
+    if (state == m_request_state) {
+        return;
+    }
+    char line[160];
+    line[0] = 0;
+    if (m_request_state == 0 && state != 0) {
+        m_request_tick = m_play_ticks;
+    } else if (state == 3) {
+        std::snprintf(line, sizeof line, "HUD-open request done after %d ticks (Triangle held): the paused open",
+                      m_play_ticks - m_request_tick);
+    } else if (state == 0 && m_request_state != 3) {
+        std::snprintf(line, sizeof line, "HUD-open request cancelled after %d ticks (%s)", m_play_ticks - m_request_tick,
+                      gc_shim_hud_flag_a != 0 || m_swap_seen ? "a double tap's swap" : "Triangle let go");
+    }
+    m_swap_seen = gc_shim_hud_flag_a != 0;
+    m_request_state = state;
+    if (line[0] != 0 && game.info) {
+        game.info(line);
+    }
 }
 
 // rac1.freeze.update (update_mode_freeze): the mod's kind runs Going Commando's UpdateModalState
@@ -778,21 +797,17 @@ void Shim::freeze_draw(const std::function<void()>& original) {
                                   "for this session (it opens over the running game)", true);
         end_paused("watchdog: rac1.freeze.update did not run");
     }
-    letterbox_tick();
     gfx_render_frame_extra_layers();
 }
 
 // rac1.hud.quick_select.init: Going Commando's menu_init_panel_layout (with weapon_menu_init_slots).
 // With "Pause while open" on, a record Ratchet & Clank's own Triangle opened (not the mod's freeze)
-// is refused when the paused open was entered for this press, as Going Commando's decider opens the
-// HUD quick select only with the option off (L00_002CB3A8-decider.c:185, g_option_toggle_b[1]).
-// When the paused open could not happen, it is let through and run as the HUD quick select (with
-// the option off for its update, so Going Commando's code takes the stick): not Going Commando's
-// behaviour (it shows nothing then), so that Triangle always gives a quick select.
+// is refused, as Going Commando's decider opens the HUD quick select only with the option off
+// (L00_002CB3A8-decider.c:185, g_option_toggle_b[1]): the quick select is the paused one, which a
+// held Triangle opens.
 void Shim::selector_init(std::uint32_t record) {
     const Memory& m = game.memory;
     m_refused.erase(std::remove(m_refused.begin(), m_refused.end(), record), m_refused.end());
-    m_fallback.erase(std::remove(m_fallback.begin(), m_fallback.end(), record), m_fallback.end());
     rebuild_pages();
     fill_weapon_table();
     menu_init_panel_layout(m.at(record));
@@ -807,20 +822,8 @@ void Shim::selector_init(std::uint32_t record) {
         log_once("record hud", "the game's Triangle opened the quick select over the running game (\"Pause while open\" off)");
         return;
     }
-    if (m_press_entered) {
-        m_refused.push_back(record);
-        if (game.info) {
-            game.info("the game's own quick select refused: the paused open was entered for this press");
-        }
-        return;
-    }
-    m_fallback.push_back(record);
-    const char* why = paused_open_refusal();
-    std::string line = std::string("the game's own quick select allowed, over the running game: the paused open "
-                                   "did not happen (") + (why != nullptr ? why : "the gate's conditions") + ")";
-    if (game.info) {
-        game.info(line.c_str());
-    }
+    m_refused.push_back(record);
+    log_once("record refused", "the game's own quick select refused (\"Pause while open\" on: the paused one opens on a held Triangle)");
 }
 
 // rac1.hud.quick_select.update: Going Commando's weapon_wheel_update_select (a refused record is
@@ -833,19 +836,10 @@ void Shim::selector_update(std::uint32_t record) {
         m.write<std::int32_t>(record + kRecordSlide, -6);
         return;
     }
-    const bool fallback = std::find(m_fallback.begin(), m_fallback.end(), record) != m_fallback.end();
     CopyScope scope(*this);
     rebuild_pages();
     fill_weapon_table();
-    const unsigned char option = gc_shim_options[3];
-    if (fallback) {
-        gc_shim_options[3] = 0;
-    }
     weapon_wheel_update_select(m.at(record));
-    gc_shim_options[3] = option;
-    if (fallback && m.read<std::int32_t>(record + kRecordSlide) == -6) {
-        m_fallback.erase(std::remove(m_fallback.begin(), m_fallback.end(), record), m_fallback.end());
-    }
 }
 
 // rac1.hud.quick_select.draw: Going Commando's weapon_wheel_draw.
@@ -993,10 +987,6 @@ int gc_shim_snd_play_from_global_bank(int sound, int, void*) {
 // hud_close_element_by_key: Ratchet & Clank's remove_hud_item.
 int gc_shim_hud_close_element_by_key(int handle) { return shim().game.remove_hud_item(handle); }
 
-// hud_request_open / hud_is_open_done: Going Commando's HUD slides in on request and the quick
-// select waits for it (state 3). Ratchet & Clank's quick select opens with no such wait: done.
-void gc_shim_hud_request_open(void) {}
-int gc_shim_hud_is_open_done(void) { return 1; }
 // menu_set_state_word_three (a word of Going Commando's set to 3, ref_L00_002F3458_00) and
 // menu_set_screen_value_restart_six_fades (its resident HUD's fades): nothing of Ratchet & Clank's.
 void gc_shim_menu_set_state_word_three(void) {}
@@ -1006,9 +996,16 @@ void gc_shim_stub_empty_20(void) {}
 // UpdateSoundVoices: Ratchet & Clank's sound_update, which update_mode_freeze runs right after.
 int gc_shim_UpdateSoundVoices(void) { return 0; }
 
-// hud_screen_position: Ratchet & Clank's (func_L00_00236400), on the record's game address.
+// hud_screen_position (the copied draw's only call): where Going Commando draws its quick select. Its
+// place is its HUD's data (hud_set_slot_contents' element table, a disc's), not code; Going
+// Commando's quick select is centred on the screen, so the panel (the record's 210 x 200) is centred
+// on Ratchet & Clank's 2D picture, 512 x 416 (the port's 2D pixels, docs/port/MODS.md; Ratchet &
+// Clank centres its own text panels at x 0x100). Its ring (draw_ring) and text share that centre.
+// Ratchet & Clank's own anchor for the record (+0x50, +0x54, its quick select's place) is not used.
 int gc_shim_hud_screen_position(void* record, int* x, int* y) {
-    shim().game.hud_screen_position(guest(record), *x, *y);
+    const gcw::gc::Memory rec{static_cast<std::uint8_t*>(record)};
+    *x = gcw::gc::kScreenCentreX - rec.read<std::int32_t>(gcw::kRecordWidth) / 2;
+    *y = gcw::gc::kScreenCentreY - rec.read<std::int32_t>(gcw::kRecordHeight) / 2;
     return 0;
 }
 
@@ -1090,8 +1087,14 @@ void gc_shim_pad_clear_port_state(void) {
     mem().write<std::int32_t>(pad + gcw::kPadHistCount, 0);
 }
 
-// level_set_flag_d_true, with hero+0x2538 = 1: the quick swap (Shim::quick_swap).
-void gc_shim_level_set_flag_d_true(void) { shim().quick_swap(); }
+// level_set_flag_d_true, with hero+0x2538 = 1: the quick swap (Shim::quick_swap), and Going
+// Commando's flag (the swap flag word, hud_clear_flag_a's), which cancels the HUD-open request.
+void gc_shim_level_set_flag_d_true(void) {
+    shim().quick_swap();
+    gc_shim_hud_flag_a = 1;
+}
+// level_get_flag_d: that flag.
+int gc_shim_level_get_flag_d(void) { return gc_shim_hud_flag_a; }
 
 // hud_set_slot_contents(0x23, ...): the quick select queued (Shim::queue_selector). The radial
 // (hero mode 1: weapon_wheel_init, UpdateRadialMenuSelection, DrawRadialSelectorPanel) never
@@ -1130,8 +1133,5 @@ void gc_shim_menu_draw_pause_panels(int) {}
 // menu_draw_message_panel: draws nothing while the modal state's camera flag is set, which case 7
 // sets first; no freeze dialog (draw_freeze_message_box) here.
 void gc_shim_menu_draw_message_panel(void) {}
-
-// gfx_set_clear_color_packet(0, 0, 0, height): the letterbox's bars (Shim::letterbox_bars).
-void gc_shim_gfx_set_clear_color_packet(int, int, int, int height) { shim().letterbox_bars(height); }
 
 }  // extern "C"

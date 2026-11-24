@@ -73,7 +73,7 @@ struct Fake {
     std::vector<Sprite> sprites;
     std::vector<Text> texts;
     std::vector<int> frames_drawn;
-    std::vector<std::int32_t> letterbox;
+    int renders = 0;
     std::uint32_t next_text = kTexts;
     bool opener = false;       // Ratchet & Clank's own Triangle opener in the play tick
     bool rac1_timers = false;  // Ratchet & Clank's own double-tap timers in the play tick
@@ -371,11 +371,6 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         }
         return g_fake->text(name);
     };
-    g.hud_screen_position = [](std::uint32_t rec, int& x, int& y) {
-        // Ratchet & Clank's (weapon_hud_and_counters.c): centred by the record's size with flags 0.
-        x -= g_fake->rd<std::int32_t>(rec + 0x58) >> 1;
-        y -= g_fake->rd<std::int32_t>(rec + 0x5C) >> 1;
-    };
     g.show_health_hud = [] {
         ++g_fake->health_shown;
         return 7;
@@ -390,15 +385,11 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
     g.remove_hud_item = [](int h) { return g_fake->remove(h); };
     g.append_gif_transfer_packet = [] {};
     g.draw_debug_profiler = [] {
-        // The world's render: the HUD's draw callbacks, then draw_letterbox_bars (its shrink by one).
+        // The world's render: the HUD's draw callbacks.
+        ++g_fake->renders;
         if (g_fake->open()) {
             gc::shim().selector_draw(kRecord);
         }
-        std::int32_t h = g_fake->rd<std::int32_t>(g_fake->d.letterbox_height);
-        if (h > 0) {
-            g_fake->wr<std::int32_t>(g_fake->d.letterbox_height, --h);
-        }
-        g_fake->letterbox.push_back(h);
     };
     g.play_click = [] { ++g_fake->clicks; };
     g.sprite_tint = [](std::uint32_t rgb) {
@@ -418,14 +409,28 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
 void play(Fake& f, std::uint32_t held, float x = 0.0f, float y = 0.0f) {
     f.poll(held, x, y);
     gc::shim().update_play([&] { f.play_original(); });
-    if (f.rd<std::int32_t>(f.d.game_mode) == 0) {
-        // The render: draw_letterbox_bars shrinks the bars by one.
-        std::int32_t h = f.rd<std::int32_t>(f.d.letterbox_height);
-        if (h > 0) {
-            f.wr<std::int32_t>(f.d.letterbox_height, --h);
-        }
-        f.letterbox.push_back(h);
+}
+
+// Triangle pressed, then held, until the freeze is entered (at most 20 ticks): the ticks it took.
+int hold_until_freeze(Fake& f) {
+    int n = 0;
+    while (f.rd<std::int32_t>(f.d.game_mode) == 0 && n < 20) {
+        play(f, 0x10);
+        ++n;
     }
+    return n;
+}
+
+// Ratchet & Clank's letterbox words (letterbox_bar_height, letterbox_enabled): never written.
+constexpr std::int32_t kLetterboxSentinel = 0x5A5A5A5A;
+void mark_letterbox(Fake& f) {
+    const std::uint32_t at = f.d.ntsc ? 0x0015F444u : 0x0015F544u;
+    f.wr<std::int32_t>(at, kLetterboxSentinel);
+    f.wr<std::int32_t>(at + 4, kLetterboxSentinel);
+}
+bool letterbox_untouched(const Fake& f) {
+    const std::uint32_t at = f.d.ntsc ? 0x0015F444u : 0x0015F544u;
+    return f.rd<std::int32_t>(at) == kLetterboxSentinel && f.rd<std::int32_t>(at + 4) == kLetterboxSentinel;
 }
 
 // A freeze tick: the pad polled, the freeze mode's update and picture through the hooks.
@@ -504,6 +509,12 @@ void open_hud(Fake& f) {
     f.opener = true;
     play(f, 0x10);
     CHECK(f.open());
+    // Going Commando's quick select takes the stick once its HUD-open request is done: Triangle held
+    // its few frames.
+    for (int i = 0; i < 6; ++i) {
+        play(f, 0x10);
+    }
+    CHECK_EQ(gc_shim_hud_flag_b, 3);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
 }
 
@@ -670,8 +681,9 @@ void test_draw() {
     CHECK(f.sprites.size() >= 5);
     CHECK_EQ(f.sprites[0].frame, gcw::kPanelSprite * 8);
     CHECK_EQ(f.sprites[0].alpha, 128);
+    // Centred on the 2D picture (256, 208), the panel 210 x 200, Ratchet & Clank's ring 200 x 180.
     CHECK_EQ(f.sprites[0].x, 256 - 105 + (210 - 200) / 2);
-    CHECK_EQ(f.sprites[0].y, 224 - 100 + (200 - 180) / 2);
+    CHECK_EQ(f.sprites[0].y, 208 - 100 + (200 - 180) / 2);
     // The marker at the selection, tinted with Going Commando's highlight, the tint put back.
     bool marker = false;
     for (const Sprite& s : f.sprites) {
@@ -688,7 +700,7 @@ void test_draw() {
     CHECK_EQ(f.texts.size(), 1u);
     CHECK(f.texts[0].text == "Suck");
     CHECK_EQ(f.texts[0].x, 256);
-    CHECK_EQ(f.texts[0].y, 224 - 100 + 100);
+    CHECK_EQ(f.texts[0].y, 208 - 100 + 100);
     CHECK_EQ(f.texts[0].colour, 0x80f0f0f0u);
 
     // An ammo weapon: "12/40" at y + 112, the name at y + 75, split at '-' onto +16.
@@ -701,12 +713,12 @@ void test_draw() {
     CHECK_EQ(f.texts.size(), 3u);
     if (f.texts.size() == 3) {
         CHECK(f.texts[0].text == "12/40");
-        CHECK_EQ(f.texts[0].y, 124 + 112);
+        CHECK_EQ(f.texts[0].y, 108 + 112);
         CHECK_EQ(f.texts[0].colour, 0x80f0f0f0u);
         CHECK(f.texts[1].text == "Pyro-");
-        CHECK_EQ(f.texts[1].y, 124 + 75);
+        CHECK_EQ(f.texts[1].y, 108 + 75);
         CHECK(f.texts[2].text == "citor");
-        CHECK_EQ(f.texts[2].y, 124 + 75 + 16);
+        CHECK_EQ(f.texts[2].y, 108 + 75 + 16);
     }
     // No ammo left: red.
     f.wr<std::int32_t>(f.d.ammo + 4 * 0x11, 0);
@@ -729,11 +741,15 @@ void test_paused_path() {
         play(f, 0);
     }
     CHECK_EQ(gc_shim_press_window, 10);
+    mark_letterbox(f);
+    // Triangle pressed and held: the HUD-open request counts its 4 frames (3 ticks) down, then the
+    // gate opens game mode 4, mode 7; that play tick is skipped.
     const int ticks_before = f.play_ticks;
-    // Triangle pressed: the gate opens game mode 4, mode 7; the play tick is skipped.
-    play(f, 0x10);
-    CHECK_EQ(f.play_ticks, ticks_before);
+    const int held = hold_until_freeze(f);
+    CHECK_EQ(held, 5);
+    CHECK_EQ(f.play_ticks, ticks_before + held - 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
+    CHECK(f.logged("HUD-open request done after 4 ticks"));
     CHECK_EQ(f.rd<std::int32_t>(f.d.mode_freeze_info), gc::kFreezeKind);
     CHECK_EQ(f.rd<std::int32_t>(f.d.mode_freeze_info + 0x14), 0);
     CHECK_EQ(modal(gc::kModalMode), 7);
@@ -743,11 +759,8 @@ void test_paused_path() {
     CHECK_EQ(f.music_pauses, 1);
     CHECK_EQ(f.music_unpauses, 1);
     CHECK_EQ(f.pause_group, 2);  // mode_freeze_init's, and menu_set_mode's cmd22(0x5D)
-    // The double tap's first press timer, set as it opens (hero_update_button_hold_timers): 20
-    // frames, 17 ticks.
-    CHECK_EQ(f.rd<std::int16_t>(f.d.hero + gcw::kHeroTapTimer), 17);
     // Phase 0, then 1: the wheel queued and updated in the freeze (update_hud_elements(1)), the
-    // health meter and bolt counter shown, the letterbox growing.
+    // health meter and bolt counter shown.
     freeze(f, 0x10);
     CHECK_EQ(modal(gc::kModalPhase), 1);
     CHECK(!f.open());
@@ -766,14 +779,7 @@ void test_paused_path() {
     CHECK_EQ(modal(gc::kModalPhase), 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
     CHECK_EQ(selected(f), 2);
-    CHECK_EQ(f.play_ticks, ticks_before);
-    // The letterbox: Going Commando's level 1..10 a tick, 48 * level / 10 pixels, written one over
-    // for draw_letterbox_bars' shrink.
-    const std::vector<std::int32_t> grow = {4, 9, 14, 19, 24, 28, 33, 38, 43, 48, 48};
-    CHECK(f.letterbox.size() >= grow.size() + 12);
-    for (std::size_t i = 0; i < grow.size() && 12 + i < f.letterbox.size(); ++i) {
-        CHECK_EQ(f.letterbox[12 + i], grow[i]);
-    }
+    CHECK_EQ(f.play_ticks, ticks_before + held - 1);
     // Let go: phase 2 counts down, phase 3 ends: back to play, the sounds and the music on, the
     // pad's history cleared.
     const int unpauses = f.music_unpauses;
@@ -795,12 +801,8 @@ void test_paused_path() {
     }
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x12);
     CHECK(!f.open());
-    // The bars shrink back to none and the layer leaves the height at 0.
-    for (int i = 0; i < 12; ++i) {
-        play(f, 0);
-    }
-    CHECK_EQ(f.rd<std::int32_t>(f.d.letterbox_height), 0);
-    CHECK_EQ(gc_shim_letterbox_level, 0);
+    // Going Commando's bars are left out: Ratchet & Clank's letterbox is never written.
+    CHECK(letterbox_untouched(f));
     // No second open from the same press: the history was cleared.
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
 }
@@ -827,12 +829,14 @@ void test_gate_conditions() {
     forget();
     f.wr<std::uint8_t>(f.d.hero + gcw::kHeroSwitchLock, 0);
     play(f, 0);
-    f.wr<std::int32_t>(f.d.cinematic_frames, 2);
+    f.wr<std::int32_t>(f.d.cinematic_frames, 5);
     play(f, 0x10);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
-    // The press is still within the window when the frames reach 8: it opens then.
-    for (int i = 0; i < 8 && f.rd<std::int32_t>(f.d.game_mode) == 0; ++i) {
-        play(f, 0);
+    CHECK_EQ(gc_shim_hud_flag_b, 0);
+    // The press is still within the window when the frames reach 8: the request starts then, and
+    // the freeze once it is done, Triangle held.
+    for (int i = 0; i < 10 && f.rd<std::int32_t>(f.d.game_mode) == 0; ++i) {
+        play(f, 0x10);
     }
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
 }
@@ -845,7 +849,7 @@ void test_relocated_game_mode() {
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
-    play(f, 0x10);
+    hold_until_freeze(f);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
     CHECK_EQ(f.rd<std::int32_t>(gcw::disc_for(true).game_mode), 5);
     CHECK(gc::shim().in_wheel_freeze());
@@ -875,77 +879,61 @@ void test_level_callbacks() {
     CHECK(n.logged("NOT that function"));
 }
 
-// Level 17 as it was seen: the paused open not possible, "Pause while open" on. The gate does not
-// run the double tap's timers (only the game's do), the game's own quick select is let through and
-// works over the running game, and a single tap switches nothing.
-void test_unavailable_paused_open() {
+// "Pause while open" on: the game's own Triangle opener is always refused; a tap does nothing and
+// never freezes; a release before the request is done cancels it; a double tap within 20 ticks is
+// the game's own quick swap, once.
+void test_taps() {
     Fake f;
-    f.level = 17;
-    f.match_code = false;
     f.opener = true;
     f.rac1_timers = true;
     set_up(f, true, true);
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 25; ++i) {
         play(f, 0);
     }
-    // A single tap.
+    // A tap: refused quick select, request cancelled as Triangle is let go, no freeze, no switch.
     play(f, 0x10);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
-    CHECK(f.open());
-    CHECK(f.logged("allowed, over the running game"));
-    CHECK(f.logged("Triangle: the gate does not open: the quick select's callbacks were not found"));
-    for (int i = 0; i < 12; ++i) {
+    CHECK(!f.open());
+    CHECK(f.logged("the game's own quick select refused"));
+    CHECK_EQ(gc_shim_hud_flag_b, 1);
+    play(f, 0);
+    for (int i = 0; i < 25; ++i) {
         play(f, 0);
     }
+    CHECK_EQ(f.freeze_inits, 0);
+    CHECK_EQ(gc_shim_hud_flag_b, 0);
+    CHECK(f.logged("HUD-open request cancelled after"));
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
     CHECK_EQ(f.swaps, 0);
-    CHECK(!f.open());
-    // Held, with the stick (after the double tap's window): it selects (Going Commando's code, the
-    // option off for its update).
+    // Held a little, let go before the request is done: cancelled, no freeze.
+    play(f, 0x10);
+    play(f, 0x10);
+    play(f, 0x10);
+    play(f, 0);
     for (int i = 0; i < 25; ++i) {
         play(f, 0);
     }
-    float x, y;
-    stick_at(0.0f, x, y);
-    play(f, 0x10);
-    play(f, 0x10);
-    play(f, 0x10, x, y);
-    CHECK_EQ(selected(f), 2);
-    for (int i = 0; i < 10; ++i) {
-        play(f, 0);
-    }
-    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x12);
+    CHECK_EQ(f.freeze_inits, 0);
     CHECK_EQ(f.swaps, 0);
-    // A double tap: the game's own quick swap, once.
-    f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
+    // A double tap: the swap, once; the request cancelled; no freeze.
+    play(f, 0x10);
+    play(f, 0);
+    play(f, 0x10);
+    play(f, 0);
     for (int i = 0; i < 25; ++i) {
         play(f, 0);
     }
-    play(f, 0x10);
-    play(f, 0);
-    play(f, 0x10);
-    play(f, 0);
     CHECK_EQ(f.swaps, 1);
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x11);
-    // One gate line per press.
-    CHECK_EQ(f.count_logs("Triangle: "), 4);
-}
-
-// A single tap with the paused open: the freeze is entered once, its timers run once (the gate's),
-// a release with nothing selected changes nothing, and the game's own quick select is refused for
-// that press.
-void test_single_tap_paused() {
-    Fake f;
-    f.opener = true;
-    f.rac1_timers = true;
-    set_up(f, true, true);
-    for (int i = 0; i < 25; ++i) {
-        play(f, 0);
-    }
-    play(f, 0x10);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
-    CHECK_EQ(f.rd<std::int16_t>(f.d.hero + gcw::kHeroTapTimer), 20);
-    CHECK(f.logged("freeze entered (kind 9, saved mode 0"));
+    CHECK_EQ(f.freeze_inits, 0);
+    // (The gate asks again each tick the press is within its window, so the request ends for good
+    // once the presses are out of it.)
+    CHECK(f.count_logs("HUD-open request cancelled") >= 3);
+    // Held past the request's frames: the freeze, once.
+    f.wr<std::int32_t>(f.d.hero + gcw::kHeroPendingItem, 0);
+    const int held = hold_until_freeze(f);
+    CHECK_EQ(held, 6);  // NTSC: 4 frames counted after the tick it is asked
+    CHECK_EQ(f.freeze_inits, 1);
+    // Let go at once, nothing selected: the freeze ends, nothing committed.
     int n = 0;
     while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 20) {
         freeze(f, 0);
@@ -957,28 +945,50 @@ void test_single_tap_paused() {
         play(f, 0);
     }
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
-    CHECK_EQ(f.swaps, 0);
-    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
-    CHECK_EQ(f.freeze_inits, 1);
-    // The game's own opener for that same press (no new press since): refused.
-    const gcw::LevelCallbacks cb = gcw::level_callbacks(true, 0);
-    f.queue(3, 0, cb.selector_init, cb.selector_update, cb.selector_draw, 0, 0);
-    f.update_hud(1);
-    CHECK(!f.open());
-    CHECK(f.logged("refused: the paused open was entered for this press"));
+    CHECK_EQ(f.swaps, 1);
+    CHECK_EQ(gc_shim_hud_flag_b, 0);
 }
 
-// The freeze's tick hook bypassed (a port that calls the game's update_mode_freeze directly): two
-// pictures with no tick end the freeze, the paused open goes off, Triangle then opens the quick
-// select over the running game. The picture of the mod's kind is Going Commando's, not the dialog.
-void test_watchdog_update_bypassed() {
+// The paused open not possible (the callbacks not found), the pause on: nothing opens; the double
+// tap is still the game's.
+void test_unavailable_paused_open() {
     Fake f;
+    f.level = 17;
+    f.match_code = false;
     f.opener = true;
+    f.rac1_timers = true;
     set_up(f, true, true);
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
+    for (int i = 0; i < 10; ++i) {
+        play(f, 0x10);
+    }
+    CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
+    CHECK(!f.open());
+    CHECK(f.logged("Triangle: the gate does not open: the quick select's callbacks were not found"));
+    play(f, 0);
+    for (int i = 0; i < 25; ++i) {
+        play(f, 0);
+    }
     play(f, 0x10);
+    play(f, 0);
+    play(f, 0x10);
+    play(f, 0);
+    CHECK_EQ(f.swaps, 1);
+    CHECK_EQ(f.count_logs("Triangle: "), 3);
+}
+
+// The freeze's tick hook bypassed (a port that calls the game's update_mode_freeze directly): two
+// pictures with no tick end the freeze, the paused open goes off. The picture of the mod's kind is
+// Going Commando's, not the dialog.
+void test_watchdog_update_bypassed() {
+    Fake f;
+    set_up(f, true, true);
+    for (int i = 0; i < 12; ++i) {
+        play(f, 0);
+    }
+    hold_until_freeze(f);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
     bool dialog = false;
     for (int i = 0; i < 2; ++i) {
@@ -993,9 +1003,10 @@ void test_watchdog_update_bypassed() {
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
-    play(f, 0x10);
+    for (int i = 0; i < 10; ++i) {
+        play(f, 0x10);
+    }
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
-    CHECK(f.open());
     // Another freeze kind is the game's: its own picture.
     f.wr<std::int32_t>(f.d.mode_freeze_info, 2);
     dialog = false;
@@ -1011,7 +1022,7 @@ void test_watchdog_record_never_opens() {
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
-    play(f, 0x10);
+    hold_until_freeze(f);
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 4);
     int n = 0;
     while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 60) {
@@ -1094,8 +1105,8 @@ int main() {
     test_gate_conditions();
     test_relocated_game_mode();
     test_level_callbacks();
+    test_taps();
     test_unavailable_paused_open();
-    test_single_tap_paused();
     test_watchdog_update_bypassed();
     test_watchdog_record_never_opens();
     test_quick_swap();

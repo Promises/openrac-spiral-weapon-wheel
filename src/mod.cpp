@@ -106,17 +106,6 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     g.msg_string = [msg](int id) { return static_cast<std::uint32_t>(msg(id)); };
     const auto tween = mod.required_function<unsigned long long (*)(unsigned int, unsigned int, float)>(n.fast_tween_color);
     g.fast_tween_color = [tween](std::uint32_t a, std::uint32_t b, float t) { return static_cast<std::uint32_t>(tween(a, b, t)); };
-    // hud_screen_position writes through pointers to its x and y: they go on the game's stack.
-    const auto position = mod.required_function<int (*)(std::uint32_t, std::uint32_t, std::uint32_t)>(n.hud_screen_position);
-    g.hud_screen_position = [m, position](std::uint32_t rec, int& x, int& y) {
-        const openrac::StackFrame frame(*m, 8);
-        const openrac::Memory memory = m->memory();
-        memory.write<std::int32_t>(frame.address(), x);
-        memory.write<std::int32_t>(frame.address() + 4, y);
-        position(rec, frame.address(), frame.address() + 4);
-        x = memory.read<std::int32_t>(frame.address());
-        y = memory.read<std::int32_t>(frame.address() + 4);
-    };
     g.show_health_hud = mod.required_function<int (*)()>(n.show_health_hud);
     g.hud_keep_visible = mod.required_function<int (*)(int, int)>(n.hud_keep_visible);
     const auto queue = mod.required_function<int (*)(int, int, int, int, int, int, int)>(n.queue_animation_update);
@@ -201,4 +190,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.1", load)
+OPENRAC_MOD_CPP("gc-weapon-wheel", "1.0.2", load)

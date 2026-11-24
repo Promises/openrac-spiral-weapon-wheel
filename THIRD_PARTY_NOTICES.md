@@ -30,8 +30,10 @@ lines and says what the marked ones do):
 | `src/gc/menu_set_mode.c` | `menu_set_mode` | `src/game/00285840-g8.c`: 1-67 | `func_002858C0` |
 | `src/gc/menu_end.c` | `menu_get_saved_state`, `menu_get_second_value`, `menu_end` | `src/game/00285840.c`: 1-44 | `func_00285840`, `func_00285850`, `func_00285860` |
 | `src/gc/menu_state_seven.c` | `menu_advance_state_in_mode_seven`, `menu_is_state_seven` | `src/game/00287E18.c`: 1-35 | `func_00287E18`, `func_00287E48` |
-| `src/gc/hud_letterbox.c` | `hud_request_letterbox_bars`, `hud_update_letterbox_bars`, `hud_clear_flag_a`, `hud_clear_flag_b` | `src/game/00290670.c`: 1-54 | `func_00290670`, `func_00290680`, `func_00290720`, `func_00290728` |
-| `src/gc/level_update_game_frame_input.c` | `level_update_game_frame_input`, its head and the paused open | `src/levels/shared/L00_0036F488-g8.c`: 1-81, 83-86, 93, 107, 112-116, 118-120 | `func_L00_0036F488` |
+| `src/gc/hud_letterbox.c` | `hud_request_letterbox_bars`, `hud_clear_flag_a`, `hud_clear_flag_b` | `src/game/00290670.c`: 1-13, 41-54 (`hud_update_letterbox_bars`, 14-40, cut on purpose: Going Commando's bars are left out) | `func_00290670`, `func_00290720`, `func_00290728` |
+| `src/gc/hud_open_request.c` | `hud_request_open`, `hud_is_open_done` | `src/game/00290730.c`: 1-19 | `func_00290730`, `func_00290748` |
+| `src/gc/level_update_countdown_state_machine.c` | `level_update_countdown_state_machine` | `src/levels/shared/L00_002FC058-g8.c`: 1-41 | `func_L00_002FC058` |
+| `src/gc/level_update_game_frame_input.c` | `level_update_game_frame_input`, its head and the paused open | `src/levels/shared/L00_0036F488-g8.c`: 1-81, 83-86, 93, 106-107, 112-116, 118-120 | `func_L00_0036F488` |
 | `src/gc/hero_update_button_hold_timers.c` | `hero_update_button_hold_timers` | `src/levels/shared/L00_002CB218.c`: 1-40 (2 lines marked: 20 frames in ticks) | `func_L00_002CB218` |
 | `src/gc/PadPressedWithin.c` | `PadPressedWithin` | `src/levels/shared/L00_0032EF10.c`: 1-32 | `func_L00_0032EF10` |
 | `src/gc/hero_update_hit_streak_effect.c` | `hero_update_hit_streak_effect`, its press window | `src/levels/shared/L00_003266D8-g8.c`: 1-27, 42 | `func_L00_003266D8` |
@@ -41,9 +43,13 @@ lines and says what the marked ones do):
 No data of Going Commando's is copied: its pattern, neighbour and default tables, strings and
 textures are its disc's. The quick select's slots, neighbours, defaults, icons, names, ammo format
 and sprites are Ratchet & Clank's own, read from the game's memory as it runs. The constants written
-in the copied C (frame counts, angles, colours) are code. One value of Going Commando's data is
+in the copied C (frame counts, angles, colours) are code. Two values of Going Commando's data are
 used: the start of mode 7's counter (`ref_00286738_00`, 6 frames, from rac2-decomp's note on
-`func_00286738`), as the translation layer's `gc_shim_modal_counter_start`.
+`func_00286738`), as the translation layer's `gc_shim_modal_counter_start`, and the HUD-open
+request's countdown (`ref_L00_002FC058_01`, 4 frames, the word at 0x1A9374 of USA v2.00's level 0
+program, the same in every level), as `gc_shim_open_delay_start`. Which words the request's
+functions share (gp-0x5C80, gp-0x5C84 in USA v2.00's level programs) was read from their
+instructions, not copied.
 
 The translation layer (`src/gc/rac1_shim.cpp`) reimplements, for its polyfills, what these
 rac2-decomp functions do: `request_begin_slot` and `request_end_slot` (mode 4 entered and left),

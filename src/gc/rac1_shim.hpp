@@ -70,6 +70,9 @@ constexpr std::int32_t kModeFreeze = 4;
 // Commando's (hud_set_slot_contents' 0x23).
 constexpr std::int32_t kSelectorKey = 3;
 constexpr std::int32_t kGcSelectorKey = 0x23;
+// The middle of Ratchet & Clank's 2D picture (512 x 416), where the quick select is centred.
+constexpr int kScreenCentreX = 256;
+constexpr int kScreenCentreY = 208;
 
 // Sizes of the layer's copies (Going Commando's offsets).
 constexpr std::size_t kHeroBytes = 0x2540;
@@ -125,8 +128,6 @@ struct Game {
     std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center;
     std::function<std::uint32_t(int)> msg_string;
     std::function<std::uint32_t(std::uint32_t, std::uint32_t, float)> fast_tween_color;
-    // hud_screen_position(record, &x, &y): mod.cpp passes x and y on the game's stack.
-    std::function<void(std::uint32_t, int&, int&)> hud_screen_position;
     std::function<int()> show_health_hud;
     std::function<int(int, int)> hud_keep_visible;
     std::function<int(int, int, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, int)>
@@ -210,8 +211,7 @@ public:
     void begin_paused(int arg);
     void end_paused(const char* reason);
     void quick_swap();
-    void letterbox_bars(int height);
-    void letterbox_tick();
+    void log_request();
     void queue_selector();
     void show_counters_health(int frames);
     void show_counters_bolts(int frames);
@@ -249,17 +249,15 @@ private:
     Snapshot m_seen;
     // The freeze the gate entered and is not yet over (its draw included).
     bool m_entered = false;
-    // The letterbox the layer wrote last tick.
-    bool m_letterbox_wrote = false;
-    bool m_letterbox_drew = false;
-    // Records of Ratchet & Clank's own opener refused: the paused open was entered for this press
-    // (Going Commando's decider opens the HUD quick select only with the option off).
+    // The HUD-open request, for the log: the play ticks, the state last seen, the tick it was asked
+    // at, whether a swap set its flag.
+    int m_play_ticks = 0;
+    int m_request_state = 0;
+    int m_request_tick = 0;
+    bool m_swap_seen = false;
+    // Records of Ratchet & Clank's own opener refused with the pause on (Going Commando's decider
+    // opens the HUD quick select only with the option off).
     std::vector<std::uint32_t> m_refused;
-    // Records of Ratchet & Clank's own opener let through with the pause on because the paused open
-    // could not happen: run as the HUD quick select (not Going Commando's: see selector_init).
-    std::vector<std::uint32_t> m_fallback;
-    // The paused open was entered since Triangle was last pressed.
-    bool m_press_entered = false;
     // The freeze's watchdog: its update ticks, its pictures since the last update, whether the
     // wheel's record opened in it.
     int m_freeze_ticks = 0;
@@ -307,7 +305,6 @@ void menu_end(void);
 int menu_is_state_seven(void);
 void menu_advance_state_in_mode_seven(void);
 void hud_request_letterbox_bars(void);
-void hud_update_letterbox_bars(void);
 int level_update_game_frame_input(void);
 void hero_update_button_hold_timers(void);
 std::int32_t PadPressedWithin(std::uint32_t mask, std::int32_t window, std::int32_t* out);
@@ -323,7 +320,8 @@ extern unsigned char gc_shim_modal_state[];
 extern unsigned char gc_shim_options[];
 extern int gc_shim_modal_timer;
 extern int gc_shim_modal_counter;
-extern int gc_shim_letterbox_level;
+extern int gc_shim_hud_flag_a;
+extern int gc_shim_hud_flag_b;
 extern int gc_shim_press_window;
 extern int gc_shim_input_block;
 }

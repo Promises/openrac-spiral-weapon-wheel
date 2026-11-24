@@ -49,6 +49,8 @@ set(gc_copied
   src/gc/menu_end.c
   src/gc/menu_state_seven.c
   src/gc/hud_letterbox.c
+  src/gc/hud_open_request.c
+  src/gc/level_update_countdown_state_machine.c
   src/gc/level_update_game_frame_input.c
   src/gc/hero_update_button_hold_timers.c
   src/gc/PadPressedWithin.c
