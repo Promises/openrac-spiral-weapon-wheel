@@ -475,4 +475,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.4.3", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.4.4", load)

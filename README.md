@@ -241,6 +241,7 @@ fails by name.
 | The stick's arming (rest or countdown) | GC base | `test_arming` |
 | A release before moving picks nothing; Circle cancels; the fades | 1.1.0 / GC base | `test_fades_and_commit` |
 | The d-pad steps one slot, in both motions, paused, from the held word's edges too | 1.0.0 (fixed 1.4.3) | `regression_dpad` |
+| The first push lands on an item, never an empty slot; the d-pad skips empty slots; ties go to items | 1.4.4 | `regression_first_push`, `regression_dpad_skips`, `regression_ties_to_items` |
 | Hold vs Toggle | 1.0.0 | `test_toggle` |
 | The items: the Quick Select page's only, plus registered and provided items | 1.0.2 / 1.4.0 | `test_items`, `test_many_items` |
 | The home ring at its ring directions, innermost (Spiral grows: Outward) | 1.0.3 (fixed 1.4.3) | `regression_home_ring` |

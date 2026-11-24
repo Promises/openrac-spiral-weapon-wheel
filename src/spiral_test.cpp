@@ -1014,13 +1014,14 @@ void test_home_ring() {
         w.open(items, look);
         w.advance(1.0f);
         CHECK(w.selected() == 9);
-        CHECK(!w.step(-1) && w.selected() == 8 && !w.is_item(8));
+        // The d-pad (1.4.4) steps past the holes and blanks, to the next item.
+        CHECK(w.step(-1) && w.is_item(w.selected()) && w.selected() < 9);
         int filled = 0, lit = 0;
         for (const spiral::Slot& sl : w.frame().slots) {
             filled += !sl.empty;
             lit += sl.selected;
         }
-        CHECK(filled == 4 && lit == 0);  // the 4 items, no "None"
+        CHECK(filled == 4 && lit == 1);  // the 4 items (one pointed at), no "None"
         CHECK(!w.is_item(-1));
     }
 }

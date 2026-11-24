@@ -176,7 +176,17 @@ Options Wheel::spiral_options() const {
 }
 
 int Wheel::selected() const {
-    return pointer(static_cast<int>(m_items.size()), m_input, spiral_options()).selected;
+    const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
+    // (1.4.4) Half way between an empty slot and an item: the item.
+    const float frac = p.index - std::floor(p.index);
+    if (std::fabs(frac - 0.5f) < 1e-4f && !is_item(p.selected)) {
+        const int cs = sign(spiral_options());
+        const int other = static_cast<int>(std::floor(p.index)) == p.round ? p.round + 1 : p.round - 1;
+        if (is_item(other * cs)) {
+            return other * cs;
+        }
+    }
+    return p.selected;
 }
 
 bool Wheel::steer(float x, float y, float deadzone) {
@@ -195,7 +205,25 @@ bool Wheel::steer(float x, float y, float deadzone) {
         if (k < -0.5f) {
             k += static_cast<float>(kPerLoop);  // into -0.5 .. 11.5
         }
-        m_input = k * kSlotRadians * cs;
+        // (1.4.4) Onto an item, never an empty slot: the first loop's slot there when it holds one,
+        // else the item nearest that direction (by angle; a tie to the nearer loop, the home ring
+        // first), wherever it is.
+        const int slot = static_cast<int>(std::floor(k + 0.5f)) % kPerLoop;
+        int best = is_item(slot) ? slot : -1;
+        if (best < 0) {
+            float best_off = 1e9f;
+            for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
+                if (!is_item(i)) {
+                    continue;
+                }
+                const float off = std::fabs(std::remainder(static_cast<float>(i % kPerLoop) - k, static_cast<float>(kPerLoop)));
+                if (off < best_off - 1e-4f) {
+                    best_off = off;
+                    best = i;
+                }
+            }
+        }
+        m_input = (best >= 0 ? static_cast<float>(best) : k) * kSlotRadians * cs;
         m_stick.x = x / length;
         m_stick.y = y / length;
         m_stick.first = false;
@@ -208,12 +236,26 @@ bool Wheel::steer(float x, float y, float deadzone) {
 }
 
 bool Wheel::step(int slots) {
+    // (1.4.4) Past empty slots: on to the next item that way (or back where it was, none).
+    const int before = selected();
+    const int total = pointer(static_cast<int>(m_items.size()), m_input, spiral_options()).total;
+    bool moved = step_one(slots);
+    for (int i = 1; i < total && !is_item(selected()); ++i) {
+        moved = step_one(slots) || moved;
+    }
+    return selected() != before && is_item(selected());
+}
+
+bool Wheel::step_one(int slots) {
     const int before = selected();
     const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
-    // The middle of the slot `slots` on from the one pointed at, in the input's own terms (the
-    // signed index times the sign, back to radians); the stick's next turn starts from there.
-    const float target = static_cast<float>((p.round + slots * sign(spiral_options())) * sign(spiral_options()));
-    m_input = target * kSlotRadians;
+    // The middle of the item slot `slots` on from the one pointed at (in items: as open_input puts
+    // an item, its index times a slot times the direction's sign); the stick's next turn starts
+    // from there. (Until 1.4.4 this took the slot in the pointer's signed terms and multiplied by
+    // the sign once more: clockwise, a step on went to the slot before and the next one back, so the
+    // d-pad did not step in the default, clockwise spiral.)
+    const int target = p.selected + slots;
+    m_input = static_cast<float>(target) * kSlotRadians * static_cast<float>(sign(spiral_options()));
     const Pointer q = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
     const float a = q.angle_deg * kPi / 180.0f;
     m_stick.x = std::cos(a);

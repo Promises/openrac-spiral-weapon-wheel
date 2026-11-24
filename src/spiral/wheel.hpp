@@ -151,7 +151,8 @@ public:
     // UpdatePointer.gek, once a tick: the stick (screen space, y down), within `deadzone` none.
     // True when the pointed-at slot changed to an item (the mod's scroll sound).
     bool steer(float x, float y, float deadzone);
-    // One slot on (+1) or back (-1), as the stick would turn it; the pointer on that slot's middle.
+    // One item on (+1) or back (-1), past empty slots, as the stick would turn it; the pointer on
+    // that slot's middle.
     bool step(int slots);
     // The opening's zoom and the spiral's move to the pointer's loop, `seconds` on.
     void advance(float seconds);
@@ -202,6 +203,7 @@ private:
     std::vector<std::pair<int, Flash>> m_flashes;  // by slot index, while they last
     std::uint32_t m_random = 0x9E3779B9u;
     std::uint32_t random();
+    bool step_one(int slots);
     float target_loop() const;
 };
 

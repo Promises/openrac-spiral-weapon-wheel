@@ -896,10 +896,19 @@ void test_stick_points_where_it_is_pushed() {
             open_hud(f);
             play(f, 0x10);
             float x, y;
+            bool first = true;
+            float offset = 0.0f;  // the first push's landing (an item's slot) less where it was pushed
             for (float target : {90.0f, 45.0f, 0.0f, -45.0f, -90.0f, -135.0f, 180.0f, 135.0f, 90.0f, 135.0f, 180.0f,
                                  -135.0f, -90.0f, -45.0f, 0.0f, 45.0f, 90.0f}) {
                 stick_toward(target, x, y);
                 play(f, 0x10, x, y);
+                if (first) {
+                    // (1.4.4) The first push lands on an item: the slot there, or the nearest item.
+                    first = false;
+                    CHECK(gc::shim().wheel().is_item(selected(f)));
+                    offset = std::remainder(gc::shim().wheel().pointer_deg() - target, 360.0f);
+                    CHECK(std::fabs(offset) <= 90.01f);
+                }
                 // The pointed-at slot (an item, "None" or a blank) is drawn where the stick points: its
                 // sector's angle (_AngleDeg) as the frame draws it; for an item or "None", the lit one.
                 const int slot = selected(f);
@@ -911,14 +920,14 @@ void test_stick_points_where_it_is_pushed() {
                     }
                 }
                 const float lit = drawn;
-                const float off = std::remainder(lit - target, 360.0f);
+                const float off = std::remainder(lit - target - offset, 360.0f);
                 if (!(std::fabs(off) <= 15.01f)) {
                     std::fprintf(stderr, "stick toward %.0f deg (clockwise %d, start %.0f): sector at %.0f deg\n", target,
                                  clockwise ? 1 : 0, start, lit);
                 }
                 CHECK(std::fabs(off) <= 15.01f);
                 // And the pointer picture too.
-                CHECK(std::fabs(std::remainder(gc::shim().wheel().pointer_deg() - target, 360.0f)) <= 0.01f);
+                CHECK(std::fabs(std::remainder(gc::shim().wheel().pointer_deg() - target - offset, 360.0f)) <= 0.01f);
             }
             // The log has the first turns of the opening: the stick as read, its direction, the slot.
             CHECK(f.logged("0.00, -1.00), 90 deg on the screen"));
@@ -954,11 +963,32 @@ void dpad_to(Fake& f, int target) {
     CHECK_EQ(selected(f), target);
 }
 
+// The stick turning the pointer to slot `target` (any slot, a blank too: the stick passes over
+// them, 1.4.4's d-pad skips them): a first push where the pointer is (onto its item), then a turn
+// of the slots between, in small steps (the default spiral: counter-clockwise, 30 degrees a slot).
+void turn_to(Fake& f, int target) {
+    float x, y;
+    float at = gc::shim().wheel().pointer_deg();
+    stick_toward(at, x, y);
+    play(f, 0x10, x, y);
+    const float turn = static_cast<float>(target - selected(f)) * 30.0f;
+    const int steps = std::max(1, static_cast<int>(std::ceil(std::fabs(turn) / 10.0f)));
+    for (int i = 1; i <= steps; ++i) {
+        stick_toward(at + turn * static_cast<float>(i) / static_cast<float>(steps), x, y);
+        play(f, 0x10, x, y);
+    }
+    CHECK_EQ(selected(f), target);
+}
+
 // Let go: the open fade counts down, the pick at 0; then each kind of pick.
 void commit(Fake& f, int target, std::uint32_t extra = 0) {
     open_hud(f);
     play(f, 0x10);
-    dpad_to(f, target);
+    if (gc::shim().wheel().is_item(target)) {
+        dpad_to(f, target);
+    } else {
+        turn_to(f, target);  // a blank: only the stick goes there
+    }
     for (int i = 0; i < 10; ++i) {
         play(f, 0x10 | extra);
     }
@@ -2507,11 +2537,13 @@ void test_quick_swap() {
 // d-pad's edges (in game in 1.4.2 it stopped: the held word's own edges count now), and logs it.
 void regression_dpad() {
     for (const bool continuous : {true, false}) {
+      for (const bool clockwise : {true, false}) {  // clockwise: the default since 1.2.0
         for (const bool masked : {false, true}) {
             Fake f;
             set_up(f, true, true);  // "Pause while open": the wheel in the game's freeze mode
             gc::WheelOptions w = gc::shim().wheel_options();
             w.look.continuous = continuous;
+            w.look.spiral.clockwise = clockwise;
             gc::shim().set_wheel_options(w);
             f.mask_dpad_pressed = masked;
             for (int i = 0; i < 12; ++i) {
@@ -2537,6 +2569,7 @@ void regression_dpad() {
             CHECK_EQ(selected(f), start + 2);
             CHECK(f.logged("d-pad 0x2000") && f.logged("stepped"));
         }
+      }
     }
 }
 
@@ -2628,6 +2661,88 @@ void regression_pal_ntsc() {
     test_level_callbacks();
 }
 
+// (1.4.4) The first push lands on an item: in all 8 directions and between them (16 in all), with
+// holes on the first loop and blanks after the last item, both growths, both motions, the start at
+// 12 o'clock and elsewhere, either direction: the item at the pushed slot if there is one, else
+// the item nearest that direction (within 45 degrees when there is one).
+spiral::Wheel holed_wheel(bool continuous, bool outward, bool clockwise, float start) {
+    std::vector<spiral::Item> items(17);
+    for (int i = 0; i < 17; ++i) {
+        items[static_cast<std::size_t>(i)].id = (i == 2 || i == 3 || i == 7) ? 0 : 0x40 + i;  // three holes
+    }
+    items[0].equipped = true;
+    spiral::Look look;
+    look.continuous = continuous;
+    look.outward = outward;
+    look.spiral.clockwise = clockwise;
+    look.spiral.start_deg = start;
+    spiral::Wheel w;
+    w.open(items, look);
+    w.advance(1.0f);
+    return w;
+}
+void regression_first_push() {
+    for (const bool continuous : {true, false}) {
+        for (const bool outward : {true, false}) {
+            for (const bool clockwise : {false, true}) {
+                for (const float start : {90.0f, 0.0f}) {
+                    for (int d = 0; d < 16; ++d) {
+                        const float deg = static_cast<float>(d) * 22.5f;
+                        spiral::Wheel w = holed_wheel(continuous, outward, clockwise, start);
+                        float x, y;
+                        stick_toward(deg, x, y);
+                        w.steer(x, y, 0.5f);
+                        CHECK(w.is_item(w.selected()));
+                        CHECK(std::fabs(std::remainder(w.pointer_deg() - deg, 360.0f)) <= 45.0f + 15.01f);
+                    }
+                }
+            }
+        }
+    }
+    // In the layer: a fresh opening for each of the 8 directions, the pointed-at slot an item.
+    for (int d = 0; d < 8; ++d) {
+        Fake f;
+        set_up(f, true, false);
+        open_hud(f);
+        play(f, 0x10);
+        float x, y;
+        stick_toward(static_cast<float>(d) * 45.0f, x, y);
+        play(f, 0x10, x, y);
+        CHECK(gc::shim().wheel().is_item(selected(f)));
+    }
+}
+
+// (1.4.4) The d-pad skips empty slots (holes, blanks), on to the next item either way.
+void regression_dpad_skips() {
+  for (const bool clockwise : {false, true}) {
+    spiral::Wheel w = holed_wheel(true, true, clockwise, 90.0f);
+    CHECK(w.selected() == 0);
+    CHECK(w.step(1) && w.selected() == 1);
+    CHECK(w.step(1) && w.selected() == 4);   // past the holes 2 and 3
+    CHECK(w.step(-1) && w.selected() == 1);
+    for (int i = 0; i < 40; ++i) {
+        w.step(1);
+        CHECK(w.is_item(w.selected()));      // through the blanks after the last item, round
+    }
+  }
+}
+
+// (1.4.4) Exactly between an empty slot and an item, the item.
+void regression_ties_to_items() {
+    for (const bool clockwise : {false, true}) {
+        spiral::Wheel w = holed_wheel(false, true, clockwise, 90.0f);
+        w.step(1);  // item 1, the hole 2 after it
+        CHECK(w.selected() == 1);
+        float x, y;
+        const float at = w.pointer_deg();
+        stick_toward(at, x, y);
+        w.steer(x, y, 0.5f);
+        stick_toward(at + (clockwise ? -15.0f : 15.0f), x, y);  // half a slot on, onto the hole's edge
+        w.steer(x, y, 0.5f);
+        CHECK(w.selected() == 1);
+    }
+}
+
 int run_regressions() {
     struct Regression {
         const char* behaviour;
@@ -2642,6 +2757,9 @@ int run_regressions() {
         {"stick arming (rest or countdown before picking)", test_arming},
         {"release before moving picks nothing; Circle cancels; the fades", test_fades_and_commit},
         {"d-pad steps one slot (both motions, paused, without pressed edges)", regression_dpad},
+        {"the first push lands on an item (16 directions, both growths and motions)", regression_first_push},
+        {"the d-pad skips empty slots", regression_dpad_skips},
+        {"ties between an empty slot and an item go to the item", regression_ties_to_items},
         {"hold vs toggle", test_toggle},
         {"the items: the Quick Select page's only", test_items},
         {"the home ring at its directions, innermost", regression_home_ring},
