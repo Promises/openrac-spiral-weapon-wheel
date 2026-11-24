@@ -9,6 +9,11 @@
 
 namespace spiral {
 
+namespace {
+// The middle disc's flash, among the slots' (no slot has this index).
+constexpr int kCentrePanel = -1000000;
+}  // namespace
+
 void Wheel::open(std::vector<Item> items, const Look& look) {
     m_items = std::move(items);
     m_look = look;
@@ -48,14 +53,20 @@ void Wheel::flash_frame() {
         it->second.v = static_cast<int>(random() % look::kFlashOffsets);
         it = it->second.t >= look::kFlashEnd ? m_flashes.erase(it) : it + 1;
     }
-    // Each panel not flashing: its chance.
-    for (int index = -p.blanks; index < static_cast<int>(m_items.size()); ++index) {
+    // Each panel not flashing (the middle disc's as kCentrePanel): its chance.
+    for (int index = -p.blanks - 1; index < static_cast<int>(m_items.size()); ++index) {
+        if (index == -p.blanks - 1) {
+            index = kCentrePanel;
+        }
         const bool running = std::any_of(m_flashes.begin(), m_flashes.end(), [index](const auto& f) { return f.first == index; });
         if (!running && random() % look::kFlashChance == 0) {
             Flash f;
             f.u = static_cast<int>(random() % look::kFlashOffsets);
             f.v = static_cast<int>(random() % look::kFlashOffsets);
             m_flashes.push_back({index, f});
+        }
+        if (index == kCentrePanel) {
+            index = -p.blanks - 1;
         }
     }
 }
@@ -218,18 +229,30 @@ Frame Wheel::frame() const {
     const int n = static_cast<int>(m_items.size());
     const Options o = spiral_options();
     const Pointer p = pointer(n, m_input, o);
-    f.unit = m_look.scale * m_anim / look::kDesignHeight;
+    f.unit = m_look.scale * m_anim * look::kFit / look::kDesignHeight;
     f.centre_y = look::kCentreY * f.unit;
     f.pointer_deg = p.angle_deg;
     f.selected = p.selected;
     f.name_y = f.centre_y + look::kNameY * f.unit;
     f.detail_y = f.centre_y + look::kAmmoY * f.unit;
+    for (const auto& [index, flash] : m_flashes) {
+        if (index == kCentrePanel) {
+            f.centre_flash = static_cast<float>(std::min(0x80, 2 * (0x80 - std::abs(flash.t - 0x80)))) / 128.0f;
+            f.centre_flash_u = flash.u;
+            f.centre_flash_v = flash.v;
+        }
+    }
     const float step = radius_step(m_look.spiral);
     const float total = static_cast<float>(p.total);
     // Each slot k on from the loop shown's first (the anchor): the 4 before it as negative k, the
     // loops wrapping (a spiral's slots are a loop of `total`).
     std::vector<std::pair<float, Slot>> drawn;
     for (const Tile& t : tiles(n, p, o)) {
+        // The blanks (the slots after the last item, to the spiral's whole loops) are not drawn: only
+        // the items and the holes between them (arrange.hpp).
+        if (t.index < 0) {
+            continue;
+        }
         const float at = static_cast<float>(wrap_index(t.index, p.total)) - anchor();
         const float k = p.spiral ? wrap_into(at, -5.0f, total) : wrap_into(at, -0.5f, total);
         const float fade = slot_opacity(k, p.spiral);
@@ -252,7 +275,7 @@ Frame Wheel::frame() const {
         }
         s.selected = item != nullptr && t.hover;
         s.angle_deg = t.angle_deg;
-        s.radius = look::kFirstRadius - step * k;
+        s.radius = std::min(look::kMaxRadius, look::kFirstRadius - step * k);
         s.push = s.selected ? look::kPush : 0.0f;
         for (const auto& [index, flash] : m_flashes) {
             if (index == t.index) {

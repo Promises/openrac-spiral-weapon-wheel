@@ -114,6 +114,7 @@ std::string package_folder(const openrac::Mod& mod) {
 
 struct Art {
     int scan = 0, white = 0, badge = 0, pointer = 0, noise = 0;
+    int digits[10] = {};
     bool all = false;
 };
 Art g_art;
@@ -132,6 +133,10 @@ void make_art(openrac::Mod& mod) {
     g_art.badge = make(spiral::Art::Badge);
     g_art.pointer = make(spiral::Art::Pointer);
     g_art.noise = make(spiral::Art::Noise);
+    for (int d = 1; d <= 9; ++d) {
+        const spiral::Picture p = spiral::make_digit(d);
+        g_art.digits[d] = mod.overlay_image_create(p.width, p.height, p.rgba.data(), true);
+    }
     g_art.all = g_art.scan != 0 && g_art.white != 0 && g_art.badge != 0 && g_art.pointer != 0;
 }
 
@@ -144,6 +149,7 @@ int picture_for(const spiral::Quad& q) {
         case spiral::Art::Glyph:
         case spiral::Art::Image: return q.image;
         case spiral::Art::Noise: return g_art.noise;
+        case spiral::Art::Digit: return q.image >= 1 && q.image <= 9 ? g_art.digits[q.image] : 0;
     }
     return 0;
 }
@@ -293,6 +299,21 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
                 const openrac::StackFrame frame(*m, static_cast<std::uint32_t>(size));
                 std::memcpy(m->memory().pointer(frame.address()), text, size);
                 other(x, y, colour, static_cast<int>(frame.address()), length);
+            };
+        }
+    }
+    // The game's text widths (measure_text_width_regular, _small), the text on the game's stack.
+    {
+        using Width = int (*)(int, int);
+        const auto regular = optional_function<Width>(mod, n.text_width_regular);
+        const auto small = optional_function<Width>(mod, n.text_width_small);
+        if (regular && small) {
+            g.text_width = [m, regular, small](gc::TextSize size, const char* text) {
+                const std::size_t length = std::strlen(text) + 1;
+                const openrac::StackFrame frame(*m, static_cast<std::uint32_t>(length));
+                std::memcpy(m->memory().pointer(frame.address()), text, length);
+                const int address = static_cast<int>(frame.address());
+                return size == gc::TextSize::Small ? small(address, -1) : regular(address, -1);
             };
         }
     }

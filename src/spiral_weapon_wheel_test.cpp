@@ -582,6 +582,10 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         return 0;
     };
     g.extension_items = {1, 36};  // the port's, as mod.cpp gives them
+    // The game's text widths, as the fake measures them: 10 units a letter, 7 in the small font.
+    g.text_width = [](gc::TextSize size, const char* text) {
+        return static_cast<int>(std::strlen(text)) * (size == gc::TextSize::Small ? 7 : 10);
+    };
     g.level_data_path = [](int) { return g_fake->level_file; };
     g.icon_packs = [] { return g_fake->icon_packs; };
     g.create_image = [](int width, int height, const std::uint8_t* rgba) {
@@ -1106,11 +1110,13 @@ void test_draw() {
     for (const Text& t : f.texts) {
         (t.size == gc::TextSize::Small ? small : t.size == gc::TextSize::Normal ? normal : large).push_back(t);
     }
-    CHECK_EQ(small.size(), shown.badges.size());
-    for (const Text& t : small) {
-        CHECK(t.text.size() == 1 && t.text[0] >= '1' && t.text[0] <= '8' && (t.colour & 0x00FFFFFFu) == 0x00E4E4E4u);
-        CHECK(t.colour >> 24 > 0 && t.colour >> 24 <= 0x80);  // faded with its slot
+    // The badges' numbers are the painter's own digits now, not the game's text.
+    CHECK(small.empty());
+    int digits = 0;
+    for (const spiral::Quad& q : spiral::paint(shown)) {
+        digits += q.art == spiral::Art::Digit;
     }
+    CHECK_EQ(digits, static_cast<int>(shown.badges.size()));
     CHECK(large.empty());
     CHECK_EQ(normal.size(), 2u);
     if (normal.size() == 2) {
@@ -1137,7 +1143,10 @@ void test_draw() {
     };
     f.texts.clear();
     gc::shim().selector_draw(kRecord);
-    CHECK(lines(gc::TextSize::Normal).size() == 2u && lines(gc::TextSize::Normal)[1].text == "Pyro-citor");
+    // "Pyro-citor" is wider than the middle disc in the normal font (the fake's measure: 10 units a
+    // letter against 98 inside the disc): the small font (7 a letter: 70).
+    CHECK(lines(gc::TextSize::Normal).empty());
+    CHECK(lines(gc::TextSize::Small).size() == 2u && lines(gc::TextSize::Small)[1].text == "Pyro-citor");
     const std::vector<Text> ammo = lines(gc::TextSize::Large);
     CHECK_EQ(ammo.size(), 2u);
     if (ammo.size() == 2) {

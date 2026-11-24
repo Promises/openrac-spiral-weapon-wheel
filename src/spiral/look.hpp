@@ -19,6 +19,12 @@ constexpr float kCentreY = -8.0f;
 // after it 11 smaller; a panel 0.33 of its radius thick, 25.2 degrees of the 30 a slot has; the
 // selected one pushed 10 out (its thickness its own radius's).
 constexpr float kFirstRadius = 284.0f;
+// No slot further out than the loop's first (the design's outermost whole loop): the slots further
+// back (the continuous motion's, the loop before) stay at it and fade, so the wheel keeps inside the
+// screen. And the design is drawn at kFit of its size: its furthest point (that slot's outer edge,
+// the push and a badge, 8 above the middle) then leaves a margin of 3 % of the screen's height.
+constexpr float kMaxRadius = kFirstRadius;
+constexpr float kFit = 0.95f;
 constexpr float kRadiusStep = 11.0f;
 constexpr float kThickness = 0.33f;
 constexpr float kHalfAngle = 12.6f;
@@ -41,6 +47,11 @@ constexpr float kShadowX = 1.5f, kShadowY = 2.5f;
 // 7.6 degrees clockwise of the panel's middle.
 constexpr float kBadgeWidth = 24.0f, kBadgeHeight = 18.0f, kBadgeCorner = 3.0f;
 constexpr float kBadgeIn = 2.0f, kBadgeTurn = 7.6f;
+
+// The badge's number: drawn by the painter (not the game's font, whose smallest is too large for
+// the badge), a digit kDigitHeight tall in kDigitStroke strokes, centred, in the design's badge text
+// colour.
+constexpr float kDigitHeight = 9.0f, kDigitWidth = 6.0f, kDigitStroke = 1.7f;
 
 // The glint: an arc 6 in from the outer edge, 1.5 wide, from 3.6 to 9.6 degrees clockwise of the
 // middle.
@@ -151,6 +162,7 @@ constexpr Rgb kBadgeTop = {0x8E, 0x8E, 0x8E};
 constexpr Rgb kBadgeBottom = {0x55, 0x55, 0x55};
 constexpr Rgb kBadgeEdge = {0x20, 0x20, 0x20};
 constexpr float kBadgeEdgeWidth = 1.5f;
+constexpr Rgb kBadgeDigit = {0xE4, 0xE4, 0xE4};
 // The pointer's edge.
 constexpr Rgb kPointerEdge = {0x3A, 0x38, 0x00};
 

@@ -22,7 +22,12 @@ enum class Art {
     Glyph,    // an item's glyph (`image`), white: its colour is the quad's
     Image,    // a picture of the layer's (`image`): the game's own panel textures (PanelArt)
     Noise,    // the flash's stand-in: grey noise, kNoiseTexels square, when the game's is not there
+    Digit,    // a badge's number (`image`: 1 to 9), white: its colour is the quad's
 };
+
+// A badge's number as a picture (make_digit): strokes in a kDigitWidth x kDigitHeight box, a design
+// pixel of room around, kArtDensity pixels a design pixel, white.
+Picture make_digit(int digit);
 
 // How a quad goes over the frame: blended by its alpha, or added (the flash of static).
 enum class Blend { Alpha, Add };

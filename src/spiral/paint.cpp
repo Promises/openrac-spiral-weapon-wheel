@@ -223,32 +223,96 @@ struct Painter {
         // The badge's picture has a design pixel of room each side for its edge.
         for (const Badge& b : f.badges) {
             picture(Art::Badge, 0, b.x, b.y, look::kBadgeWidth + 2.0f, look::kBadgeHeight + 2.0f, {255, 255, 255}, b.alpha);
+            if (b.number >= 1 && b.number <= 9) {
+                picture(Art::Digit, b.number, b.x, b.y, look::kDigitWidth + 2.0f, look::kDigitHeight + 2.0f, look::kBadgeDigit, b.alpha);
+            }
+        }
+    }
+
+    // A disc of radius `r` (design pixels) about the wheel's middle as horizontal strips (quads with
+    // their corners on the circle: no thin wedges meeting at the middle), each corner's place in
+    // the picture from `uv(x, y)`.
+    template <typename Uv>
+    void disc(float r, Art art, int image, const look::Rgb& c, float alpha, Blend blend, Uv uv) {
+        if (alpha <= 0.0f) {
+            return;
+        }
+        const int strips = 48;
+        for (int i = 0; i < strips; ++i) {
+            // Strip i between the angles where the circle crosses its top and bottom (y up).
+            const float t0 = std::cos(kPi * static_cast<float>(i) / strips), t1 = std::cos(kPi * static_cast<float>(i + 1) / strips);
+            const float h0 = std::sqrt(std::max(0.0f, 1.0f - t0 * t0)), h1 = std::sqrt(std::max(0.0f, 1.0f - t1 * t1));
+            Quad q;
+            q.art = art;
+            q.image = image;
+            q.blend = blend;
+            const float u = f.unit;
+            const float xy[8] = {-h0 * r * u, f.centre_y - t0 * r * u, h0 * r * u, f.centre_y - t0 * r * u,
+                                 -h1 * r * u, f.centre_y - t1 * r * u, h1 * r * u, f.centre_y - t1 * r * u};
+            std::copy(xy, xy + 8, q.xy);
+            for (int k = 0; k < 4; ++k) {
+                const auto [qu, qv] = uv(q.xy[2 * k], q.xy[2 * k + 1]);
+                q.uv[2 * k] = qu;
+                q.uv[2 * k + 1] = qv;
+            }
+            colour(q, c, alpha);
+            out.push_back(q);
         }
     }
 
     void middle() {
         const float r = look::kCentreRadius;
-        // The game's panel where it fits a disc: the fill, the vignette over its square, the
-        // scanlines (its glint's corners would be outside it: the design's arcs instead).
+        // The same panel as the slots' (the design fills the middle as it fills them): the game's
+        // fill, vignette over the disc's square, flash and scanlines, and its glint's L-shaped
+        // corners on the square inside the disc; without the game's pictures, 1.3.0's stand-in
+        // scanlines and the design's arcs.
+        const look::Rgb white = {255, 255, 255};
+        const float half = r * f.unit;
         if (f.art.scan == 0) {
-            ring(0.0f, r, 0.0f, 360.0f, Art::Scan, {255, 255, 255}, 1.0f);
+            disc(r, Art::Scan, 0, white, 1.0f, Blend::Alpha, [this](float, float y) { return std::pair<float, float>{0.5f, scan_v(y)}; });
         } else {
-            ring(0.0f, r, 0.0f, 360.0f, Art::White, look::kPanelFill, 1.0f);
+            disc(r, Art::White, 0, look::kPanelFill, 1.0f, Blend::Alpha, [](float, float) { return std::pair<float, float>{0.5f, 0.5f}; });
             if (f.art.vignette != 0) {
-                const float half = r * f.unit;
-                ring_mapped(0.0f, r, 0.0f, 360.0f, Art::Image, f.art.vignette, {255, 255, 255}, 1.0f, Blend::Alpha,
-                            [this, half](float x, float y, float, float) {
-                                return std::pair<float, float>{(x + half) / (2.0f * half), (y - f.centre_y + half) / (2.0f * half)};
-                            });
+                disc(r, Art::Image, f.art.vignette, white, 1.0f, Blend::Alpha, [this, half](float x, float y) {
+                    return std::pair<float, float>{(x + half) / (2.0f * half), (y - f.centre_y + half) / (2.0f * half)};
+                });
             }
-            panel_above(0.0f, r, 0.0f, 360.0f, 1.0f, 0.0f, 0, 0);
+            if (f.centre_flash > 0.0f) {
+                const float texel = game_pixel() * static_cast<float>(look::kNoiseTexels);
+                const float fu = static_cast<float>(f.centre_flash_u) / look::kNoiseTexels;
+                const float fv = static_cast<float>(f.centre_flash_v) / look::kNoiseTexels;
+                disc(r, f.art.noise != 0 ? Art::Image : Art::Noise, f.art.noise, white, f.centre_flash, Blend::Add,
+                     [this, half, texel, fu, fv](float x, float y) {
+                         return std::pair<float, float>{(x + half) / texel + fu, (y - f.centre_y + half) / texel + fv};
+                     });
+            }
+            disc(r, Art::Image, f.art.scan,
+                 {static_cast<std::uint8_t>(255.0f * look::kScanColour), static_cast<std::uint8_t>(255.0f * look::kScanColour),
+                  static_cast<std::uint8_t>(255.0f * look::kScanColour)},
+                 look::kScanAlpha, Blend::Alpha, [](float, float y) { return std::pair<float, float>{0.5f, y + 0.5f}; });
+        }
+        if (f.art.glint != 0) {
+            // The square inside the disc, a game pixel in, its texels 1 to 63.
+            const float s2 = half / std::sqrt(2.0f) - game_pixel();
+            const float in = 1.0f / static_cast<float>(look::kGlintTexels), out_uv = 1.0f - in;
+            Quad q;
+            q.art = Art::Image;
+            q.image = f.art.glint;
+            const float xy[8] = {-s2, f.centre_y - s2, s2, f.centre_y - s2, -s2, f.centre_y + s2, s2, f.centre_y + s2};
+            const float uv[8] = {in, in, out_uv, in, in, out_uv, out_uv, out_uv};
+            std::copy(xy, xy + 8, q.xy);
+            std::copy(uv, uv + 8, q.uv);
+            colour(q, white, 1.0f);
+            out.push_back(q);
         }
         for (const look::Band& b : look::kFrameCentre) {
             ring(r - b.width * 0.5f, r + b.width * 0.5f, 0.0f, 360.0f, Art::White, b.colour, 1.0f);
         }
-        const float g = look::kCentreGlintRadius, w = look::kCentreGlintWidth * 0.5f;
-        ring(g - w, g + w, -70.0f, -20.0f, Art::White, look::kCentreGlintLight, look::kCentreGlintLightAlpha);
-        ring(g - w, g + w, 115.0f, 160.0f, Art::White, look::kCentreGlintDim, look::kCentreGlintDimAlpha);
+        if (f.art.glint == 0) {
+            const float g = look::kCentreGlintRadius, w = look::kCentreGlintWidth * 0.5f;
+            ring(g - w, g + w, -70.0f, -20.0f, Art::White, look::kCentreGlintLight, look::kCentreGlintLightAlpha);
+            ring(g - w, g + w, 115.0f, 160.0f, Art::White, look::kCentreGlintDim, look::kCentreGlintDimAlpha);
+        }
     }
 
     void pointer() {
@@ -324,6 +388,51 @@ std::vector<Quad> paint(const Frame& frame) {
     return out;
 }
 
+Picture make_digit(int digit) {
+    // Each digit as strokes in a 6 x 9 box (x right, y down), drawn round-capped.
+    struct Line {
+        float x0, y0, x1, y1;
+    };
+    static const std::vector<std::vector<Line>> kStrokes = {
+        {},
+        {{1.5f, 2, 3.5f, 0}, {3.5f, 0, 3.5f, 9}, {1.5f, 9, 5.5f, 9}},                                     // 1
+        {{0.5f, 1.5f, 2, 0}, {2, 0, 4.5f, 0}, {4.5f, 0, 6, 1.5f}, {6, 1.5f, 6, 3}, {6, 3, 0, 9}, {0, 9, 6, 9}},  // 2
+        {{0, 0, 6, 0}, {6, 0, 3, 3.5f}, {3, 3.5f, 5, 3.5f}, {5, 3.5f, 6, 5}, {6, 5, 6, 7.5f}, {6, 7.5f, 4.5f, 9},
+         {4.5f, 9, 1.5f, 9}, {1.5f, 9, 0, 7.5f}},  // 3
+        {{4.5f, 9, 4.5f, 0}, {4.5f, 0, 0, 6}, {0, 6, 6, 6}},                                               // 4
+        {{6, 0, 0.5f, 0}, {0.5f, 0, 0, 4}, {0, 4, 4.5f, 4}, {4.5f, 4, 6, 5.5f}, {6, 5.5f, 6, 7.5f}, {6, 7.5f, 4.5f, 9},
+         {4.5f, 9, 1, 9}, {1, 9, 0, 8}},  // 5
+        {{5, 0, 2, 0}, {2, 0, 0, 2.5f}, {0, 2.5f, 0, 7.5f}, {0, 7.5f, 1.5f, 9}, {1.5f, 9, 4.5f, 9}, {4.5f, 9, 6, 7.5f},
+         {6, 7.5f, 6, 5.5f}, {6, 5.5f, 4.5f, 4}, {4.5f, 4, 0, 4}},  // 6
+        {{0, 0, 6, 0}, {6, 0, 2, 9}},                                                                       // 7
+        {{1.5f, 0, 4.5f, 0}, {4.5f, 0, 5.5f, 1}, {5.5f, 1, 5.5f, 3}, {5.5f, 3, 4.5f, 4}, {4.5f, 4, 1.5f, 4},
+         {1.5f, 4, 0.5f, 3}, {0.5f, 3, 0.5f, 1}, {0.5f, 1, 1.5f, 0}, {1.5f, 4, 0, 5.5f}, {0, 5.5f, 0, 7.5f},
+         {0, 7.5f, 1.5f, 9}, {1.5f, 9, 4.5f, 9}, {4.5f, 9, 6, 7.5f}, {6, 7.5f, 6, 5.5f}, {6, 5.5f, 4.5f, 4}},  // 8
+        {{6, 4.5f, 1.5f, 4.5f}, {1.5f, 4.5f, 0, 3}, {0, 3, 0, 1.5f}, {0, 1.5f, 1.5f, 0}, {1.5f, 0, 4.5f, 0},
+         {4.5f, 0, 6, 1.5f}, {6, 1.5f, 6, 6.5f}, {6, 6.5f, 4, 9}, {4, 9, 1, 9}},  // 9
+    };
+    Picture p;
+    const float d = static_cast<float>(kArtDensity);
+    p.width = static_cast<int>((look::kDigitWidth + 2.0f) * d);
+    p.height = static_cast<int>((look::kDigitHeight + 2.0f) * d);
+    p.rgba.assign(static_cast<std::size_t>(p.width * p.height) * 4, 255);
+    const std::vector<Line>& lines = kStrokes[static_cast<std::size_t>(std::clamp(digit, 0, 9))];
+    for (int y = 0; y < p.height; ++y) {
+        for (int x = 0; x < p.width; ++x) {
+            const float fx = (static_cast<float>(x) + 0.5f) / d - 1.0f, fy = (static_cast<float>(y) + 0.5f) / d - 1.0f;
+            float best = 1e9f;
+            for (const Line& l : lines) {
+                const float ex = l.x1 - l.x0, ey = l.y1 - l.y0;
+                const float t = std::clamp(((fx - l.x0) * ex + (fy - l.y0) * ey) / std::max(1e-6f, ex * ex + ey * ey), 0.0f, 1.0f);
+                best = std::min(best, std::hypot(fx - l.x0 - ex * t, fy - l.y0 - ey * t));
+            }
+            const float a = std::clamp(0.5f - (best - look::kDigitStroke * 0.5f) * d, 0.0f, 1.0f);
+            p.rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(p.width) + static_cast<std::size_t>(x)) * 4 + 3] = byte(a);
+        }
+    }
+    return p;
+}
+
 Picture make_art(Art which) {
     Picture p;
     switch (which) {
@@ -359,6 +468,8 @@ Picture make_art(Art which) {
             }
             break;
         }
+        case Art::Digit:
+            return make_digit(1);
         case Art::White:
         case Art::Glyph:
         case Art::Image:

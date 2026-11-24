@@ -997,6 +997,9 @@ void Shim::spiral_update(std::uint8_t* record) {
     publish();
 }
 
+// The name's margin inside the middle disc's frame, the design's pixels.
+constexpr float kNameMargin = 8.0f;
+
 // The record's draw (in the world's picture, the game's 2D): the items' icons on the spiral and the
 // pointed-at item's name and ammo, with the game's own sprites and font. The panels are the
 // overlay's.
@@ -1018,12 +1021,6 @@ int Shim::spiral_draw(std::uint8_t* record) {
         game.draw_hud_sprite(game.get_icon_frame(item.icon, gold ? 4 : 0), game_x(icon.x) - w / 2, game_y(icon.y) - h / 2, w, h,
                              alpha);
     }
-    // The quick select numbers on their badges (the overlay's), in the game's small font.
-    for (const spiral::Badge& badge : f.badges) {
-        const char text[2] = {static_cast<char>('0' + badge.number), 0};
-        const std::uint32_t colour = tween_colour(0x00E4E4E4u, 0x80E4E4E4u, badge.alpha * open);
-        game.font_print(TextSize::Small, game_x(badge.x), game_y(badge.y) - kSmallTextHeight / 2, colour, text);
-    }
     // The name and the ammo in the middle, in the pause menu's blue (the ammo red when it is out),
     // each over its dark copy a unit down and right (the game's own shadow, hud.c's), faded in with
     // the selection.
@@ -1036,9 +1033,15 @@ int Shim::spiral_draw(std::uint8_t* record) {
             game.font_print(size, game_x(0.0f) + 1, top + 1, shadow, text.c_str());
             game.font_print(size, game_x(0.0f), top, c, text.c_str());
         };
+        // The name in the normal font when it fits inside the middle disc (its frame and a margin
+        // in), else the small one (the game's own measure of each: "Hydrodisplacer" is wider than
+        // the disc in the normal font).
         const std::string& name = m_names[static_cast<std::size_t>(f.selected)];
         if (!name.empty()) {
-            line(TextSize::Normal, kNormalTextHeight, f.name_y, kMenuBlue, name);
+            const float inside = 2.0f * (spiral::look::kCentreRadius - spiral::look::kFrameCentre[0].width * 0.5f - kNameMargin) * f.unit;
+            const int room = static_cast<int>(inside * kAcrossPerHeight);
+            const bool fits = !game.text_width || game.text_width(TextSize::Normal, name.c_str()) <= room;
+            line(fits ? TextSize::Normal : TextSize::Small, fits ? kNormalTextHeight : kSmallTextHeight, f.name_y, kMenuBlue, name);
         }
         bool empty = false;
         const std::string ammo = item_ammo(m_wheel.items()[static_cast<std::size_t>(f.selected)].id, empty);

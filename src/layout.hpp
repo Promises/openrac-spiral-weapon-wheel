@@ -395,6 +395,9 @@ struct FunctionNames {
     // FontPrintCenter's small and large fonts (optional: the normal one otherwise).
     const char* font_print_center_small;
     const char* font_print_center_large;
+    // measure_text_width_regular and measure_text_width_small (optional).
+    const char* text_width_regular;
+    const char* text_width_small;
 };
 
 inline FunctionNames function_names(bool ntsc) {
@@ -406,7 +409,7 @@ inline FunctionNames function_names(bool ntsc) {
                 "FUN_001f39d0", "FUN_0022db10",
                 "FUN_001f9988", "FUN_001f9e90", "FUN_001fa688", "FUN_001fa5c8", "FUN_001fa610",
                 "FUN_001fa580", "FUN_001f9de0", "FUN_001f9dc8", "func_001FA6C0", "FUN_001fa6d0",
-                "FUN_001f6b88", "FUN_001f6c20"};
+                "FUN_001f6b88", "FUN_001f6c20", "FUN_001f6250", "FUN_001f6270"};
     }
     return {"func_001FBC80", "func_L00_0023B610", "func_001FE6C0", "func_00216F28", "func_00216EF0",
             "func_0012E528", "func_0012E558", "func_0012DDC0", "func_00200468", "func_00200198",
@@ -415,7 +418,7 @@ inline FunctionNames function_names(bool ntsc) {
             "func_001F3D78", "func_0022EE28",
             "func_001F9B50", "func_001FA058", "func_001FA850", "func_001FA790", "func_001FA7D8",
             "func_001FA748", "func_001F9FA8", "func_001F9F90", "func_001FA888", "func_001FA898",
-            "func_001F6F40", "func_001F6FD8"};
+            "func_001F6F40", "func_001F6FD8", "func_001F6600", "func_001F6620"};
 }
 
 }  // namespace gc_weapon_wheel

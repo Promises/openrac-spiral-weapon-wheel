@@ -53,7 +53,7 @@ Clank's own. The Devastator here is a gold one.*
 | Ease back on close | off | On, the game's time eases back up as the wheel closes, the way it slowed down. |
 | Open and close | Hold | *Hold*: let go of Triangle to pick. *Toggle*: the wheel stays up when you let go; press Triangle again to pick. |
 | Hold before pausing | A little longer | How long Triangle is held before the wheel opens. *Going Commando* is its own 4 frames, *A little longer* 8 frames (so taps and double taps don't open it), *Longer* 12. On PAL: 3, 7, 10. |
-| Size | 1 | 1 is the design's size: the first loop is about nine tenths of the screen's height across. |
+| Size | 1 | 1, the largest, is the design's size as it fits any screen with a margin: no slot further out than the loop's first, the wheel inside the screen by 3 % of its height. Smaller values shrink it. |
 | Start angle | 90 | Where the spiral starts, in degrees counter-clockwise from 3 o'clock (90 is 12 o'clock). |
 | Clockwise | on | Which way the spiral turns (on is the design's; Prey Menu's default was off). |
 | Spiral motion | Continuous | *Continuous*: the spiral follows the pointer at all times (Prey Menu's way), the pointed-at slot in the middle of the twelve shown whole. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
@@ -125,8 +125,9 @@ Ratchet & Clank PAL and NTSC-U.
     made into overlay pictures once a level; nothing of them is kept or shipped. One that cannot be
     read leaves its layer to 1.3.0's stand-in. On a bent panel each picture's left is the panel's
     counter-clockwise side and its top the outer edge, as a panel at the top of the wheel shows
-    them. The round middle takes the fill, the vignette and the scanlines; the glint's corners
-    would fall outside a disc, so it keeps the design's two arcs. (For texture packs later: these
+    them. The round middle is the same panel (the design fills it as it fills the slots), drawn in
+    horizontal strips: the fill, the vignette over its square, its own flash, the scanlines, and
+    the glint's L-shaped corners on the square inside the disc. (For texture packs later: these
     pictures' pack names, not checked, would be FX 0x1C `fa139b1915195658`, 0x19
     `8f4a889914807b06`, 0x1A `b009544753f22975`, HUD 0xE99E/7 `bcf76d4d5ee38a4f`.)
   - The painter (`src/spiral/paint.cpp`) draws it all as quads of four pictures it makes as the
@@ -171,8 +172,9 @@ Ratchet & Clank PAL and NTSC-U.
   wheel. Nothing is capped: any number of items, any item ids, as many loops as it takes.
 - **The pictures** (the panels and the glyphs) are drawn under the game's HUD by the mod's overlay
   (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
-  the game's own HUD calls: the quick select numbers in its small font, the name in its normal
-  one and the ammo in its large one, the name and ammo over a dark copy a unit down and right (as
+  the game's own HUD calls: the name in its normal font, or its small one when the game's own
+  measure (`measure_text_width_regular`) says it would not fit inside the middle disc, and the
+  ammo in its large one, the name and ammo over a dark copy a unit down and right (as
   the game shadows its own text).
 - **The health meter** (its HUD record: slot 1, id 0x7535) is closed on every tick the wheel shows,
   from its first: Ratchet & Clank's own Triangle shows it on each press (`hero_update_transitions`).

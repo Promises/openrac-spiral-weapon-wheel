@@ -94,6 +94,9 @@ struct Frame {
     float centre_y = 0;       // the wheel's middle below the screen's (negative: above)
     float lines = 448.0f;     // the game's lines a screen height (look.hpp: NTSC 416, PAL 448)
     PanelArt art;             // the panel's pictures (the layer's)
+    // The middle disc's flash of static (as a slot's).
+    float centre_flash = 0;
+    int centre_flash_u = 0, centre_flash_v = 0;
     float pointer_deg = 0;    // where the pointer points
     // The pointed-at item (an index into the items), below 0 a blank; the middles of its name's
     // line and of the line under it (the ammo).

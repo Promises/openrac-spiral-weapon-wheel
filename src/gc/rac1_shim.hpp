@@ -162,6 +162,9 @@ struct Game {
     // FontPrintCenterSmall and FontPrintCenterLarge, the same way (unset: FontPrintCenter's).
     std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center_small;
     std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center_large;
+    // A text's width in the game's 2D units in its font of that size (measure_text_width_regular,
+    // _small: names_ntsc.tsv); unset: unknown.
+    std::function<int(TextSize, const char*)> text_width;
     // The text centred across at x, its top at y, in the game's font of that size.
     void font_print(TextSize size, int x, int y, std::uint32_t colour, const char* text) const {
         const auto& f = size == TextSize::Small && font_print_center_small   ? font_print_center_small

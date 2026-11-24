@@ -118,9 +118,9 @@
       "type": "float",
       "default": 1.0,
       "min": 0.5,
-      "max": 1.5,
+      "max": 1.0,
       "step": 0.05,
-      "description": "The wheel's size: 1 is the design's (the first loop's outer edge about nine tenths of the screen's height across)."
+      "description": "The wheel's size: 1, the largest, is the design's as it fits a screen of any shape with a margin (its outermost slot and badge 3 % of the screen's height inside the edge); smaller values shrink it."
     },
     {
       "key": "start_angle",
