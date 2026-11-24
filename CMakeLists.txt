@@ -114,3 +114,10 @@ target_compile_features(spiral_weapon_wheel_test PRIVATE cxx_std_17)
 target_include_directories(spiral_weapon_wheel_test PRIVATE src)
 target_compile_definitions(spiral_weapon_wheel_test PRIVATE SPIRAL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME spiral_weapon_wheel COMMAND spiral_weapon_wheel_test)
+# A release (a tag's build, or -DSPIRAL_RELEASE=ON) fails while a temporary debug setting is still
+# in the manifest (README "Remove before release").
+if("$ENV{GITHUB_REF}" MATCHES "^refs/tags/" OR SPIRAL_RELEASE)
+  add_test(NAME no_debug_settings
+           COMMAND ${CMAKE_COMMAND} -DMANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/openrac-mod.json
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/no_debug_settings.cmake)
+endif()

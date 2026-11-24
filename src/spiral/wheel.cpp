@@ -71,6 +71,18 @@ void Wheel::flash_frame() {
     }
 }
 
+void stack_lines(float centre, const float* heights, int count, float gap, float* out) {
+    float total = gap * static_cast<float>(std::max(0, count - 1));
+    for (int i = 0; i < count; ++i) {
+        total += heights[i];
+    }
+    float y = centre - total * 0.5f;
+    for (int i = 0; i < count; ++i) {
+        out[i] = y + heights[i] * 0.5f;
+        y += heights[i] + gap;
+    }
+}
+
 float radius_step(const Options& o) {
     const float shrink = 1.0f - shallowness(o);
     const float ours = 1.0f - shallowness(Options{});
@@ -247,14 +259,21 @@ Frame Wheel::frame() const {
     // Each slot k on from the loop shown's first (the anchor): the 4 before it as negative k, the
     // loops wrapping (a spiral's slots are a loop of `total`).
     std::vector<std::pair<float, Slot>> drawn;
+    // Where the last item is in the window (k), and the end of its loop along the path.
+    const float last_k = n > 0 ? wrap_into(static_cast<float>(n - 1) - anchor(), -5.0f, total) : 0.0f;
+    const int last_loop_end = (n + kPerLoop - 1) / kPerLoop * kPerLoop;
     for (const Tile& t : tiles(n, p, o)) {
-        // The blanks (the slots after the last item, to the spiral's whole loops) are not drawn: only
-        // the items and the holes between them (arrange.hpp).
-        if (t.index < 0) {
-            continue;
-        }
         const float at = static_cast<float>(wrap_index(t.index, p.total)) - anchor();
         const float k = p.spiral ? wrap_into(at, -5.0f, total) : wrap_into(at, -0.5f, total);
+        // The blanks (the slots after the last item, to the spiral's whole loops) link the last
+        // item's loop on round to its end, so the spiral reads as one path: drawn only after the last
+        // item in the window, which shows it (inside it, so never larger than the items), and within
+        // that loop; not the ones the window shows before the first item while the last is out of it
+        // (they would be an outer ring of blanks), nor any with one loop or less. Holes between items (arrange.hpp) are drawn as ever.
+        if (t.index < 0 && (!p.spiral || slot_opacity(last_k, true) <= 0.0f || k <= last_k ||
+                            static_cast<int>(total) + t.index >= last_loop_end)) {
+            continue;
+        }
         const float fade = slot_opacity(k, p.spiral);
         if (fade <= 0.0f) {
             continue;

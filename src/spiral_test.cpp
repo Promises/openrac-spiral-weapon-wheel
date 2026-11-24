@@ -258,10 +258,10 @@ void test_wheel_frame() {
     CHECK(near(f.unit, 1.0f / kPx) && near(f.centre_y, -8.0f / kPx));
     CHECK(near(f.name_y, (-8.0f - 23.0f) / kPx) && near(f.detail_y, (-8.0f + 18.5f) / kPx));
     // 14 items: 24 slots in two loops, the pointer's the first: its 12 at radius 284 down by 11 a
-    // slot, the 3 after it fading (items 12 and 13; the blank after them, and the 4 blanks before the
-    // loop, not drawn); the selected one drawn last, pushed 10 out.
+    // slot, the 3 after it fading (items 12 and 13 and the blank linking on after them; the 4 blanks
+    // before the loop not drawn); the selected one drawn last, pushed 10 out.
     CHECK(near(w.anchor(), 0.0f));
-    CHECK(f.slots.size() == 14u);
+    CHECK(f.slots.size() == 15u);
     CHECK(f.slots.back().selected && f.slots.back().index == 3 && near(f.slots.back().push, 10.0f));
     int selected = 0;
     for (const spiral::Slot& s : f.slots) {
@@ -639,11 +639,17 @@ void test_fit() {
         float top = 0.0f, bottom = 0.0f, side = 0.0f;
         for (int step = 0; step < 40; ++step) {
             const spiral::Frame f = w.frame();
+            float last = -1.0f;
             for (const spiral::Slot& sl : f.slots) {
                 CHECK(sl.radius <= 284.0f + 1e-3f);
-                CHECK(sl.index >= 0);  // no blank
+                last = sl.index == 13 ? sl.radius : last;
                 if (sl.empty) {
-                    CHECK(sl.index == 5 && sl.opacity <= 0.6f + 1e-4f);
+                    CHECK((sl.index == 5 || sl.index < 0) && sl.opacity <= 0.6f + 1e-4f);
+                }
+            }
+            for (const spiral::Slot& sl : f.slots) {
+                if (sl.index < 0 && last >= 0.0f) {
+                    CHECK(sl.radius <= last + 1e-3f);  // a linking blank: after the last item, never outside it
                 }
             }
             for (const spiral::Quad& q : spiral::paint(f)) {
@@ -687,6 +693,59 @@ void test_fit() {
         CHECK((q.xy[7] - q.xy[1]) * kPx < 18.0f);  // inside the badge's 18
     }
     CHECK(digits == static_cast<int>(f.badges.size()) && digits == 7);  // 8 hot, one of them the hole
+}
+
+// The blanks link the spiral (1.4.1): with 14 items (two loops of 12: items 12 and 13, then 10
+// blanks), the blanks after item 13 to the end of its loop are drawn, at 60 % or the fade around
+// them, inside it; the ones the window would show before item 0 (an outer ring) are not; in every
+// motion, wherever the pointer is.
+void test_links() {
+    std::vector<spiral::Item> items(14);
+    for (int i = 0; i < 14; ++i) {
+        items[static_cast<std::size_t>(i)].id = 0x40 + i;
+    }
+    for (const bool continuous : {true, false}) {
+        spiral::Look look;
+        look.continuous = continuous;
+        for (const int at : {0, 7, 13}) {
+            for (spiral::Item& it : items) {
+                it.equipped = false;
+            }
+            items[static_cast<std::size_t>(at)].equipped = true;
+            spiral::Wheel w;
+            w.open(items, look);
+            w.advance(1.0f);
+            const spiral::Frame f = w.frame();
+            float first = -1.0f, last = -1.0f;
+            int blanks = 0;
+            for (const spiral::Slot& sl : f.slots) {
+                first = sl.index == 0 ? sl.radius : first;
+                last = sl.index == 13 ? sl.radius : last;
+            }
+            for (const spiral::Slot& sl : f.slots) {
+                if (sl.index >= 0) {
+                    continue;
+                }
+                ++blanks;
+                CHECK(sl.empty && sl.opacity <= 0.6f + 1e-4f);
+                CHECK(sl.index >= -10);  // within item 13's loop (path places 14 to 23)
+                CHECK(last >= 0.0f && sl.radius < last);  // after the last item, which shows, inside it
+            }
+            if (!continuous && at == 13) {
+                CHECK(blanks == 10);  // the pointer's loop (12 to 23) whole: its 10 blanks link it round
+            }
+            if (continuous && at == 13) {
+                CHECK(blanks >= 5);  // linking on after the last item
+            }
+            if (at == 0) {
+                // The pointer at the start: no outer ring of blanks before item 0.
+                for (const spiral::Slot& sl : f.slots) {
+                    CHECK(sl.index >= 0 || sl.radius < first);
+                }
+                CHECK(!continuous || blanks == 0);
+            }
+        }
+    }
 }
 
 // The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
@@ -1062,6 +1121,7 @@ int main() {
     test_categories();
     test_panel();
     test_fit();
+    test_links();
     test_paint();
     test_home_ring();
     test_glyphs();

@@ -568,6 +568,10 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
             std::snprintf(name, sizeof name, "Pyro-citor");
         } else if (id == 0x112) {
             std::snprintf(name, sizeof name, "Suck");
+        } else if (id == 0x10D) {
+            std::snprintf(name, sizeof name, "Visibomb Gun");
+        } else if (id == 0x20D) {
+            std::snprintf(name, sizeof name, "Gold Visibomb Gun");
         } else {
             std::snprintf(name, sizeof name, "Item%x", id);
         }
@@ -988,7 +992,7 @@ void test_fades_and_commit() {
     }
     play(f, 0);
     CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0x0D);
-    CHECK(f.logged("picked item 0xD (Item10d), equipped 0xD"));
+    CHECK(f.logged("picked item 0xD (Visibomb Gun), equipped 0xD"));
     CHECK_EQ(f.rd<std::uint16_t>(usage), 1);
     CHECK_EQ(f.rd<std::uint16_t>(usage + 2), 6000 / 600);
     CHECK_EQ(f.rd<std::uint32_t>(usage + 4), (1u << 3) | 0x80000000u);
@@ -1549,6 +1553,84 @@ void test_many_items() {
     CHECK(!spiral::paint(w.frame()).empty());
     gc::shim().connect(f.level);
     fs::remove_all(pack);
+}
+
+// The middle's text fits the disc's chord at its line (1.4.1), not a square: by the fake's measure
+// (10 units a letter, 7 small) the longest names step down to the small font or are cut with "...";
+// a line nearer the disc's edge has less room.
+void test_text_fit() {
+    Fake f;
+    set_up(f, true, false);
+    open_hud(f);
+    play(f, 0x10);
+    const spiral::Frame frame = gc::shim().picture().frame;
+    auto fit = [&frame](float y, std::initializer_list<gc::TextSize> sizes, const char* text) {
+        return gc::shim().fit_line(frame, y, sizes, text);
+    };
+    auto width = [](const gc::Shim::Fitted& r) {
+        return static_cast<int>(r.text.size()) * (r.size == gc::TextSize::Small ? 7 : 10);
+    };
+    // At the name's line the disc's chord leaves 91 units (the design's: 2 x (sqrt(105.5^2 - 47.8^2)
+    // - 8) of its pixels, as the fake's game sees them).
+    const auto suck = fit(frame.name_y, {gc::TextSize::Normal, gc::TextSize::Small}, "Suck");
+    CHECK(suck.size == gc::TextSize::Normal && suck.text == "Suck");
+    for (const char* name : {"Glove of Doom", "Gadgetron PDA", "Morph-o-Ray"}) {
+        const auto r = fit(frame.name_y, {gc::TextSize::Normal, gc::TextSize::Small}, name);
+        CHECK(r.size == gc::TextSize::Small && r.text == name);
+    }
+    for (const char* name : {"Hydrodisplacer", "Gold Devastator"}) {
+        const auto r = fit(frame.name_y, {gc::TextSize::Normal, gc::TextSize::Small}, name);
+        CHECK(r.size == gc::TextSize::Small && r.text.size() > 3 && r.text.compare(r.text.size() - 3, 3, "...") == 0);
+        CHECK(width(r) <= 91);
+    }
+    // Nearer the edge (90 % of the way to the disc's frame) the chord is narrower: cut sooner.
+    const float edge = frame.centre_y - 0.9f * 105.5f * frame.unit;
+    const auto near_edge = fit(edge, {gc::TextSize::Small}, "Morph-o-Ray");
+    CHECK(near_edge.text != "Morph-o-Ray" && width(near_edge) < 77);
+    // The ammo line: large when it fits.
+    CHECK(fit(frame.detail_y, {gc::TextSize::Large, gc::TextSize::Normal, gc::TextSize::Small}, "12/40").size ==
+          gc::TextSize::Large);
+}
+
+// The gold weapon's centre (1.4.1): the game's word ("Gold Visibomb Gun" less "Visibomb Gun") on a
+// line of its own over the name in the gold tint, the small font, then the name, then the ammo,
+// the three centred as a block. Shown here by the temporary preview setting, which changes the
+// wheel only: the game's gold flag is never written.
+void test_gold_label() {
+    Fake f;
+    set_up(f, true, false);
+    f.wr<std::int16_t>(f.d.item_defs + 0x0D * gcw::kItemDefStride + gcw::kItemDefGoldName, 0x20D);
+    gc::WheelOptions w = gc::shim().wheel_options();
+    w.debug_gold = gc::DebugGold::VisibombGun;
+    gc::shim().set_wheel_options(w);
+    open_hud(f);
+    play(f, 0x10);
+    dpad_to(f, wheel_index(0x0D));
+    for (int i = 0; i < 10; ++i) {
+        play(f, 0x10);
+    }
+    for (const spiral::Item& it : gc::shim().wheel().items()) {
+        CHECK((it.category == spiral::look::Category::Gold) == (it.id == 0x0D));
+    }
+    f.texts.clear();
+    gc::shim().selector_draw(kRecord);
+    const Text* label = nullptr;
+    const Text* name = nullptr;
+    for (const Text& t : f.texts) {
+        if (t.text == "Gold" && t.colour == 0x80AACFEFu) {
+            label = &t;
+        }
+        if (t.text == "Visibomb Gun" && t.colour == gc::kMenuBlue) {
+            name = &t;
+        }
+    }
+    CHECK(label != nullptr && name != nullptr);
+    if (label != nullptr && name != nullptr) {
+        CHECK(label->size == gc::TextSize::Small && label->y < name->y);
+    }
+    CHECK(f.rd<std::uint8_t>(f.d.gold + 0x0D) == 0);  // the game's flag untouched
+    w.debug_gold = gc::DebugGold::Off;
+    gc::shim().set_wheel_options(w);
 }
 
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
@@ -2366,6 +2448,8 @@ int main() {
     test_icon_sources();
     test_panel_art();
     test_many_items();
+    test_text_fit();
+    test_gold_label();
     test_paused_path();
     test_health_hidden();
     test_slow_down();

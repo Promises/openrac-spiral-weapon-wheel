@@ -107,6 +107,36 @@ void Shim::registered_items(std::vector<spiral::Item>& out) const {
     }
 }
 
+// (the mod's) Whether the wheel shows item `id` (a weapon) as gold: the player owns its gold
+// version (gold_weapon_purchased), or the temporary debug setting previews it (look only: nothing
+// of the game's is read or written for it).
+bool Shim::shows_gold(std::int32_t id) const {
+    if (m_wheel_options.debug_gold == DebugGold::AllWeapons ||
+        (m_wheel_options.debug_gold == DebugGold::VisibombGun && id == kVisibombGun)) {
+        return true;
+    }
+    return id > 0 && id < kItemTable && game.memory.base != nullptr &&
+           game.memory.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(id)) != 0;
+}
+
+// (the mod's) The label over a gold weapon's name: the game's own word, from its gold name and its
+// name (item_defs +0x48 and +0x46: "Gold Visibomb Gun" less "Visibomb Gun"), else "Gold".
+std::string Shim::gold_label(std::int32_t id) const {
+    const std::string name = item_name(id, false), gold = item_name(id, true);
+    std::string label;
+    if (!name.empty() && gold.size() > name.size()) {
+        if (gold.compare(gold.size() - name.size(), name.size(), name) == 0) {
+            label = gold.substr(0, gold.size() - name.size());
+        } else if (gold.compare(0, name.size(), name) == 0) {
+            label = gold.substr(name.size());
+        }
+    }
+    const auto first = label.find_first_not_of(" -");
+    const auto last = label.find_last_not_of(" -");
+    label = first == std::string::npos ? "" : label.substr(first, last - first + 1);
+    return label.empty() ? "Gold" : label;
+}
+
 bool Shim::owned(std::int32_t id) const {
     return id > 0 && id < kItemTable && game.memory.base != nullptr &&
            game.memory.read<std::uint8_t>(m_level.at.item_available + static_cast<std::uint32_t>(id)) != 0;
@@ -336,8 +366,7 @@ void Shim::attach_glyph(spiral::Item& item) {
     if (item.id == 0 || !game.create_image) {
         return;
     }
-    const bool gold = item.id > 0 && item.id < kItemTable &&
-                      game.memory.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(item.id)) != 0;
+    const bool gold = shows_gold(item.id);
     const int variant = gold ? 4 : 0;
     const bool disc = m_hud.loaded() && m_hud.has_icon(item.icon);
     const int frame = disc ? m_hud.icon_frame(item.icon, variant) : icon_frame(item.id, static_cast<std::uint16_t>(item.icon));
@@ -651,14 +680,13 @@ void Shim::restore_health() {
     }
 }
 
-std::string Shim::item_name(std::int32_t id) const {
+std::string Shim::item_name(std::int32_t id, bool gold) const {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     if (id <= 0 || id >= kItemTable || !game.msg_string) {
         return "";  // past the game's tables: no name of the game's
     }
     const std::uint32_t u = static_cast<std::uint32_t>(id);
-    const bool gold = m.read<std::uint8_t>(a.gold + u) != 0;
     const std::int16_t text = m.read<std::int16_t>(a.item_defs + u * kItemDefStride + (gold ? kItemDefGoldName : kItemDefName));
     const std::uint32_t at = game.msg_string(text);
     if (at == 0) {
@@ -825,7 +853,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         m_wheel.seed(static_cast<std::uint32_t>(m_play_ticks) * 2654435761u + 1u);
         m_names.clear();
         for (const spiral::Item& item : m_wheel.items()) {
-            m_names.push_back(item_name(item.id));
+            m_names.push_back(item_name(item.id, false));
         }
         m_armed = false;
         m_toggle_released = false;
@@ -997,8 +1025,52 @@ void Shim::spiral_update(std::uint8_t* record) {
     publish();
 }
 
-// The name's margin inside the middle disc's frame, the design's pixels.
+// The text's margin inside the middle disc's frame, the design's pixels; the gap between the lines
+// of the gold block, the game's 2D units.
 constexpr float kNameMargin = 8.0f;
+constexpr float kLineGap = 4.0f;
+// The gold label's colour: the gold category's glyph tint (#EFCFAA), as the game's text colours it.
+constexpr std::uint32_t kGoldLabel = 0x80AACFEFu;
+
+int text_height(TextSize size) {
+    return size == TextSize::Small ? kSmallTextHeight : size == TextSize::Large ? kLargeTextHeight : kNormalTextHeight;
+}
+
+// (the mod's) A line of text in the middle disc, centred on `y`: the first of `sizes` (largest
+// first) in which the game's own measure says it fits the disc's chord at the line (its top or
+// bottom, whichever is further from the disc's middle: the narrower), less the margin either side;
+// none fits: the smallest, cut short with "..." until it does. Without the game's measure, the
+// first size as it is.
+Shim::Fitted Shim::fit_line(const spiral::Frame& f, float y, std::initializer_list<TextSize> sizes, const std::string& text) const {
+    const float inner = (spiral::look::kCentreRadius - spiral::look::kFrameCentre[0].width * 0.5f) * f.unit;
+    auto room = [&](TextSize size) {
+        const float half = static_cast<float>(text_height(size)) * 0.5f / kScreenHeight;  // screen heights
+        const float dy = std::max(std::fabs(y - half - f.centre_y), std::fabs(y + half - f.centre_y));
+        const float chord = dy < inner ? std::sqrt(inner * inner - dy * dy) : 0.0f;
+        return static_cast<int>(2.0f * std::max(0.0f, chord - kNameMargin * f.unit) * kAcrossPerHeight);
+    };
+    Fitted out{*sizes.begin(), text};
+    if (!game.text_width) {
+        return out;
+    }
+    for (const TextSize size : sizes) {
+        out.size = size;
+        if (game.text_width(size, text.c_str()) <= room(size)) {
+            return out;
+        }
+    }
+    // The smallest still too wide: cut, a letter at a time, with "...".
+    std::string cut = text;
+    while (!cut.empty()) {
+        cut.pop_back();
+        out.text = cut + "...";
+        if (game.text_width(out.size, out.text.c_str()) <= room(out.size)) {
+            return out;
+        }
+    }
+    out.text = "...";
+    return out;
+}
 
 // The record's draw (in the world's picture, the game's 2D): the items' icons on the spiral and the
 // pointed-at item's name and ammo, with the game's own sprites and font. The panels are the
@@ -1033,20 +1105,34 @@ int Shim::spiral_draw(std::uint8_t* record) {
             game.font_print(size, game_x(0.0f) + 1, top + 1, shadow, text.c_str());
             game.font_print(size, game_x(0.0f), top, c, text.c_str());
         };
-        // The name in the normal font when it fits inside the middle disc (its frame and a margin
-        // in), else the small one (the game's own measure of each: "Hydrodisplacer" is wider than
-        // the disc in the normal font).
+        // A gold weapon: its label ("Gold", the game's word) on a line of its own over the name, in
+        // the gold category's tint, the small font; the label, the name and the ammo then centred
+        // in the disc as a block. Otherwise the name and the ammo at the design's places.
+        const spiral::Item& selected = m_wheel.items()[static_cast<std::size_t>(f.selected)];
         const std::string& name = m_names[static_cast<std::size_t>(f.selected)];
-        if (!name.empty()) {
-            const float inside = 2.0f * (spiral::look::kCentreRadius - spiral::look::kFrameCentre[0].width * 0.5f - kNameMargin) * f.unit;
-            const int room = static_cast<int>(inside * kAcrossPerHeight);
-            const bool fits = !game.text_width || game.text_width(TextSize::Normal, name.c_str()) <= room;
-            line(fits ? TextSize::Normal : TextSize::Small, fits ? kNormalTextHeight : kSmallTextHeight, f.name_y, kMenuBlue, name);
-        }
         bool empty = false;
-        const std::string ammo = item_ammo(m_wheel.items()[static_cast<std::size_t>(f.selected)].id, empty);
+        const std::string ammo = item_ammo(selected.id, empty);
+        const bool gold = selected.category == spiral::look::Category::Gold;
+        const Fitted name_fit = fit_line(f, f.name_y, {TextSize::Normal, TextSize::Small}, name);
+        float name_y = f.name_y, ammo_y = f.detail_y;
+        if (gold) {
+            const float h[3] = {static_cast<float>(kSmallTextHeight) / kScreenHeight,
+                                static_cast<float>(text_height(name_fit.size)) / kScreenHeight,
+                                ammo.empty() ? 0.0f : static_cast<float>(kLargeTextHeight) / kScreenHeight};
+            float at[3];
+            spiral::stack_lines(f.centre_y, h, ammo.empty() ? 2 : 3, kLineGap / kScreenHeight, at);
+            const Fitted label = fit_line(f, at[0], {TextSize::Small}, gold_label(selected.id));
+            line(label.size, kSmallTextHeight, at[0], kGoldLabel, label.text);
+            name_y = at[1];
+            ammo_y = at[2];
+        }
+        if (!name.empty()) {
+            const Fitted fit = fit_line(f, name_y, {TextSize::Normal, TextSize::Small}, name);
+            line(fit.size, text_height(fit.size), name_y, kMenuBlue, fit.text);
+        }
         if (!ammo.empty()) {
-            line(TextSize::Large, kLargeTextHeight, f.detail_y, empty ? kAmmoOut : kMenuBlue, ammo);
+            const Fitted fit = fit_line(f, ammo_y, {TextSize::Large, TextSize::Normal, TextSize::Small}, ammo);
+            line(fit.size, text_height(fit.size), ammo_y, empty ? kAmmoOut : kMenuBlue, fit.text);
         }
     }
     return rec.read<std::int32_t>(kRecordWidth);

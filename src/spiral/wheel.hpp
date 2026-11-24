@@ -122,6 +122,10 @@ struct Look {
 // the 5 after it whole, then the design's fades either side).
 constexpr float kContinuousIn = 6.0f;
 
+// Lines of `heights` (screen heights) stacked `gap` apart, the block centred on `centre`: each
+// line's middle into `out`.
+void stack_lines(float centre, const float* heights, int count, float gap, float* out);
+
 // The radius step between slots for the depth setting (Prey Menu's fDepth): the design's 11 pixels
 // at the default 0.75, otherwise Prey Menu's per-slot shrink (1 - shallowness) in proportion, held
 // to 5 to 11 (the design's loops already fill the screen).

@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <mutex>
 #include <string>
@@ -230,8 +231,14 @@ struct LevelAddresses {
 
 // The wheel's settings (the mod's): the spiral's look, hold or toggle, the slow-down and its ease
 // back.
+// TEMPORARY (remove before release: README "Remove before release"): the debug setting that shows
+// weapons as gold on the wheel only (Shim::shows_gold), to see the gold look in game.
+enum class DebugGold { Off, VisibombGun, AllWeapons };
+constexpr std::int32_t kVisibombGun = 0x0D;  // the preview's one weapon
+
 struct WheelOptions {
     spiral::Look look;
+    DebugGold debug_gold = DebugGold::Off;
     bool toggle = false;
     int ramp_frames = kRampShort;
     bool ease_back = false;
@@ -334,7 +341,15 @@ public:
     // Whether that glyph was captured in the pause menu (its pages certain), for the tests.
     bool glyph_from_menu(int frame) const;
     // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
-    std::string item_name(std::int32_t id) const;
+    std::string item_name(std::int32_t id, bool gold) const;
+    bool shows_gold(std::int32_t id) const;
+    // A line of text in the middle disc at `y` (rac1_spiral.cpp): the size it fits in, the text.
+    struct Fitted {
+        TextSize size;
+        std::string text;
+    };
+    Fitted fit_line(const spiral::Frame& f, float y, std::initializer_list<TextSize> sizes, const std::string& text) const;
+    std::string gold_label(std::int32_t id) const;
     std::string item_ammo(std::int32_t id, bool& empty) const;
     // The wheel's picture for the overlay (any thread).
     WheelPicture picture() const;
@@ -449,6 +464,7 @@ private:
     };
     std::map<std::pair<int, int>, ItemPicture> m_item_icons;
     void load_level_icons(int level);
+
     std::vector<ItemProvider> m_item_providers;
     void quick_select_items(std::vector<spiral::Item>& out) const;
     void registered_items(std::vector<spiral::Item>& out) const;
