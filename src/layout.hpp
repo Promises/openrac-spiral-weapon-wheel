@@ -146,6 +146,12 @@ struct Disc {
     std::uint32_t weapon_cells;       // the Quick Select page's weapons grid, 15 cells
     std::uint32_t gadget_cells;       // its hand gadgets grid, 6 cells
     std::uint32_t hud_state;          // hud_state, the HUD's arena
+    // The effect textures (GetEffectTex: draw.c): 16 bytes each, +8 its texels' and +0xA its
+    // palette's offsets in quadwords from the address the word level_texture_payload_address holds,
+    // +0xC and +0xE the log2 of its width and height. The texels are 8-bit, the palette 256 RGBA32
+    // in CSM1 order, alpha 0x80 opaque.
+    std::uint32_t effect_textures;
+    std::uint32_t texture_payload;
     // --- Level 0's data ---
     std::uint32_t item_defs;
     std::uint32_t item_price;
@@ -200,6 +206,8 @@ inline Disc disc_for(bool ntsc) {
         d.weapon_cells = 0x001CF120u;
         d.gadget_cells = 0x001CEC20u;
         d.hud_state = 0x0019A3E8u;  // names_ntsc.tsv: hud_state at US 0x0019A3E8
+        d.effect_textures = 0x0018D440u;  // names_ntsc.tsv: effect_texture_definitions at US 0x0018D440
+        d.texture_payload = 0x0015F460u;  // level_texture_payload_address at US 0x0015F460
         d.item_defs = 0x00179AC0u;
         d.item_price = 0x001C40B0u;
         d.slot_tables = 0x0015FAC0u;
@@ -248,6 +256,8 @@ inline Disc disc_for(bool ntsc) {
         d.weapon_cells = 0x001CF4A0u;
         d.gadget_cells = 0x001CEFA0u;
         d.hud_state = 0x0019A4E8u;  // hud_state D_0019A4E8
+        d.effect_textures = 0x0018D540u;  // effect_texture_definitions D_0018D540
+        d.texture_payload = 0x0015F560u;  // level_texture_payload_address D_0015F560
         d.item_defs = 0x00179BC0u;
         d.item_price = 0x001C43B0u;
         d.slot_tables = 0x0015FB78u;

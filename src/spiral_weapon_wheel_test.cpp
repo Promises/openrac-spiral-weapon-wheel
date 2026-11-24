@@ -7,6 +7,7 @@
 // and update_hud_elements on one HUD record, the sound and music calls counted, the draws recorded,
 // the port's slow motion recorded).
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -100,6 +101,8 @@ struct Fake {
     std::vector<float> stretches;  // time_stretch's calls
     std::vector<int> images, destroyed;  // the overlay pictures made and let go
     bool white_glyphs = false;           // the last one made was white (its shape in its alpha)
+    std::map<int, std::pair<int, int>> image_sizes;                    // each picture's size
+    std::map<int, std::vector<std::array<std::uint8_t, 4>>> image_rows;  // its first column, row by row
     int image_next = 500;
     float stretch = 1.0f;
     std::int32_t last_mode = 0;
@@ -592,6 +595,11 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         }
         g_fake->white_glyphs = white;
         g_fake->images.push_back(++g_fake->image_next);
+        g_fake->image_sizes[g_fake->image_next] = {width, height};
+        auto& rows = g_fake->image_rows[g_fake->image_next];
+        for (int y = 0; y < height && y < 4; ++y) {
+            rows.push_back({rgba[y * width * 4], rgba[y * width * 4 + 1], rgba[y * width * 4 + 2], rgba[y * width * 4 + 3]});
+        }
         return g_fake->image_next;
     };
     g.destroy_image = [](int image) { g_fake->destroyed.push_back(image); };
@@ -1391,6 +1399,82 @@ void test_icon_sources() {
     CHECK(f.logged("no HUD set from the disc data (the level's data file cannot be read)"));
     gc::shim().connect(f.level);
     fs::remove_all(root);
+}
+
+// The game's menu panel's pictures (1.4.0), read from game memory as GetEffectTex finds them
+// (synthetic textures: the scanlines' tile, the glint's corners, grey noise; palettes in CSM1 order,
+// alpha 0x80 opaque), once a level at the first opening; one of the wrong size is left to the
+// painter's stand-in; the frame carries them and the game's lines (NTSC 416).
+void put_effect(Fake& f, std::uint32_t payload, int n, int log2, std::uint32_t texels, std::uint32_t colours) {
+    const std::uint32_t def = f.d.effect_textures + 16u * static_cast<std::uint32_t>(n);
+    f.wr<std::uint16_t>(def + 8, static_cast<std::uint16_t>((texels - payload) / 16));
+    f.wr<std::uint16_t>(def + 0xA, static_cast<std::uint16_t>((colours - payload) / 16));
+    f.wr<std::int16_t>(def + 0xC, static_cast<std::int16_t>(log2));
+    f.wr<std::int16_t>(def + 0xE, static_cast<std::int16_t>(log2));
+}
+void test_panel_art() {
+    Fake f;
+    std::vector<std::pair<int, int>> sizes;
+    set_up(f, true, false);
+    const std::uint32_t payload = 0x001E0000u;
+    f.wr<std::uint32_t>(f.d.texture_payload, payload);
+    auto stored = [](int i) { return (i & 0xE7) | ((i & 0x08) << 1) | ((i & 0x10) >> 1); };
+    // A palette of greys: index i grey i, alpha 0x80; index 1 clear; index 2 the scanlines' grey 105
+    // at alpha 71.
+    const std::uint32_t greys = payload + 0x100;
+    for (int i = 0; i < 256; ++i) {
+        const std::uint32_t c = greys + 4u * static_cast<std::uint32_t>(stored(i));
+        const std::uint8_t g = i == 2 ? 105 : static_cast<std::uint8_t>(i);
+        f.wr<std::uint8_t>(c, g);
+        f.wr<std::uint8_t>(c + 1, g);
+        f.wr<std::uint8_t>(c + 2, g);
+        f.wr<std::uint8_t>(c + 3, i == 1 ? 0 : i == 2 ? 71 : 0x80);
+    }
+    // 0x1C: 16 x 16, even rows clear (1), odd rows the grey (2).
+    const std::uint32_t tile = payload + 0x600;
+    for (std::uint32_t i = 0; i < 256; ++i) {
+        f.wr<std::uint8_t>(tile + i, (i / 16) % 2 == 0 ? 1 : 2);
+    }
+    put_effect(f, payload, 0x1C, 4, tile, greys);
+    // 0x19: 64 x 64, clear but two corners' lines.
+    const std::uint32_t glint = payload + 0x800;
+    for (std::uint32_t y = 0; y < 64; ++y) {
+        for (std::uint32_t x = 0; x < 64; ++x) {
+            const bool line = ((x == 1 || y == 1) && x < 30 && y < 30) || ((x == 62 || y == 62) && x > 34 && y > 34);
+            f.wr<std::uint8_t>(glint + y * 64 + x, line ? 200 : 1);
+        }
+    }
+    put_effect(f, payload, 0x19, 6, glint, greys);
+    // 0x1A: 32 x 32 grey noise.
+    const std::uint32_t noise = payload + 0x1800;
+    for (std::uint32_t i = 0; i < 1024; ++i) {
+        f.wr<std::uint8_t>(noise + i, static_cast<std::uint8_t>(16 + (i * 37) % 200));
+    }
+    put_effect(f, payload, 0x1A, 5, noise, greys);
+    const std::size_t before = f.images.size();
+    open_hud(f);
+    play(f, 0x10);
+    CHECK(f.logged("level 0: the menu panel's scanlines (FX 0x1C) read, glint (FX 0x19) read, static (FX 0x1A) read, vignette "
+                   "(HUD 0xE99E/7) not read"));
+    CHECK(f.images.size() >= before + 3);
+    const spiral::Frame frame = gc::shim().picture().frame;
+    CHECK(frame.art.scan != 0 && frame.art.glint != 0 && frame.art.noise != 0 && frame.art.vignette == 0);
+    CHECK(frame.lines == 416.0f);
+    CHECK(f.image_sizes.count(frame.art.scan) && f.image_sizes[frame.art.scan] == std::make_pair(2, 672));
+    CHECK(f.image_sizes.count(frame.art.glint) && f.image_sizes[frame.art.glint] == std::make_pair(64, 64));
+    CHECK(f.image_sizes.count(frame.art.noise) && f.image_sizes[frame.art.noise] == std::make_pair(512, 512));
+    // The scanlines' column: clear rows, then grey 105 at alpha 71 / 128 (to 255: 141).
+    CHECK(f.image_rows.count(frame.art.scan) && f.image_rows[frame.art.scan].size() >= 2u);
+    if (f.image_rows.count(frame.art.scan) && f.image_rows[frame.art.scan].size() >= 2u) {
+        CHECK(f.image_rows[frame.art.scan][0][3] == 0);
+        CHECK(f.image_rows[frame.art.scan][1][0] == 105 && f.image_rows[frame.art.scan][1][3] == 141);
+    }
+    // A level change: let go; the next level's tiles the wrong size: the stand-ins, and why.
+    commit(f, wheel_index(0x0A));
+    f.wr<std::int16_t>(f.d.effect_textures + 16u * 0x1C + 0xC, 5);
+    gc::shim().connect(f.level + 1);
+    CHECK(std::find(f.destroyed.begin(), f.destroyed.end(), frame.art.scan) != f.destroyed.end());
+    gc::shim().connect(f.level);
 }
 
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
@@ -2206,6 +2290,7 @@ int main() {
     test_draw();
     test_glyph_capture();
     test_icon_sources();
+    test_panel_art();
     test_paused_path();
     test_health_hidden();
     test_slow_down();

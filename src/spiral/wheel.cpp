@@ -28,6 +28,36 @@ void Wheel::open(std::vector<Item> items, const Look& look) {
     m_loop = 0.0f;
     m_loop = target_loop();
     m_anchor = m_loop;
+    m_flashes.clear();
+}
+
+std::uint32_t Wheel::random() {
+    // xorshift32
+    m_random ^= m_random << 13;
+    m_random ^= m_random >> 17;
+    m_random ^= m_random << 5;
+    return m_random;
+}
+
+void Wheel::flash_frame() {
+    const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
+    // The running ones: on 2 a frame, a new place for the noise; gone at the end.
+    for (auto it = m_flashes.begin(); it != m_flashes.end();) {
+        it->second.t += look::kFlashStep;
+        it->second.u = static_cast<int>(random() % look::kFlashOffsets);
+        it->second.v = static_cast<int>(random() % look::kFlashOffsets);
+        it = it->second.t >= look::kFlashEnd ? m_flashes.erase(it) : it + 1;
+    }
+    // Each panel not flashing: its chance.
+    for (int index = -p.blanks; index < static_cast<int>(m_items.size()); ++index) {
+        const bool running = std::any_of(m_flashes.begin(), m_flashes.end(), [index](const auto& f) { return f.first == index; });
+        if (!running && random() % look::kFlashChance == 0) {
+            Flash f;
+            f.u = static_cast<int>(random() % look::kFlashOffsets);
+            f.v = static_cast<int>(random() % look::kFlashOffsets);
+            m_flashes.push_back({index, f});
+        }
+    }
 }
 
 float radius_step(const Options& o) {
@@ -224,6 +254,13 @@ Frame Wheel::frame() const {
         s.angle_deg = t.angle_deg;
         s.radius = look::kFirstRadius - step * k;
         s.push = s.selected ? look::kPush : 0.0f;
+        for (const auto& [index, flash] : m_flashes) {
+            if (index == t.index) {
+                s.flash = static_cast<float>(std::min(0x80, 2 * (0x80 - std::abs(flash.t - 0x80)))) / 128.0f;
+                s.flash_u = flash.u;
+                s.flash_v = flash.v;
+            }
+        }
         s.opacity = s.empty ? std::min(fade, look::kEmpty) : fade;
         if (item != nullptr) {
             s.glyph = item->glyph;

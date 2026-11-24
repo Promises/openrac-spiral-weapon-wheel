@@ -55,6 +55,18 @@ struct Slot {
     int glyph_width = 0;
     int glyph_height = 0;
     int badge = 0;           // its quick select number, 1 to 8; 0 none
+    // Its flash of static now (look.hpp: 0 none to 1), and the noise's offset in texels.
+    float flash = 0;
+    int flash_u = 0, flash_v = 0;
+};
+
+// The pictures of the game's own menu panel (look.hpp) as the layer made them from the game's
+// textures, as overlay pictures (0: not there: the painter's own stand-ins, or none).
+struct PanelArt {
+    int scan = 0;      // the scanlines: a column covering the screen's height, a row a tile row
+    int glint = 0;     // FX 0x19, 64 x 64
+    int vignette = 0;  // HUD icon 0xE99E frame 7
+    int noise = 0;     // FX 0x1A repeated to kNoiseTexels square
 };
 
 // An item's icon, the game's own, where its slot has no glyph: centred at (x, y), `size` screen
@@ -80,6 +92,8 @@ struct Frame {
     std::vector<Badge> badges;
     float unit = 0;           // screen heights a design pixel: the size setting and the opening's zoom
     float centre_y = 0;       // the wheel's middle below the screen's (negative: above)
+    float lines = 448.0f;     // the game's lines a screen height (look.hpp: NTSC 416, PAL 448)
+    PanelArt art;             // the panel's pictures (the layer's)
     float pointer_deg = 0;    // where the pointer points
     // The pointed-at item (an index into the items), below 0 a blank; the middles of its name's
     // line and of the line under it (the ammo).
@@ -130,6 +144,11 @@ public:
     void advance(float seconds);
     // The spiral's motion, changed while open (the setting is read live).
     void set_continuous(bool continuous);
+    // The flashes of static (look.hpp), a game frame on: each panel's chance, each flash's timer.
+    // `seed` starts the wheel's own random numbers (the tests'); the layer gives a new one each
+    // opening.
+    void flash_frame();
+    void seed(std::uint32_t seed) { m_random = seed != 0 ? seed : 1; }
 
     // The pointed-at item (an index into items()), below 0 a blank.
     int selected() const;
@@ -163,6 +182,13 @@ private:
     float m_anchor = 0;  // unwrapped: the loops the spiral has turned since the opening
     float m_loop = 0;    // unwrapped: the loop's first slot it eases to
     bool m_open = false;
+    struct Flash {
+        int t = 0;
+        int u = 0, v = 0;
+    };
+    std::vector<std::pair<int, Flash>> m_flashes;  // by slot index, while they last
+    std::uint32_t m_random = 0x9E3779B9u;
+    std::uint32_t random();
     float target_loop() const;
 };
 

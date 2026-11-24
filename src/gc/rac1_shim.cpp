@@ -247,7 +247,8 @@ void Shim::connect(int level) {
          {&Disc::hero, &Disc::pad, &Disc::slot_items, &Disc::ammo, &Disc::gold, &Disc::usage_stats,
           &Disc::mode_freeze_info, &Disc::bolts,
           &Disc::quick_swap_item, &Disc::last_weapon, &Disc::level_index, &Disc::event_frames, &Disc::game_mode,
-          &Disc::frame_scale, &Disc::item_available, &Disc::weapon_cells, &Disc::gadget_cells, &Disc::hud_state}) {
+          &Disc::frame_scale, &Disc::item_available, &Disc::weapon_cells, &Disc::gadget_cells, &Disc::hud_state,
+          &Disc::effect_textures, &Disc::texture_payload}) {
         l.at.*f = exe(d.*f);
     }
     if (level >= 0) {

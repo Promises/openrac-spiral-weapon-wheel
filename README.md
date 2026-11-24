@@ -112,6 +112,23 @@ Ratchet & Clank PAL and NTSC-U.
     before it and 5 after it, so every slot's radius and opacity follow the pointer's distance
     from it. *Loop steps*: the twelve are the pointer's loop; when the pointer moves into another
     loop, the spiral eases there (0.06 s), turning the way the pointer went.
+  - The panel is Ratchet & Clank's own menu panel, as its pause menu draws one
+    (`render_level_effects_and_screen_sprites`, `draw_menu_flashing_panel`): an opaque fill
+    (#080810), the vignette (HUD icon 0xE99E frame 7, from the disc's HUD set), the category's
+    wash, the scanlines (effect texture 0x1C: a period of 4/3 game lines, half lit, by the screen's
+    rows, for NTSC's 416 lines or PAL's 448), a flash of static now and then (effect texture 0x1A,
+    added: a 1 in 2000 chance a frame for each panel, 32 frames up, 64 held, 32 down, the noise at
+    a random place each frame), and the glint (effect texture 0x19: the L-shaped corners). The
+    frame keeps the design's four strokes, coloured from the game's frame bevel's grey ramp times
+    its menu light. The effect textures are read from game memory where the level keeps them
+    (`GetEffectTex`: `effect_texture_definitions`, `level_texture_payload_address`), checked, and
+    made into overlay pictures once a level; nothing of them is kept or shipped. One that cannot be
+    read leaves its layer to 1.3.0's stand-in. On a bent panel each picture's left is the panel's
+    counter-clockwise side and its top the outer edge, as a panel at the top of the wheel shows
+    them. The round middle takes the fill, the vignette and the scanlines; the glint's corners
+    would fall outside a disc, so it keeps the design's two arcs. (For texture packs later: these
+    pictures' pack names, not checked, would be FX 0x1C `fa139b1915195658`, 0x19
+    `8f4a889914807b06`, 0x1A `b009544753f22975`, HUD 0xE99E/7 `bcf76d4d5ee38a4f`.)
   - The painter (`src/spiral/paint.cpp`) draws it all as quads of four pictures it makes as the
     mod loads (the scanlines, white, the badge, the pointer) and the glyphs: the panels in strips
     of a few degrees, the frame's four strokes centred on each edge, widest first.

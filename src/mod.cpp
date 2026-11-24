@@ -113,7 +113,7 @@ std::string package_folder(const openrac::Mod& mod) {
 // --- The pictures (paint.hpp: made as the mod loads) ---
 
 struct Art {
-    int scan = 0, white = 0, badge = 0, pointer = 0;
+    int scan = 0, white = 0, badge = 0, pointer = 0, noise = 0;
     bool all = false;
 };
 Art g_art;
@@ -121,7 +121,7 @@ Art g_art;
 void make_art(openrac::Mod& mod) {
     auto make = [&mod](spiral::Art which) {
         const spiral::Picture p = spiral::make_art(which);
-        const int id = mod.overlay_image_create(p.width, p.height, p.rgba.data(), true);
+        const int id = mod.overlay_image_create(p.width, p.height, p.rgba.data(), which != spiral::Art::Noise);
         if (id == 0) {
             mod.warn(std::string(kName) + ": the port refused a picture of the wheel");
         }
@@ -131,6 +131,7 @@ void make_art(openrac::Mod& mod) {
     g_art.white = make(spiral::Art::White);
     g_art.badge = make(spiral::Art::Badge);
     g_art.pointer = make(spiral::Art::Pointer);
+    g_art.noise = make(spiral::Art::Noise);
     g_art.all = g_art.scan != 0 && g_art.white != 0 && g_art.badge != 0 && g_art.pointer != 0;
 }
 
@@ -140,7 +141,9 @@ int picture_for(const spiral::Quad& q) {
         case spiral::Art::White: return g_art.white;
         case spiral::Art::Badge: return g_art.badge;
         case spiral::Art::Pointer: return g_art.pointer;
-        case spiral::Art::Glyph: return q.image;
+        case spiral::Art::Glyph:
+        case spiral::Art::Image: return q.image;
+        case spiral::Art::Noise: return g_art.noise;
     }
     return 0;
 }
@@ -158,7 +161,17 @@ void draw_overlay(void*, const openrac_overlay* overlay) {
     }
     const float aspect = overlay->aspect > 0.0f ? overlay->aspect : 4.0f / 3.0f;
     auto byte = [](float v) { return static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(v, 0.0f), 1.0f) * 255.0f)); };
+    // The flash of static is added (as the game's GS blend Cs * FIX + Cd); the rest blended.
+    const bool can_add = openrac::overlay_has_set_blend(overlay);
+    spiral::Blend blend = spiral::Blend::Alpha;
     for (const spiral::Quad& q : spiral::paint(picture.frame)) {
+        if (q.blend != blend) {
+            if (q.blend == spiral::Blend::Add && !can_add) {
+                continue;  // a port without the blend: no flash rather than a grey one
+            }
+            overlay->set_blend(overlay->context, q.blend == spiral::Blend::Add ? OPENRAC_OVERLAY_BLEND_ADD : OPENRAC_OVERLAY_BLEND_ALPHA);
+            blend = q.blend;
+        }
         const int id = picture_for(q);
         if (id == 0 || q.rgba[3] <= 0.0f) {
             continue;
@@ -170,6 +183,9 @@ void draw_overlay(void*, const openrac_overlay* overlay) {
         }
         const std::uint32_t rgba = (byte(q.rgba[0]) << 24) | (byte(q.rgba[1]) << 16) | (byte(q.rgba[2]) << 8) | byte(q.rgba[3]);
         openrac::overlay_image_quad(overlay, id, xy, q.uv, rgba);
+    }
+    if (blend != spiral::Blend::Alpha) {
+        overlay->set_blend(overlay->context, OPENRAC_OVERLAY_BLEND_ALPHA);
     }
 }
 
@@ -314,6 +330,9 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
     g.create_image = [m](int width, int height, const std::uint8_t* rgba) {
         return m->overlay_image_create(width, height, rgba, true);
     };
+    g.create_image_nearest = [m](int width, int height, const std::uint8_t* rgba) {
+        return m->overlay_image_create(width, height, rgba, false);
+    };
     g.destroy_image = [m](int image) { m->overlay_image_destroy(image); };
     // The items' icons from the player's own disc data (the level's HUD set) and from icon files.
     const std::string game(mod.game());
@@ -426,4 +445,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.3.0", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.4.0", load)

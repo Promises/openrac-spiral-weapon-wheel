@@ -20,14 +20,20 @@ enum class Art {
     Badge,    // the quick select number's badge (its number is the game's text)
     Pointer,  // the pointer's triangle, its tip up
     Glyph,    // an item's glyph (`image`), white: its colour is the quad's
+    Image,    // a picture of the layer's (`image`): the game's own panel textures (PanelArt)
+    Noise,    // the flash's stand-in: grey noise, kNoiseTexels square, when the game's is not there
 };
+
+// How a quad goes over the frame: blended by its alpha, or added (the flash of static).
+enum class Blend { Alpha, Add };
 
 // A picture stretched over four corners (top left, top right, bottom left, bottom right) in screen
 // heights from the screen's middle (y down), each at its place `uv` in the picture (0 to 1 from its
 // top left), times `rgba` (0 to 1 each).
 struct Quad {
     Art art = Art::White;
-    int image = 0;  // Art::Glyph: the overlay picture
+    int image = 0;  // Art::Glyph, Art::Image: the overlay picture
+    Blend blend = Blend::Alpha;
     float xy[8] = {};
     float uv[8] = {};
     float rgba[4] = {1, 1, 1, 1};

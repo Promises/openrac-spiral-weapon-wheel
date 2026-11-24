@@ -66,18 +66,45 @@ struct Rgb {
     std::uint8_t r, g, b;
 };
 // A frame's four strokes, widest (the outer edge's dark) first, each centred on the panel's edge.
+// The colours (1.4.0) are Ratchet & Clank's own menu panel frame's: its frame is a lit 3D bevel (moby
+// class 0x472) whose texture's grey ramp across it runs 110 110 112 117 127 153 213 195 154 133 114
+// 98 83 72 61 48 38 31 29 30 34 39 48 52 55 53 49 44 41 40 41, times the menu's light colour (0.9,
+// 0.9, 0.6). The bands take the peak (213), the bright side's mean (the ramp's first 11 without the
+// peak: 132.5), the falling part's (the next 7: 61.6) and the dark tail's (the last 13: 42.7).
 struct Band {
     float width;
     Rgb colour;
 };
-constexpr Band kFrame[4] = {{7.5f, {0x1B, 0x18, 0x0B}}, {5.9f, {0x5F, 0x5E, 0x48}}, {3.8f, {0x85, 0x84, 0x63}},
-                            {1.5f, {0xB0, 0xAE, 0x8A}}};
+constexpr Band kFrame[4] = {{7.5f, {38, 38, 26}}, {5.9f, {55, 55, 37}}, {3.8f, {119, 119, 80}}, {1.5f, {192, 192, 128}}};
 // The selected slot's ("Load Game"'s yellow frame).
 constexpr Band kFrameSelected[4] = {{9.0f, {0x2C, 0x2B, 0x12}}, {7.0f, {0x8F, 0x8C, 0x3C}}, {4.5f, {0xC8, 0xC4, 0x4E}},
                                     {1.8f, {0xEE, 0xEC, 0x84}}};
-// The middle's (the khaki, wider).
-constexpr Band kFrameCentre[4] = {{9.0f, {0x1B, 0x18, 0x0B}}, {7.0f, {0x5F, 0x5E, 0x48}}, {4.5f, {0x85, 0x84, 0x63}},
-                                  {1.8f, {0xB0, 0xAE, 0x8A}}};
+// The middle's (the same, wider).
+constexpr Band kFrameCentre[4] = {{9.0f, {38, 38, 26}}, {7.0f, {55, 55, 37}}, {4.5f, {119, 119, 80}}, {1.8f, {192, 192, 128}}};
+
+// Ratchet & Clank's menu panel, as its pause menu draws one (games/rac1/decomp
+// src/game/ui/pause.c: render_level_effects_and_screen_sprites and draw_menu_flashing_panel), bottom
+// to top, after the frame: an opaque fill (panel_clear_color 0x80100808); the vignette (HUD icon
+// 0xE99E frame 7, black with alpha, stretched over the panel); now and then a flash of static (FX
+// texture 0x1A, grey noise, added, at a random place each frame, one texel a game pixel); the
+// scanlines (FX texture 0x1C, a 16 x 16 tile of a clear row and a grey one, 1.5 tile rows a game
+// line, times 0x50606060: a lit row grey 105 * 0x60 / 128 at alpha 71 / 128 * 0x50 / 128, over the
+// fill #1F1F25 and the clear rows the fill: a period of 4/3 game lines, half lit, the first line at
+// the screen's top clear); and the glint (FX texture 0x19: two L-shaped lines, top left and bottom
+// right, with fading arms, stretched over the panel a game pixel in, its texels 1 to 63 of 64).
+constexpr Rgb kPanelFill = {0x08, 0x08, 0x10};
+constexpr float kScanRowsPerLine = 1.5f;
+constexpr float kScanColour = 0x60 / 128.0f, kScanAlpha = 0x50 / 128.0f;
+constexpr int kScanTile = 16, kGlintTexels = 64, kNoiseTile = 32;
+// The game's lines on the screen: NTSC's 2D is 416 lines tall, PAL's 448.
+constexpr float kLinesNtsc = 416.0f, kLinesPal = 448.0f;
+// The flash: a 1 in 2000 chance each frame for each panel; its timer t up 2 a frame to 0x100, its
+// strength min(0x80, 2 * (0x80 - |t - 0x80|)) / 0x80 (32 frames up, 64 held, 32 down); the noise
+// at a random offset of 0 to 199 texels each frame.
+constexpr int kFlashChance = 2000, kFlashStep = 2, kFlashEnd = 0x100, kFlashOffsets = 200;
+// The noise picture the flash samples: its tile repeated to this many texels square (overlay
+// pictures clamp at their edges: a panel and the offset fit inside).
+constexpr int kNoiseTexels = 512;
 
 constexpr Rgb kScanDark = {0x0D, 0x0C, 0x13};
 constexpr Rgb kScanLightColour = {0x1C, 0x1B, 0x22};

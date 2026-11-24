@@ -36,27 +36,108 @@ struct Painter {
     // A ring's piece from `inner` to `outer` (design pixels) between two angles, as quads of a few
     // degrees, in `art` (Scan: its rows by place; White: by `c`).
     void ring(float inner, float outer, float from_deg, float to_deg, Art art, const look::Rgb& c, float alpha) {
+        ring_mapped(inner, outer, from_deg, to_deg, art, 0, c, alpha, Blend::Alpha, [this, art](float, float y, float, float) {
+            return std::pair<float, float>{0.5f, art == Art::Scan ? scan_v(y) : 0.5f};
+        });
+    }
+
+    // The same with each corner's place in the picture from `uv(x, y, along, across)`: its place on
+    // the screen, and its fractions along the piece (0 at `from_deg`) and across it (0 at `outer`).
+    template <typename Uv>
+    void ring_mapped(float inner, float outer, float from_deg, float to_deg, Art art, int image, const look::Rgb& c, float alpha,
+                     Blend blend, Uv uv) {
         if (alpha <= 0.0f || outer <= inner) {
             return;
         }
         const float length = std::fabs(to_deg - from_deg) * kDeg * outer;
         const int pieces = std::clamp(static_cast<int>(std::ceil(length / 24.0f)), 1, 96);
         for (int i = 0; i < pieces; ++i) {
-            const float a0 = from_deg + (to_deg - from_deg) * static_cast<float>(i) / static_cast<float>(pieces);
-            const float a1 = from_deg + (to_deg - from_deg) * static_cast<float>(i + 1) / static_cast<float>(pieces);
+            const float t0 = static_cast<float>(i) / static_cast<float>(pieces);
+            const float t1 = static_cast<float>(i + 1) / static_cast<float>(pieces);
+            const float a0 = from_deg + (to_deg - from_deg) * t0, a1 = from_deg + (to_deg - from_deg) * t1;
             Quad q;
             q.art = art;
+            q.image = image;
+            q.blend = blend;
             at(outer, a0, q.xy[0], q.xy[1]);
             at(outer, a1, q.xy[2], q.xy[3]);
             at(inner, a0, q.xy[4], q.xy[5]);
             at(inner, a1, q.xy[6], q.xy[7]);
+            const float along[4] = {t0, t1, t0, t1}, across[4] = {0, 0, 1, 1};
             for (int k = 0; k < 4; ++k) {
-                q.uv[2 * k] = 0.5f;
-                q.uv[2 * k + 1] = art == Art::Scan ? scan_v(q.xy[2 * k + 1]) : 0.5f;
+                const auto [u, v] = uv(q.xy[2 * k], q.xy[2 * k + 1], along[k], across[k]);
+                q.uv[2 * k] = u;
+                q.uv[2 * k + 1] = v;
             }
             colour(q, art == Art::Scan ? look::Rgb{255, 255, 255} : c, alpha);
             out.push_back(q);
         }
+    }
+
+    // A game pixel, in screen heights.
+    float game_pixel() const { return 1.0f / f.lines; }
+
+    // The panel's layers over the ring piece (look.hpp: the game's, or the stand-ins without its
+    // pictures), below the wash: the fill, the vignette. Over the wash: the flash, the scanlines.
+    // `from_deg` is the panel's counter-clockwise side (its pictures' left, as a panel at the top
+    // of the wheel shows them), `to_deg` its clockwise side.
+    void panel_below(float inner, float outer, float from_deg, float to_deg, float alpha) {
+        if (f.art.scan == 0) {
+            ring(inner, outer, from_deg, to_deg, Art::Scan, {255, 255, 255}, alpha);  // 1.3.0's stand-in
+            return;
+        }
+        ring(inner, outer, from_deg, to_deg, Art::White, look::kPanelFill, alpha);
+        if (f.art.vignette != 0) {
+            ring_mapped(inner, outer, from_deg, to_deg, Art::Image, f.art.vignette, {255, 255, 255}, alpha, Blend::Alpha,
+                        [](float, float, float along, float across) { return std::pair<float, float>{along, across}; });
+        }
+    }
+    void panel_above(float inner, float outer, float from_deg, float to_deg, float alpha, float flash, int flash_u, int flash_v) {
+        if (f.art.scan == 0) {
+            return;
+        }
+        if (flash > 0.0f) {
+            // One texel a game pixel from the panel's top left, at the flash's offset.
+            float x0 = 1e9f, y0 = 1e9f;
+            for (int k = 0; k <= 8; ++k) {
+                for (const float r : {inner, outer}) {
+                    float x, y;
+                    at(r, from_deg + (to_deg - from_deg) * static_cast<float>(k) / 8.0f, x, y);
+                    x0 = std::min(x0, x);
+                    y0 = std::min(y0, y);
+                }
+            }
+            const float texel = game_pixel() * static_cast<float>(look::kNoiseTexels);
+            ring_mapped(inner, outer, from_deg, to_deg, f.art.noise != 0 ? Art::Image : Art::Noise, f.art.noise, {255, 255, 255},
+                        flash * alpha, Blend::Add, [&](float x, float y, float, float) {
+                            return std::pair<float, float>{(x - x0) / texel + static_cast<float>(flash_u) / look::kNoiseTexels,
+                                                           (y - y0) / texel + static_cast<float>(flash_v) / look::kNoiseTexels};
+                        });
+        }
+        // The scanlines by the screen's rows: the column covers the screen's height, top down.
+        ring_mapped(inner, outer, from_deg, to_deg, Art::Image, f.art.scan,
+                    {static_cast<std::uint8_t>(255.0f * look::kScanColour), static_cast<std::uint8_t>(255.0f * look::kScanColour),
+                     static_cast<std::uint8_t>(255.0f * look::kScanColour)},
+                    look::kScanAlpha * alpha, Blend::Alpha,
+                    [](float, float y, float, float) { return std::pair<float, float>{0.5f, y + 0.5f}; });
+    }
+    // The glint: the game's (FX 0x19 over the panel a game pixel in, its texels 1 to 63), or the
+    // design's arc without it.
+    void glint(float inner, float outer, float from_deg, float to_deg, float alpha) {
+        if (f.art.glint != 0) {
+            const float px = game_pixel() / f.unit;  // a game pixel in design pixels
+            const float in = 1.0f / static_cast<float>(look::kGlintTexels), out = 1.0f - in;
+            const float turn_out = px / outer / kDeg, sign = to_deg > from_deg ? 1.0f : -1.0f;
+            ring_mapped(inner + px, outer - px, from_deg + sign * turn_out, to_deg - sign * turn_out, Art::Image, f.art.glint,
+                        {255, 255, 255}, alpha, Blend::Alpha, [in, out](float, float, float along, float across) {
+                            return std::pair<float, float>{in + (out - in) * along, in + (out - in) * across};
+                        });
+            return;
+        }
+        const float middle = (from_deg + to_deg) * 0.5f;
+        const float g = outer - look::kGlintIn;
+        ring(g - look::kGlintWidth * 0.5f, g + look::kGlintWidth * 0.5f, middle - look::kGlintTo, middle - look::kGlintFrom,
+             Art::White, look::kGlint, look::kGlintAlpha * alpha);
     }
 
     // A straight stroke `width` wide from (r0, deg) to (r1, deg), its ends `width` / 2 past them.
@@ -116,16 +197,15 @@ struct Painter {
         const float half = look::kThickness * s.radius * 0.5f;
         const float inner = s.radius - half + s.push, outer = s.radius + half + s.push;
         const float a0 = s.angle_deg - look::kHalfAngle, a1 = s.angle_deg + look::kHalfAngle;
-        // The panel: scanlines, the category's wash (none for an empty slot).
-        ring(inner, outer, a0, a1, Art::Scan, {255, 255, 255}, alpha);
+        // The panel (look.hpp), the category's wash between its layers (none for an empty slot),
+        // its glint, its frame.
+        panel_below(inner, outer, a1, a0, alpha);
         if (!s.empty) {
             ring(inner, outer, a0, a1, Art::White, s.wash, (s.selected ? look::kWashSelected : look::kWash) * alpha);
         }
+        panel_above(inner, outer, a1, a0, alpha, s.flash, s.flash_u, s.flash_v);
+        glint(inner, outer, a1, a0, alpha);
         frame(inner, outer, s.angle_deg, s.selected ? look::kFrameSelected : look::kFrame, alpha);
-        // The glint at the clockwise corner, inside the outer edge.
-        const float glint = outer - look::kGlintIn;
-        ring(glint - look::kGlintWidth * 0.5f, glint + look::kGlintWidth * 0.5f, s.angle_deg - look::kGlintTo,
-             s.angle_deg - look::kGlintFrom, Art::White, look::kGlint, look::kGlintAlpha * alpha);
         // The glyph, upright at the panel's middle, the larger side the square's; its shadow first.
         if (!s.empty && s.glyph != 0 && s.glyph_width > 0 && s.glyph_height > 0) {
             const float box = 2.0f * half * (s.selected ? look::kGlyphSelected : look::kGlyph);
@@ -148,7 +228,21 @@ struct Painter {
 
     void middle() {
         const float r = look::kCentreRadius;
-        ring(0.0f, r, 0.0f, 360.0f, Art::Scan, {255, 255, 255}, 1.0f);
+        // The game's panel where it fits a disc: the fill, the vignette over its square, the
+        // scanlines (its glint's corners would be outside it: the design's arcs instead).
+        if (f.art.scan == 0) {
+            ring(0.0f, r, 0.0f, 360.0f, Art::Scan, {255, 255, 255}, 1.0f);
+        } else {
+            ring(0.0f, r, 0.0f, 360.0f, Art::White, look::kPanelFill, 1.0f);
+            if (f.art.vignette != 0) {
+                const float half = r * f.unit;
+                ring_mapped(0.0f, r, 0.0f, 360.0f, Art::Image, f.art.vignette, {255, 255, 255}, 1.0f, Blend::Alpha,
+                            [this, half](float x, float y, float, float) {
+                                return std::pair<float, float>{(x + half) / (2.0f * half), (y - f.centre_y + half) / (2.0f * half)};
+                            });
+            }
+            panel_above(0.0f, r, 0.0f, 360.0f, 1.0f, 0.0f, 0, 0);
+        }
         for (const look::Band& b : look::kFrameCentre) {
             ring(r - b.width * 0.5f, r + b.width * 0.5f, 0.0f, 360.0f, Art::White, b.colour, 1.0f);
         }
@@ -250,8 +344,24 @@ Picture make_art(Art which) {
             }
             break;
         }
+        case Art::Noise: {
+            // Grey noise (the stand-in for the game's FX 0x1A), opaque: the flash adds it by its
+            // own strength.
+            p.width = p.height = look::kNoiseTexels;
+            p.rgba.resize(static_cast<std::size_t>(p.width * p.height) * 4);
+            std::uint32_t x = 0x2545F491u;
+            for (int i = 0; i < p.width * p.height; ++i) {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                const std::uint8_t g = static_cast<std::uint8_t>(x >> 24) / 2;
+                put(p, i % p.width, i / p.width, g / 255.0f, g / 255.0f, g / 255.0f, 1.0f);
+            }
+            break;
+        }
         case Art::White:
         case Art::Glyph:
+        case Art::Image:
             p.width = p.height = 4;
             p.rgba.assign(64, 255);
             break;

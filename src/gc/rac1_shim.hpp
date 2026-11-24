@@ -189,6 +189,8 @@ struct Game {
     // The overlay's pictures (openrac_api.overlay_image_create, overlay_image_destroy): a
     // width x height RGBA picture kept, its id (0 refused); let go.
     std::function<int(int, int, const std::uint8_t*)> create_image;
+    // The same, sampled by the nearest texel (the scanlines, the noise); unset: create_image.
+    std::function<int(int, int, const std::uint8_t*)> create_image_nearest;
     // The level's data file in the player's disc data (hud_set.hpp: level_data_path, by the port's
     // game_data_dir); "" when there is none.
     std::function<std::string(int level)> level_data_path;
@@ -434,6 +436,12 @@ private:
     };
     std::map<std::pair<int, int>, ItemPicture> m_item_icons;
     void load_level_icons(int level);
+    // The game's menu panel's pictures (look.hpp), made once a level at the wheel's first opening:
+    // the effect textures from game memory, the vignette from the disc's HUD set.
+    spiral::PanelArt m_panel_art;
+    bool m_panel_tried = false;
+    void load_panel_art();
+    void forget_panel_art();
     std::uint16_t item_icon(std::int32_t id, std::uint16_t fallback) const;
     std::vector<CachedGlyph> m_glyphs;
     int m_menus = 0;             // the pause menus seen this level (a new one after each return to play)

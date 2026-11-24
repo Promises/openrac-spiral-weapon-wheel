@@ -400,6 +400,155 @@ void Shim::attach_glyph(spiral::Item& item) {
     }
 }
 
+// (the mod's) The game's own menu panel (look.hpp), its pictures read as the game reads them: the
+// effect textures 0x1C (the scanlines' tile), 0x19 (the glint) and 0x1A (the static's noise) from
+// game memory (GetEffectTex: effect_texture_definitions, level_texture_payload_address), where
+// the level keeps them; the vignette (HUD icon 0xE99E frame 7) from the disc's HUD set. Each is
+// checked for its expected size and look; one that is not right is left to the painter's stand-in
+// (1.3.0's look). Nothing of them is kept on disk.
+void Shim::load_panel_art() {
+    if (m_panel_tried || !game.create_image) {
+        return;
+    }
+    m_panel_tried = true;
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    auto in_memory = [](std::uint32_t address, std::uint32_t bytes) {
+        return address != 0 && address < 0x02000000u && address + bytes <= 0x02000000u;
+    };
+    // An effect texture as RGBA (alpha to 255), or empty.
+    auto effect = [&](int n, int log2, std::string& why) {
+        spiral::Picture p;
+        const std::uint32_t def = a.effect_textures + 16u * static_cast<std::uint32_t>(n);
+        const std::uint32_t payload = m.base != nullptr && a.texture_payload != 0 ? m.read<std::uint32_t>(a.texture_payload) : 0;
+        if (m.base == nullptr || a.effect_textures == 0 || !in_memory(def, 16) || !in_memory(payload, 16)) {
+            why = "no effect texture table";
+            return p;
+        }
+        if (m.read<std::int16_t>(def + 0xC) != log2 || m.read<std::int16_t>(def + 0xE) != log2) {
+            why = "not its size";
+            return p;
+        }
+        const int side = 1 << log2;
+        const std::uint32_t texels = payload + 16u * m.read<std::uint16_t>(def + 8);
+        const std::uint32_t colours = payload + 16u * m.read<std::uint16_t>(def + 0xA);
+        if (!in_memory(texels, static_cast<std::uint32_t>(side * side)) || !in_memory(colours, 1024)) {
+            why = "its texels are not in memory";
+            return p;
+        }
+        return spiral::decode(m.at(texels), side, side, spiral::palette_from_csm1(m.at(colours)));
+    };
+    auto px = [](const spiral::Picture& p, int x, int y) { return &p.rgba[(static_cast<std::size_t>(y) * p.width + x) * 4]; };
+    std::string report;
+    auto note = [&report](const char* what, const std::string& outcome) {
+        report += (report.empty() ? "" : ", ") + std::string(what) + " " + outcome;
+    };
+    auto create_nearest = [this](const spiral::Picture& p) {
+        return (game.create_image_nearest ? game.create_image_nearest : game.create_image)(p.width, p.height, p.rgba.data());
+    };
+    // The scanlines' tile: its even rows clear, its odd rows grey and part opaque, each row one
+    // tone. A column of its rows, a row a tile row, over the screen's height (PAL's 448 lines, at
+    // 1.5 rows a line: NTSC's fewer lines use its top).
+    {
+        std::string why;
+        const spiral::Picture tile = effect(0x1C, 4, why);
+        bool ok = !tile.rgba.empty();
+        for (int y = 0; ok && y < tile.height; ++y) {
+            for (int x = 0; ok && x < tile.width; ++x) {
+                const std::uint8_t* c = px(tile, x, y);
+                const std::uint8_t* first = px(tile, 0, y);
+                ok = (y % 2 == 0 ? c[3] == 0 : c[3] > 0 && c[3] < 255) && std::abs(c[0] - first[0]) < 8 &&
+                     std::abs(c[0] - c[1]) < 8 && std::abs(c[3] - first[3]) < 8;
+            }
+        }
+        if (ok) {
+            spiral::Picture column;
+            column.width = 2;
+            column.height = static_cast<int>(spiral::look::kLinesPal * spiral::look::kScanRowsPerLine);
+            column.rgba.resize(static_cast<std::size_t>(column.width * column.height) * 4);
+            for (int y = 0; y < column.height; ++y) {
+                for (int x = 0; x < column.width; ++x) {
+                    std::copy(px(tile, 0, y % tile.height), px(tile, 0, y % tile.height) + 4,
+                              column.rgba.begin() + (static_cast<std::ptrdiff_t>(y) * column.width + x) * 4);
+                }
+            }
+            m_panel_art.scan = create_nearest(column);
+        }
+        note("scanlines (FX 0x1C)", m_panel_art.scan != 0 ? "read" : "not read (" + (why.empty() ? std::string("not its pattern") : why) + ")");
+    }
+    // The glint: mostly clear, its two corners lit.
+    {
+        std::string why;
+        const spiral::Picture g = effect(0x19, 6, why);
+        int lit = 0;
+        for (std::size_t i = 3; i < g.rgba.size(); i += 4) {
+            lit += g.rgba[i] > 0;
+        }
+        const bool ok = !g.rgba.empty() && lit > 8 && lit * 4 < g.width * g.height && px(g, 1, 1)[3] > 0 && px(g, 62, 62)[3] > 0;
+        if (ok) {
+            m_panel_art.glint = game.create_image(g.width, g.height, g.rgba.data());
+        }
+        note("glint (FX 0x19)", m_panel_art.glint != 0 ? "read" : "not read (" + (why.empty() ? std::string("not its pattern") : why) + ")");
+    }
+    // The noise: grey, varied; repeated to kNoiseTexels square, opaque (the flash adds it by its own
+    // strength).
+    {
+        std::string why;
+        const spiral::Picture n = effect(0x1A, 5, why);
+        int low = 255, high = 0;
+        bool grey = !n.rgba.empty();
+        for (std::size_t i = 0; grey && i < n.rgba.size(); i += 4) {
+            grey = std::abs(n.rgba[i] - n.rgba[i + 1]) < 16 && std::abs(n.rgba[i] - n.rgba[i + 2]) < 16;
+            low = std::min<int>(low, n.rgba[i]);
+            high = std::max<int>(high, n.rgba[i]);
+        }
+        if (grey && high - low > 32) {
+            spiral::Picture tiled;
+            tiled.width = tiled.height = spiral::look::kNoiseTexels;
+            tiled.rgba.resize(static_cast<std::size_t>(tiled.width * tiled.height) * 4);
+            for (int y = 0; y < tiled.height; ++y) {
+                for (int x = 0; x < tiled.width; ++x) {
+                    std::uint8_t* o = &tiled.rgba[(static_cast<std::size_t>(y) * tiled.width + x) * 4];
+                    std::copy(px(n, x % n.width, y % n.height), px(n, x % n.width, y % n.height) + 3, o);
+                    o[3] = 255;
+                }
+            }
+            m_panel_art.noise = create_nearest(tiled);
+        }
+        note("static (FX 0x1A)", m_panel_art.noise != 0 ? "read" : "not read (" + (why.empty() ? std::string("not its pattern") : why) + ")");
+    }
+    // The vignette: HUD icon 0xE99E frame 7 from the disc's HUD set, 128 x 128, black with alpha.
+    {
+        hud::Indexed v;
+        bool ok = m_hud.loaded() && m_hud.has_icon(0xE99E) && m_hud.frame_picture(m_hud.icon_frame(0xE99E, 7), v) &&
+                  v.width == 128 && v.height == 128;
+        spiral::Picture p;
+        if (ok) {
+            spiral::Palette palette{};
+            std::copy(v.palette.begin(), v.palette.end(), palette.begin());
+            p = spiral::decode(v.indices.data(), v.width, v.height, palette);
+            for (std::size_t i = 0; ok && i < p.rgba.size(); i += 4) {
+                ok = p.rgba[i] < 48 && p.rgba[i + 1] < 48 && p.rgba[i + 2] < 48;
+            }
+        }
+        if (ok) {
+            m_panel_art.vignette = game.create_image(p.width, p.height, p.rgba.data());
+        }
+        note("vignette (HUD 0xE99E/7)", m_panel_art.vignette != 0 ? "read" : "not read");
+    }
+    log_once("panel " + std::to_string(m_level_number), "level " + std::to_string(m_level_number) + ": the menu panel's " + report);
+}
+
+void Shim::forget_panel_art() {
+    for (const int image : {m_panel_art.scan, m_panel_art.glint, m_panel_art.vignette, m_panel_art.noise}) {
+        if (image != 0 && game.destroy_image) {
+            game.destroy_image(image);
+        }
+    }
+    m_panel_art = spiral::PanelArt{};
+    m_panel_tried = false;
+}
+
 void Shim::forget_glyphs() {
     for (const CachedGlyph& g : m_glyphs) {
         if (g.image != 0 && game.destroy_image) {
@@ -413,6 +562,7 @@ void Shim::forget_glyphs() {
         }
     }
     m_item_icons.clear();
+    forget_panel_art();
     m_menus = 0;
     m_in_menu = false;
 }
@@ -596,6 +746,8 @@ void Shim::publish() {
     p.shown = m_wheel.is_open();
     if (p.shown) {
         p.frame = m_wheel.frame();
+        p.frame.art = m_panel_art;
+        p.frame.lines = pal() ? spiral::look::kLinesPal : spiral::look::kLinesNtsc;
     }
     const std::lock_guard<std::mutex> lock(m_picture_lock.lock);
     m_picture = std::move(p);
@@ -646,7 +798,9 @@ void Shim::spiral_update(std::uint8_t* record) {
 
     // The wheel opens with the record (UpdateMenu.gek): the items now, the pointer on the one in hand.
     if (!m_wheel.is_open()) {
+        load_panel_art();
         m_wheel.open(collect_items(), m_wheel_options.look);
+        m_wheel.seed(static_cast<std::uint32_t>(m_play_ticks) * 2654435761u + 1u);
         m_names.clear();
         for (const spiral::Item& item : m_wheel.items()) {
             m_names.push_back(item_name(item.id));
@@ -670,6 +824,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         }
     }
     m_wheel.advance(1.0f / 60.0f);
+    m_wheel.flash_frame();
     hide_health(m.address_of(record));
 
     // Going Commando's: the selection waits for the stick to rest (under 0.5), a d-pad press or its

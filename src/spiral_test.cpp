@@ -479,6 +479,124 @@ void test_categories() {
     CHECK(spiral::look::colours_of(C::Gold).wash.r == 0xC4 && spiral::look::colours_of(C::Gold).wash.g == 0x92);
 }
 
+// The game's menu panel (1.4.0, look.hpp): with its pictures, each panel's fill, vignette, wash,
+// scanlines by the screen's rows and glint, in that order, the flash added; without them, 1.3.0's
+// stand-ins. The flashes: a chance a frame, 32 frames up, 64 held, 32 down.
+void test_panel() {
+    std::vector<spiral::Item> items(14);
+    for (int i = 0; i < 14; ++i) {
+        items[static_cast<std::size_t>(i)].id = 0x40 + i;
+    }
+    items[0].equipped = true;
+    spiral::Wheel w;
+    w.open(items, spiral::Look{});
+    w.advance(1.0f);
+    spiral::Frame f = w.frame();
+    auto count = [](const std::vector<spiral::Quad>& qs, spiral::Art art, int image = -1) {
+        int n = 0;
+        for (const spiral::Quad& q : qs) {
+            n += q.art == art && (image < 0 || q.image == image);
+        }
+        return n;
+    };
+    // Without the game's pictures: 1.3.0's scanline stand-in, no fill, no pictures of the layer's.
+    std::vector<spiral::Quad> plain = spiral::paint(f);
+    CHECK(count(plain, spiral::Art::Scan) > 0 && count(plain, spiral::Art::Image) == 0);
+    // With them.
+    f.art = {11, 12, 13, 14};
+    f.lines = 416.0f;
+    const std::vector<spiral::Quad> qs = spiral::paint(f);
+    CHECK(count(qs, spiral::Art::Scan) == 0);
+    CHECK(count(qs, spiral::Art::Image, 11) > 0 && count(qs, spiral::Art::Image, 12) > 0 && count(qs, spiral::Art::Image, 13) > 0);
+    CHECK(count(qs, spiral::Art::Image, 14) == 0);  // no flash yet
+    bool fill = false;
+    for (const spiral::Quad& q : qs) {
+        if (q.art == spiral::Art::White && near(q.rgba[0], 8 / 255.0f) && near(q.rgba[2], 16 / 255.0f) && q.rgba[3] > 0.99f) {
+            fill = true;
+        }
+        if (q.art == spiral::Art::Image && q.image == 11) {
+            // The scanlines: the screen's rows (v the place down from the screen's top), times
+            // 0x50606060.
+            for (int k = 0; k < 4; ++k) {
+                CHECK(near(q.uv[2 * k + 1], q.xy[2 * k + 1] + 0.5f) && near(q.uv[2 * k], 0.5f));
+            }
+            CHECK(near(q.rgba[0], 191.0f / 255.0f, 0.01f) && q.rgba[3] <= 0.625f + 1e-4f);
+        }
+        if (q.art == spiral::Art::Image && q.image == 12) {
+            // The glint: its texels 1 to 63 of 64.
+            for (int k = 0; k < 8; ++k) {
+                CHECK(q.uv[k] >= 1.0f / 64.0f - 1e-5f && q.uv[k] <= 63.0f / 64.0f + 1e-5f);
+            }
+        }
+        if (q.art == spiral::Art::Image && q.image == 13) {
+            for (int k = 0; k < 8; ++k) {
+                CHECK(q.uv[k] >= -1e-5f && q.uv[k] <= 1.0f + 1e-5f);
+            }
+        }
+    }
+    CHECK(fill);
+    // The vignette of a panel at the top of the wheel: its picture's left at the counter-clockwise
+    // side (screen left there), its top at the outer edge.
+    for (const spiral::Slot& sl : f.slots) {
+        if (std::fabs(std::remainder(sl.angle_deg - 90.0f, 360.0f)) < 1.0f && !sl.empty) {
+            spiral::Frame one = f;
+            one.slots = {sl};
+            for (const spiral::Quad& q : spiral::paint(one)) {
+                if (q.art == spiral::Art::Image && q.image == 13 && near(q.uv[0], 0.0f) && near(q.uv[1], 0.0f)) {
+                    CHECK(q.xy[2] > q.xy[0] && q.xy[5] > q.xy[1]);  // u grows right, v down
+                }
+            }
+        }
+    }
+    // The flashes: seeded, over many frames each panel flashes now and then; a flash's strength
+    // rises over 32 frames to full, holds 64, falls over 32; added.
+    w.seed(12345);
+    int seen = 0;
+    float peak = 0.0f;
+    bool added = false;
+    for (int frame = 0; frame < 20000 && seen == 0; ++frame) {
+        w.flash_frame();
+        for (const spiral::Slot& sl : w.frame().slots) {
+            if (sl.flash > 0.0f) {
+                ++seen;
+            }
+        }
+    }
+    CHECK(seen > 0);
+    int index = 0;
+    for (const spiral::Slot& sl : w.frame().slots) {
+        index = sl.flash > 0.0f ? sl.index : index;
+    }
+    std::vector<float> strength;
+    for (int frame = 0; frame < 140; ++frame) {
+        float now = 0.0f;
+        spiral::Frame fr = w.frame();
+        for (const spiral::Slot& sl : fr.slots) {
+            if (sl.index == index) {
+                now = sl.flash;
+                CHECK(sl.flash_u >= 0 && sl.flash_u < 200 && sl.flash_v >= 0 && sl.flash_v < 200);
+            }
+        }
+        strength.push_back(now);
+        peak = std::max(peak, now);
+        if (now > 0.0f && !added) {
+            fr.art = {11, 12, 13, 14};
+            for (const spiral::Quad& q : spiral::paint(fr)) {
+                added |= q.art == spiral::Art::Image && q.image == 14 && q.blend == spiral::Blend::Add;
+            }
+        }
+        w.flash_frame();
+    }
+    CHECK(added && near(peak, 1.0f));
+    // From its start (strength 2/128): full after 31 more frames, held 64, gone after 128 in all.
+    int full = 0, on = 0;
+    for (const float v : strength) {
+        full += v >= 1.0f;
+        on += v > 0.0f;
+    }
+    CHECK(full >= 60 && full <= 66 && on >= 125 && on <= 128);
+}
+
 // The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
 void test_paint() {
     std::vector<spiral::Item> items(14);
@@ -850,6 +968,7 @@ int main() {
     test_wheel_frame();
     test_continuous();
     test_categories();
+    test_panel();
     test_paint();
     test_home_ring();
     test_glyphs();
