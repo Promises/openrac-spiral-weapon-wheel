@@ -996,7 +996,7 @@ void test_taps() {
         ++n;
     }
     CHECK(n < 10);
-    CHECK(f.logged("freeze left: mode 7's phases done"));
+    CHECK(!f.logged("watchdog"));
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
@@ -1055,7 +1055,7 @@ void test_watchdog_update_bypassed() {
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
     CHECK(gc::shim().paused_disabled());
     CHECK(f.logged("WARN rac1.freeze.update did not run"));
-    CHECK(f.logged("freeze left: watchdog: rac1.freeze.update did not run"));
+    CHECK(f.logged("WARN the paused quick select ended by its watchdog: rac1.freeze.update did not run"));
     for (int i = 0; i < 12; ++i) {
         play(f, 0);
     }
@@ -1089,7 +1089,7 @@ void test_watchdog_record_never_opens() {
     // (menu_set_state_word_three), phase 1 ends after 3 frames and the counter after 6.
     CHECK_EQ(f.rd<std::int32_t>(f.d.game_mode), 0);
     CHECK(n < 12);
-    CHECK(f.logged("freeze left: mode 7's phases done"));
+    CHECK(!f.logged("watchdog"));
     CHECK(f.continue_group >= 1);
 }
 

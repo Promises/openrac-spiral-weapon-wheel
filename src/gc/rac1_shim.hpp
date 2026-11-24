@@ -31,7 +31,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <chrono>
 #include <functional>
 #include <string>
 #include <vector>
@@ -223,7 +222,6 @@ public:
     void end_paused(const char* reason);
     void quick_swap();
     void trace_request(int before, bool held, bool swap_flag);
-    void log_presses();
     void explain_double_tap(const TapSnapshot& before);
     void queue_selector();
     void show_counters_health(int frames);
@@ -266,11 +264,6 @@ private:
     // The HUD-open request, for the log: the play ticks, the state last seen, the tick it was asked
     // at, whether a swap set its flag.
     int m_play_ticks = 0;
-    // Each play and freeze tick, and Triangle's last change (for the log).
-    int m_ticks = 0;
-    int m_triangle_tick = 0;
-    bool m_triangle_held = false;
-    std::chrono::steady_clock::time_point m_triangle_since{};
     int m_request_tick = 0;
     std::string m_request_trace;
     // Records of Ratchet & Clank's own opener refused with the pause on (Going Commando's decider

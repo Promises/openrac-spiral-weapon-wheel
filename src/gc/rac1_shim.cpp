@@ -7,7 +7,6 @@
 #include "rac1_shim.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -425,8 +424,6 @@ void* Shim::resolve_handle(std::int32_t handle) const {
 // Commando's menu_set_mode does not pause the music for mode 7, Ratchet & Clank's mode_freeze_init
 // does: the music is unpaused after it.
 void Shim::begin_paused(int arg) {
-    const Memory& m = game.memory;
-    const std::int32_t from = m.read<std::int32_t>(m_level.at.game_mode);
     game.mode_freeze_init(kFreezeKind, 0, 0);
     menu_set_mode(kModalQuickSelect, arg);
     game.music_unpause();
@@ -434,20 +431,12 @@ void Shim::begin_paused(int arg) {
     m_freeze_ticks = 0;
     m_draws_since_update = 0;
     m_record_opened = false;
-    char line[128];
-    std::snprintf(line, sizeof line, "freeze entered (kind %d, saved mode %d; the game mode now %d)", kFreezeKind,
-                  m.read<std::int32_t>(m_level.at.mode_freeze_info + kFreezeSavedMode),
-                  m.read<std::int32_t>(m_level.at.game_mode));
-    (void)from;
-    if (game.info) {
-        game.info(line);
-    }
 }
 
 // request_end_slot(0, 0): back to the mode the freeze was entered from (as update_mode_freeze's
 // own exits do: g_game_mode = mode_freeze_info + 0x14), then Going Commando's mode switch ends the
 // modal mode: the copied menu_end (the sounds and the music back on, the pad's history cleared).
-// The layer's watchdog ends it the same way.
+// The layer's watchdog ends it the same way, and says why in the log (a normal end is not logged).
 void Shim::end_paused(const char* reason) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
@@ -455,11 +444,10 @@ void Shim::end_paused(const char* reason) {
     menu_end();
     std::memset(gc_shim_modal_state + kModalPhase, 0, sizeof(std::int32_t));
     m_entered = false;
-    char line[160];
-    std::snprintf(line, sizeof line, "freeze left: %s (the game mode back to %d)", reason,
-                  m.read<std::int32_t>(a.game_mode));
-    if (game.info) {
-        game.info(line);
+    if (reason != nullptr && game.log) {
+        char line[200];
+        std::snprintf(line, sizeof line, "the paused quick select ended by its watchdog: %s", reason);
+        game.log(line);
     }
 }
 
@@ -677,7 +665,6 @@ void Shim::update_play(const std::function<void()>& original) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     ++m_play_ticks;
-    log_presses();
     const bool pressed = ((m.read<std::uint32_t>(a.pad + kPadPressed) |
                            m.read<std::uint32_t>(a.pad + kPadPressedUnmasked)) & kTriangle) != 0;
     std::string gate;
@@ -694,7 +681,9 @@ void Shim::update_play(const std::function<void()>& original) {
         CopyScope scope(*this);
         took = level_update_game_frame_input();
     }
-    if (pressed && game.info) {
+    // One line a press: the request's (trace_request) when the press asks for the quick select, else
+    // why the gate did not.
+    if (pressed && request_before == 0 && gc_shim_hud_flag_b == 0 && game.info) {
         game.info(gate.c_str());
     }
     trace_request(request_before, held, swap_flag);
@@ -711,33 +700,6 @@ void Shim::update_play(const std::function<void()>& original) {
     before.last_weapon = m.read<std::int32_t>(a.last_weapon);
     original();
     explain_double_tap(before);
-}
-
-// Each Triangle press and release in the log (play and freeze ticks alike), with the game's
-// ticks, the wall clock, and the double tap's timers: the timing a double tap is made of.
-void Shim::log_presses() {
-    const Memory& m = game.memory;
-    const Disc& a = m_level.at;
-    ++m_ticks;
-    const auto now = std::chrono::steady_clock::now();
-    const bool held = (m.read<std::uint32_t>(a.pad + kPadHeldUnmasked) & kTriangle) != 0;
-    if (held == m_triangle_held) {
-        return;
-    }
-    m_triangle_held = held;
-    const double ms = std::chrono::duration<double, std::milli>(now - m_triangle_since).count();
-    const int ticks = m_ticks - m_triangle_tick;
-    m_triangle_since = now;
-    m_triangle_tick = m_ticks;
-    char line[256];
-    std::snprintf(line, sizeof line,
-                  "Triangle %s at tick %d (%s; after %d ticks, %.0f ms: %.1f ms a tick); tap timer %d, window %d",
-                  held ? "down" : "up", m_ticks, in_wheel_freeze() ? "freeze" : "play", ticks, ms,
-                  ticks > 0 ? ms / ticks : 0.0, m.read<std::int16_t>(a.hero + kHeroTapTimer),
-                  m.read<std::int16_t>(a.hero + kHeroTapWindow));
-    if (game.info) {
-        game.info(line);
-    }
 }
 
 // The HUD-open request in the log, one line a request: the tick it was asked at, then each tick's
@@ -827,8 +789,6 @@ void Shim::explain_double_tap(const TapSnapshot& b) {
                       "double tap: a second release in the window, no swap: %s (item 0x%X, quick swap 0x%X, last weapon "
                       "0x%X; tap timer %d -> %d, window %d -> %d)",
                       why, b.item, b.swap_item, b.last_weapon, b.tap, tap, b.window, window);
-    } else if (b.window != 0) {
-        std::snprintf(line, sizeof line, "double tap: the window ran out as Triangle was let go (window %d)", b.window);
     }
     if (line[0] != 0 && game.info) {
         game.info(line);
@@ -854,23 +814,22 @@ void Shim::freeze_update(const std::function<void()>& original) {
     }
     m_draws_since_update = 0;
     if (!in_wheel_freeze() || !m_entered) {
-        end_paused("watchdog: a freeze of the mod's kind without the paused quick select");
+        end_paused("a freeze of the mod's kind without the paused quick select");
         original();
         return;
     }
     if (!paused_path_available()) {
-        end_paused("watchdog: the quick select's callbacks are missing");
+        end_paused("the quick select's callbacks are missing");
         original();
         return;
     }
     ++m_freeze_ticks;
-    log_presses();
     {
         CopyScope scope(*this);
         UpdateModalState();
     }
     if (m_entered && in_wheel_freeze() && !m_record_opened && m_freeze_ticks > frames(30)) {
-        end_paused("watchdog: the wheel's HUD record never opened");
+        end_paused("the wheel's HUD record never opened");
     }
     original();
 }
@@ -890,7 +849,7 @@ void Shim::freeze_draw(const std::function<void()>& original) {
         m_paused_disabled = true;
         log_once("hook bypassed", "rac1.freeze.update did not run in the freeze: the paused quick select is off "
                                   "for this session (it opens over the running game)", true);
-        end_paused("watchdog: rac1.freeze.update did not run");
+        end_paused("rac1.freeze.update did not run");
     }
     gfx_render_frame_extra_layers();
 }
@@ -1142,7 +1101,7 @@ int gc_shim_request_begin_slot(int index, int, int arg_a, int arg_b, void*) {
 }
 
 int gc_shim_request_end_slot(int, int) {
-    shim().end_paused("mode 7's phases done (Triangle let go)");
+    shim().end_paused(nullptr);
     return 0;
 }
 
