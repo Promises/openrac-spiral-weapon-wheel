@@ -226,6 +226,7 @@ void read_settings(openrac::Mod& mod) {
     w.look.spiral.clockwise = mod.setting<bool>("clockwise");
     w.look.spiral.depth = static_cast<float>(mod.setting<double>("depth"));
     w.look.continuous = mod.setting<std::string>("spiral_motion") != "loop_steps";
+    w.look.outward = mod.setting<std::string>("spiral_grows") != "inward";
     // TEMPORARY (remove before release): the gold preview, the wheel's look only.
     const std::string debug_gold = mod.setting<std::string>("debug_gold");
     w.debug_gold = debug_gold == "visibomb_gun" ? gc::DebugGold::VisibombGun

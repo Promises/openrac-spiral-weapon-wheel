@@ -263,7 +263,14 @@ Frame Wheel::frame() const {
     // item's loop along the path.
     const float first_k = wrap_into(-anchor(), -5.0f, total);
     const float last_k = n > 0 ? wrap_into(static_cast<float>(n - 1) - anchor(), -5.0f, total) : 0.0f;
-    auto radius_at = [step](float k) { return std::min(look::kMaxRadius, look::kFirstRadius - step * k); };
+    // A slot k on from the window's first: inward, the loop's first at 284 and each after it 11
+    // further in; outward, the loop's last at 284 and each before it 11 further in (the window's
+    // twelve the same radii, mirrored). Held to kMinRadius .. kMaxRadius.
+    const bool outward = m_look.outward;
+    auto radius_at = [step, outward](float k) {
+        const float r = outward ? look::kFirstRadius - step * (static_cast<float>(kPerLoop - 1) - k) : look::kFirstRadius - step * k;
+        return std::clamp(r, look::kMinRadius, look::kMaxRadius);
+    };
     const int last_loop_end = (n + kPerLoop - 1) / kPerLoop * kPerLoop;
     for (const Tile& t : tiles(n, p, o)) {
         const float at = static_cast<float>(wrap_index(t.index, p.total)) - anchor();
@@ -278,7 +285,11 @@ Frame Wheel::frame() const {
             if (!p.spiral || k < 0.0f || static_cast<int>(total) + t.index >= last_loop_end) {
                 continue;
             }
+            // Never larger than the item it links: the last item (after it) or the first (before it).
             link_cap = k > last_k && last_k >= 0.0f ? radius_at(last_k) : radius_at(first_k < k ? first_k + total : first_k);
+            if (outward && k > last_k && last_k >= 0.0f) {
+                continue;  // outward, the blanks after the last item would be an outer ring: not drawn
+            }
         }
         const float fade = slot_opacity(k, p.spiral);
         if (fade <= 0.0f) {
@@ -300,7 +311,7 @@ Frame Wheel::frame() const {
         }
         s.selected = item != nullptr && t.hover;
         s.angle_deg = t.angle_deg;
-        s.radius = std::min({look::kMaxRadius, look::kFirstRadius - step * k, link_cap});
+        s.radius = std::min(radius_at(k), link_cap);
         s.push = s.selected ? look::kPush : 0.0f;
         for (const auto& [index, flash] : m_flashes) {
             if (index == t.index) {

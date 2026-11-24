@@ -36,6 +36,13 @@ int g_checks = 0;
 bool near(float a, float b, float within = 1e-3f) { return std::fabs(a - b) <= within; }
 // The design's pixels a screen height at size 1 (look.hpp: the design drawn at kFit of its size).
 constexpr float kPx = 720.0f / 0.95f;
+// The design's drawing (the spiral growing inward), which the layout tests below pin; the default,
+// outward, has its own (test_outward).
+spiral::Look inward_look() {
+    spiral::Look look;
+    look.outward = false;
+    return look;
+}
 
 // --- PreyMenu.xml, as written ---
 
@@ -242,7 +249,7 @@ void test_wheel_frame() {
         it.category = i == 5 ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
         items.push_back(it);
     }
-    spiral::Look look;
+    spiral::Look look = inward_look();
     look.continuous = false;  // loop steps (the continuous motion: test_continuous)
     spiral::Wheel w;
     w.open(items, look);
@@ -392,7 +399,7 @@ void test_continuous() {
         items[static_cast<std::size_t>(i)].id = 0x40 + i;
     }
     items[10].equipped = true;
-    spiral::Look look;
+    spiral::Look look = inward_look();
     CHECK(look.continuous);
     spiral::Wheel w;
     w.open(items, look);
@@ -458,7 +465,7 @@ void test_categories() {
     items[6].colours.selected = {4, 5, 6};
     items[0].equipped = true;
     spiral::Wheel w;
-    w.open(items, spiral::Look{});
+    w.open(items, inward_look());
     w.advance(1.0f);
     int seen = 0;
     for (const spiral::Slot& sl : w.frame().slots) {
@@ -491,7 +498,7 @@ void test_panel() {
     }
     items[0].equipped = true;
     spiral::Wheel w;
-    w.open(items, spiral::Look{});
+    w.open(items, inward_look());
     w.advance(1.0f);
     spiral::Frame f = w.frame();
     auto count = [](const std::vector<spiral::Quad>& qs, spiral::Art art, int image = -1) {
@@ -631,7 +638,7 @@ void test_fit() {
         items[static_cast<std::size_t>(i)].hot = i < 8 ? i + 1 : 0;
     }
     for (const bool continuous : {true, false}) {
-        spiral::Look look;
+        spiral::Look look = inward_look();
         look.continuous = continuous;
         spiral::Wheel w;
         w.open(items, look);
@@ -680,7 +687,7 @@ void test_fit() {
         CHECK(ink > 20 && p.rgba[0] == 255 && p.rgba[3] == 0);
     }
     spiral::Wheel w;
-    w.open(items, spiral::Look{});
+    w.open(items, inward_look());
     w.advance(1.0f);
     const spiral::Frame f = w.frame();
     int digits = 0;
@@ -711,7 +718,7 @@ void test_links() {
         items[static_cast<std::size_t>(i)].id = 0x40 + i;
     }
     for (const bool continuous : {true, false}) {
-        spiral::Look look;
+        spiral::Look look = inward_look();
         look.continuous = continuous;
         for (const int at : {0, 5, 7, 13}) {
             for (spiral::Item& it : items) {
@@ -756,6 +763,47 @@ void test_links() {
     }
 }
 
+// "Spiral grows" Outward (the default since 1.4.3, as 1.0 to 1.1 had it): the first loop, the
+// quick select's home ring, innermost, the later loops further out. With the pointer on the first
+// loop (loop steps), its twelve run from 163 to 284, the next loop's (fading) held at 284, nothing
+// inside 130; the blanks after the last item, an outer ring then, not drawn.
+void test_outward() {
+    std::vector<spiral::Item> items(30);
+    for (int i = 0; i < 30; ++i) {
+        items[static_cast<std::size_t>(i)].id = 0x40 + i;
+    }
+    items[0].equipped = true;
+    spiral::Look look;
+    CHECK(look.outward);
+    look.continuous = false;
+    spiral::Wheel w;
+    w.open(items, look);
+    w.advance(1.0f);
+    float home_max = 0.0f, rest_min = 1e9f;
+    for (const spiral::Slot& sl : w.frame().slots) {
+        CHECK(sl.radius >= 130.0f - 1e-3f && sl.radius <= 284.0f + 1e-3f);
+        if (sl.index >= 0 && sl.index < 12) {
+            CHECK(std::fabs(sl.radius - (163.0f + 11.0f * static_cast<float>(sl.index))) < 1e-3f);
+            home_max = std::max(home_max, sl.radius);
+        } else if (sl.index >= 12) {
+            rest_min = std::min(rest_min, sl.radius);
+        }
+        CHECK(sl.index >= 0 || sl.radius <= 163.0f + 1e-3f);  // no outer ring of blanks
+    }
+    CHECK(rest_min >= home_max - 1e-3f);  // the rest outside the home ring
+    // Continuous: the pointer's slot at 163 + 66, the ones after it further out.
+    look.continuous = true;
+    spiral::Wheel c;
+    c.open(items, look);
+    c.advance(1.0f);
+    float at_pointer = 0.0f, after = 0.0f;
+    for (const spiral::Slot& sl : c.frame().slots) {
+        at_pointer = sl.index == 0 ? sl.radius : at_pointer;
+        after = sl.index == 3 ? sl.radius : after;
+    }
+    CHECK(std::fabs(at_pointer - 229.0f) < 1e-3f && after > at_pointer);
+}
+
 // The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
 void test_paint() {
     std::vector<spiral::Item> items(14);
@@ -770,7 +818,7 @@ void test_paint() {
     items[4].category = spiral::look::Category::Gadget;
     items[4].glyph_width = 100;
     items[4].glyph_height = 50;
-    spiral::Look look;
+    spiral::Look look = inward_look();
     look.continuous = false;
     spiral::Wheel w;
     w.open(items, look);
@@ -932,7 +980,7 @@ void test_home_ring() {
                 index_of(slots, id);
             }
             // The wheel draws slot i where slot_angle says.
-            spiral::Look look;
+            spiral::Look look = inward_look();
             look.spiral = o;
             spiral::Wheel w;
             auto items = slots;
@@ -959,7 +1007,7 @@ void test_home_ring() {
         CHECK(slots.size() == 10u && holes == 6);
         // A hole, and the spiral's slot before the first item (Prey Menu's "None"), are blanks: no
         // border, no icon, not lit, not picked.
-        spiral::Look look;
+        spiral::Look look = inward_look();
         spiral::Wheel w;
         auto items = slots;
         items[static_cast<std::size_t>(index_of(slots, 0x12))].equipped = true;
@@ -1103,7 +1151,7 @@ void test_glyphs() {
         items[1].glyph_width = 100;
         items[1].glyph_height = 50;
         spiral::Wheel w;
-        w.open(items, spiral::Look{});
+        w.open(items, inward_look());
         w.advance(1.0f);
         const spiral::Frame f = w.frame();
         CHECK(f.icons.size() == 2u);  // items 0 and 2: the game's own icons
@@ -1130,6 +1178,7 @@ int main() {
     test_panel();
     test_fit();
     test_links();
+    test_outward();
     test_paint();
     test_home_ring();
     test_glyphs();

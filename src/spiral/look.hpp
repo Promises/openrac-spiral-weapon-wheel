@@ -24,6 +24,9 @@ constexpr float kFirstRadius = 284.0f;
 // screen. And the design is drawn at kFit of its size: its furthest point (that slot's outer edge,
 // the push and a badge, 8 above the middle) then leaves a margin of 3 % of the screen's height.
 constexpr float kMaxRadius = kFirstRadius;
+// And none further in than the design's innermost slot (its loop's 15th: 284 - 14 x 11), so the
+// slots stay clear of the middle disc.
+constexpr float kMinRadius = 130.0f;
 constexpr float kFit = 0.95f;
 constexpr float kRadiusStep = 11.0f;
 constexpr float kThickness = 0.33f;

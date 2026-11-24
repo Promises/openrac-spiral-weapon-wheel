@@ -58,6 +58,7 @@ Clank's own. The Devastator here is a gold one.*
 | Size | 1 | 1, the largest, is the design's size as it fits any screen with a margin: no slot further out than the loop's first, the wheel inside the screen by 3 % of its height. Smaller values shrink it. |
 | Start angle | 90 | Where the spiral starts, in degrees counter-clockwise from 3 o'clock (90 is 12 o'clock). |
 | Clockwise | on | Which way the spiral turns (on is the design's; Prey Menu's default was off). |
+| Spiral grows | Outward | *Outward* (as 1.0 and 1.1 had it): your quick select's ring is the innermost, the other items spiral further out. *Inward* (the design's drawing): the quick select's ring is outermost, the others spiral in. |
 | Spiral motion | Continuous | *Continuous*: the spiral follows the pointer at all times (Prey Menu's way), the pointed-at slot in the middle of the twelve shown whole. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
 | Spiral depth | 0.75 | How far in each slot is from the one before: the design's 11 pixels (of 720) at 0.75 and below, less above it, down to 5 at 1. |
 | Click sound | off | A sound as the pointer moves to another item (Ratchet & Clank's quick select is silent; this is a stand-in). |
@@ -224,6 +225,45 @@ The game's log (`openrac-rac1-*.log`, lines `[mod spiral-weapon-wheel]`) shows:
   direction, the slot); and the pick ("picked item 0x.. (name), equipped 0x..") or "cancelled";
 - one line per double-tap swap;
 - a warning if the pause ever had to be ended by its watchdog.
+
+## Behaviours and their tests
+
+Every behaviour the wheel has had, from the Going Commando port to now. Each one is a named check
+in `spiral_weapon_wheel_test --regressions` (ctest: `regressions`), so a refactor that drops one
+fails by name.
+
+| Behaviour | Since | Check |
+|---|---|---|
+| Hold before pausing (Going Commando's 4 frames, 8, 12; PAL scaled) | 1.0.6 | `test_open_delay_setting`, `test_hold_timing` |
+| Double-tap quick swap, also in the pause | GC base | `test_taps`, `test_natural_double_tap`, `test_quick_swap`, `test_wheel_picks_then_double_tap` |
+| The gate's 8-tick block (no open within 8 ticks of a game mode change) and its other conditions | GC base | `test_gate_conditions` |
+| Stick selection, the first push pointing absolutely at the first loop | 1.1.0 | `test_stick_points_where_it_is_pushed` |
+| The stick's arming (rest or countdown) | GC base | `test_arming` |
+| A release before moving picks nothing; Circle cancels; the fades | 1.1.0 / GC base | `test_fades_and_commit` |
+| The d-pad steps one slot, in both motions, paused, from the held word's edges too | 1.0.0 (fixed 1.4.3) | `regression_dpad` |
+| Hold vs Toggle | 1.0.0 | `test_toggle` |
+| The items: the Quick Select page's only, plus registered and provided items | 1.0.2 / 1.4.0 | `test_items`, `test_many_items` |
+| The home ring at its ring directions, innermost (Spiral grows: Outward) | 1.0.3 (fixed 1.4.3) | `regression_home_ring` |
+| No "None" | 1.1.0 | `regression_no_none` |
+| The selection through the loops | 1.0.0 | `test_spiral_selection` |
+| Health orbs hidden and restored on every path | 1.1.1 | `test_health_hidden` |
+| The slow-down ramp and "Ease back on close" | 1.0.x | `test_slow_down` |
+| The click sound, the draw, the game-sprite fallback, the badges, the fonts | 1.0.0 to 1.4.2 | `test_draw` |
+| The watchdogs | GC port | `test_watchdog_update_bypassed`, `test_watchdog_record_never_opens` |
+| The paused path and its refusals | GC port | `test_paused_path`, `test_unavailable_paused_open` |
+| Pause while open off (unpaused) | 1.0.0 | `test_fades_and_commit` |
+| The double-tap log | 1.0.x | `test_double_tap_logs` |
+| Start angle, direction, size, depth, motion, growth | 1.0.0 to 1.4.3 | `regression_settings` |
+| Gold detection, the icon packs, the disc's HUD set | 1.1.0 / 1.3.0 | `test_icon_sources` |
+| Glyphs from memory without disc data, checked | 1.1.2 | `test_glyph_capture` |
+| The gold label, the middle's text fit and wrap hints | 1.4.1 to 1.4.3 | `test_gold_label`, `test_text_fit` |
+| The panel textures | 1.4.0 | `test_panel_art` |
+| The logging | 1.0.0 | `regression_logging` |
+| PAL and NTSC | 1.0.0 | `regression_pal_ntsc` |
+| The relocated game mode; frames and ticks at 50/60 Hz; the pad history | GC port | `test_relocated_game_mode`, `test_frames_and_ticks`, `test_pad_history_and_press_window` |
+
+The geometry and the painter have their own tests in `src/spiral_test.cpp`: the fit on the screen,
+the links, outward and inward growth, both motions, the panel.
 
 ## Remove before release
 

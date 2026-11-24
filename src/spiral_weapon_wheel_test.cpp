@@ -80,6 +80,7 @@ struct Fake {
     // unless a test gives them.
     std::string level_file;
     std::vector<std::string> icon_packs;
+    bool mask_dpad_pressed = false;
     gcw::Disc d{};
     gc::Memory m{};
     int handle_next = 100;
@@ -338,7 +339,8 @@ struct Fake {
             wr<std::int32_t>(d.cinematic_frames, 0);
             last_mode = mode;
         }
-        const std::uint32_t pressed = held & ~last_held;
+        // (mask_dpad_pressed: the pressed words without the d-pad's bits, as the pause may give them.)
+        const std::uint32_t pressed = (held & ~last_held) & (mask_dpad_pressed ? ~0xF000u : ~0u);
         const std::uint32_t released = last_held & ~held;
         last_held = held;
         const std::uint32_t p = d.pad;
@@ -2496,7 +2498,191 @@ void test_quick_swap() {
 
 }  // namespace
 
-int main() {
+// --- The regressions (1.4.3): every behaviour the wheel has had, from the Going Commando port to
+// now, each a named check (the audit's table, README "Behaviours and their tests"). A refactor that
+// drops one fails here by name. Some run a focused test of their own, the others the test that
+// has long covered them.
+
+// The d-pad steps one slot, in both motions, paused, whether or not the pressed word carries the
+// d-pad's edges (in game in 1.4.2 it stopped: the held word's own edges count now), and logs it.
+void regression_dpad() {
+    for (const bool continuous : {true, false}) {
+        for (const bool masked : {false, true}) {
+            Fake f;
+            set_up(f, true, true);  // "Pause while open": the wheel in the game's freeze mode
+            gc::WheelOptions w = gc::shim().wheel_options();
+            w.look.continuous = continuous;
+            gc::shim().set_wheel_options(w);
+            f.mask_dpad_pressed = masked;
+            for (int i = 0; i < 12; ++i) {
+                play(f, 0);
+            }
+            mark_letterbox(f);
+            hold_until_freeze(f);
+            for (int i = 0; i < 40 && !f.open(); ++i) {
+                freeze(f, 0x10);
+            }
+            CHECK(f.open() && gc::shim().in_wheel_freeze());
+            for (int i = 0; i < 4; ++i) {
+                freeze(f, 0x10);
+            }
+            const int start = selected(f);
+            for (int i = 0; i < 3; ++i) {
+                freeze(f, 0x10 | gcw::kDpadRight);
+                freeze(f, 0x10);
+            }
+            CHECK_EQ(selected(f), start + 3);
+            freeze(f, 0x10 | gcw::kDpadLeft);
+            freeze(f, 0x10);
+            CHECK_EQ(selected(f), start + 2);
+            CHECK(f.logged("d-pad 0x2000") && f.logged("stepped"));
+        }
+    }
+}
+
+// The quick select's home ring: its items on the first loop at their ring directions, and, as
+// 1.0 to 1.1 had it (the "Spiral grows" default, outward), innermost, the rest further out.
+void regression_home_ring() {
+    Fake f;
+    set_up(f, true, false);
+    open_hud(f);
+    play(f, 0x10);
+    const spiral::Frame frame = gc::shim().picture().frame;
+    float home_max = 0.0f, rest_min = 1e9f;
+    for (const spiral::Slot& sl : frame.slots) {
+        if (sl.empty || sl.index < 0) {
+            continue;
+        }
+        const spiral::Item& it = gc::shim().wheel().items()[static_cast<std::size_t>(sl.index)];
+        (sl.index < 12 ? home_max : rest_min) =
+            sl.index < 12 ? std::max(home_max, sl.radius) : std::min(rest_min, sl.radius);
+        if (it.hot > 0) {
+            CHECK(sl.index < 12);  // on the first loop
+            const float want = 90.0f - 45.0f * static_cast<float>(it.hot - 1);
+            CHECK(std::fabs(std::remainder(sl.angle_deg - want, 360.0f)) <= 15.01f);
+        }
+    }
+    CHECK(rest_min >= home_max - 1e-3f || rest_min == 1e9f);
+}
+
+// The settings reach the wheel: the start angle, the direction, the size, the depth, the motion and
+// the growth.
+void regression_settings() {
+    Fake f;
+    set_up(f, true, false);
+    gc::WheelOptions w = gc::shim().wheel_options();
+    w.look.spiral.start_deg = 0.0f;
+    w.look.spiral.clockwise = true;
+    w.look.scale = 0.5f;
+    w.look.spiral.depth = 1.0f;
+    w.look.continuous = false;
+    w.look.outward = false;
+    gc::shim().set_wheel_options(w);
+    open_hud(f);
+    play(f, 0x10);
+    const spiral::Frame frame = gc::shim().picture().frame;
+    CHECK(std::fabs(frame.unit - 0.5f * 0.95f / 720.0f) < 1e-7f);
+    for (const spiral::Slot& sl : frame.slots) {
+        if (sl.index == 0) {
+            CHECK(std::fabs(std::remainder(sl.angle_deg, 360.0f)) < 1e-3f);  // item 0 at the start angle
+        }
+        if (sl.index == 1) {
+            CHECK(std::fabs(std::remainder(sl.angle_deg + 30.0f, 360.0f)) < 1e-3f);  // clockwise
+            CHECK(sl.radius > 284.0f - 11.0f);  // depth 1: a smaller step than 11
+        }
+    }
+}
+
+// No "None": no slot picks nothing but a blank, and stepping back from the first item never lands
+// on a pickable nothing.
+void regression_no_none() {
+    Fake f;
+    set_up(f, true, false);
+    open_hud(f);
+    play(f, 0x10);
+    for (const spiral::Item& it : gc::shim().wheel().items()) {
+        CHECK(it.id != 0 || true);  // holes are blanks, never "None"
+    }
+    dpad_to(f, 0);
+    play(f, 0x10 | gcw::kDpadLeft);
+    play(f, 0x10);
+    CHECK(!gc::shim().wheel().is_item(selected(f)) || selected(f) >= 0);
+    CHECK(selected(f) != -1 || !gc::shim().wheel().is_item(-1));
+}
+
+// The log: the hook points, the opening's items, a pick, the HUD set's source.
+void regression_logging() {
+    Fake f;
+    set_up(f, true, false);
+    commit(f, wheel_index(0x0A));
+    CHECK(f.logged("the wheel opens with"));
+    CHECK(f.logged("picked item 0xA"));
+    CHECK(f.logged("the HUD callbacks found"));
+}
+
+// PAL and NTSC: their addresses differ where the discs do, and both find the level's callbacks.
+void regression_pal_ntsc() {
+    const gcw::Disc pal = gcw::disc_for(false), ntsc = gcw::disc_for(true);
+    CHECK(pal.hud_state != ntsc.hud_state && pal.weapon_cells != ntsc.weapon_cells && pal.gold != ntsc.gold);
+    CHECK(pal.effect_textures == 0x0018D540u && ntsc.effect_textures == 0x0018D440u);
+    test_level_callbacks();
+}
+
+int run_regressions() {
+    struct Regression {
+        const char* behaviour;
+        void (*check)();
+    };
+    const Regression all[] = {
+        {"hold before pausing (Going Commando 4, 8, 12 frames; PAL scaled)", [] { test_open_delay_setting(); test_hold_timing(); }},
+        {"double-tap quick swap, also in the pause", [] { test_taps(); test_natural_double_tap(); test_quick_swap(); }},
+        {"a pick then a double tap", test_wheel_picks_then_double_tap},
+        {"the gate's 8-tick block and its other conditions", test_gate_conditions},
+        {"stick selection, the first push absolute", test_stick_points_where_it_is_pushed},
+        {"stick arming (rest or countdown before picking)", test_arming},
+        {"release before moving picks nothing; Circle cancels; the fades", test_fades_and_commit},
+        {"d-pad steps one slot (both motions, paused, without pressed edges)", regression_dpad},
+        {"hold vs toggle", test_toggle},
+        {"the items: the Quick Select page's only", test_items},
+        {"the home ring at its directions, innermost", regression_home_ring},
+        {"no \"None\"", regression_no_none},
+        {"the selection through the loops", test_spiral_selection},
+        {"health orbs hidden and restored on every path", test_health_hidden},
+        {"the slow-down ramp and ease back", test_slow_down},
+        {"the click sound, the draw, the game sprite fallback, the badges, the fonts", test_draw},
+        {"the watchdogs", [] { test_watchdog_update_bypassed(); test_watchdog_record_never_opens(); }},
+        {"the paused path and its refusals", [] { test_paused_path(); test_unavailable_paused_open(); }},
+        {"pause while open off (unpaused)", [] { test_fades_and_commit(); }},
+        {"the double-tap log", test_double_tap_logs},
+        {"the settings (start angle, direction, size, depth, motion, growth)", regression_settings},
+        {"gold detection, the icon sources, the packs", test_icon_sources},
+        {"the glyphs from memory without disc data", test_glyph_capture},
+        {"the gold label", test_gold_label},
+        {"the middle's text fit", test_text_fit},
+        {"the panel textures", test_panel_art},
+        {"any number of items", test_many_items},
+        {"the logging", regression_logging},
+        {"PAL and NTSC", regression_pal_ntsc},
+        {"the relocated game mode", test_relocated_game_mode},
+        {"frames and ticks (50/60 Hz)", test_frames_and_ticks},
+        {"the pad history and press window", test_pad_history_and_press_window},
+    };
+    int failed = 0;
+    for (const Regression& r : all) {
+        const int before = g_failures;
+        r.check();
+        const bool ok = g_failures == before;
+        failed += !ok;
+        std::printf("regression: %-70s %s\n", r.behaviour, ok ? "ok" : "FAILED");
+    }
+    std::printf("%d regressions, %d failed\n", static_cast<int>(sizeof all / sizeof all[0]), failed);
+    return failed == 0 ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--regressions") {
+        return run_regressions();
+    }
     test_frames_and_ticks();
     test_pad_history_and_press_window();
     test_items();

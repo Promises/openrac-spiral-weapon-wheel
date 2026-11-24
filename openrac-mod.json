@@ -156,6 +156,23 @@
       "description": "Continuous: the spiral follows the pointer at all times, as Prey Menu's does; the pointed-at slot sits in the middle of the twelve shown whole, the ones further away fading out either side. Loop steps: the pointer's whole loop is shown, and the spiral turns to the next loop as the pointer crosses into it."
     },
     {
+      "key": "spiral_grows",
+      "name": "Spiral grows",
+      "type": "choice",
+      "default": "outward",
+      "choices": [
+        {
+          "value": "outward",
+          "name": "Outward"
+        },
+        {
+          "value": "inward",
+          "name": "Inward"
+        }
+      ],
+      "description": "Outward (as 1.0 and 1.1 had it): your quick select's ring is the innermost, closest to the middle, and the other items spiral further out. Inward (the design's drawing): the quick select's ring is the outermost and the others spiral in."
+    },
+    {
       "key": "depth",
       "name": "Spiral depth",
       "type": "float",

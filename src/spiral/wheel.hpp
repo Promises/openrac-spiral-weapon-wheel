@@ -118,6 +118,10 @@ struct Look {
     // Loop steps: the pointer's loop is the window, and the spiral eases to the next loop as the
     // pointer crosses into it.
     bool continuous = true;
+    // Which way the spiral grows ("Spiral grows"). Outward (the default, as 1.0 to 1.1 had it): the
+    // first loop, the game's quick select's home ring, innermost, the later loops further out.
+    // Inward (the design's drawing): the first loop outermost, the later loops further in.
+    bool outward = true;
 };
 
 // Continuous motion: where the pointer sits in the 12 slots shown whole (6: the 6 before it and

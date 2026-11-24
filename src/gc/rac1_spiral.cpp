@@ -842,7 +842,11 @@ void Shim::spiral_update(std::uint8_t* record) {
         write_i32(pad, kGcInhibit, 2);
     }
     const std::uint32_t held = static_cast<std::uint32_t>(read_i32(pad, kGcHeld));
-    const std::uint32_t pressed = static_cast<std::uint32_t>(read_i32(pad, kGcPressed));
+    // The d-pad's presses from the held word's own edges too (1.4.3: in game the d-pad stopped
+    // stepping; the pressed word may not carry its edges in the pause), so a press counts either way.
+    const std::uint32_t dpad_edges = held & ~m_held_before & 0xF000u;
+    m_held_before = held;
+    const std::uint32_t pressed = static_cast<std::uint32_t>(read_i32(pad, kGcPressed)) | dpad_edges;
     float stick_x = m.read<float>(m_level.at.pad + kPadStickX);
     float stick_y = m.read<float>(m_level.at.pad + kPadStickY);
     const float magnitude = std::sqrt(stick_x * stick_x + stick_y * stick_y);
@@ -851,6 +855,7 @@ void Shim::spiral_update(std::uint8_t* record) {
     if (!m_wheel.is_open()) {
         load_panel_art();
         ++m_openings;
+        m_held_before = held;
         m_wheel.open(collect_items(), m_wheel_options.look);
         m_wheel.seed(static_cast<std::uint32_t>(m_play_ticks) * 2654435761u + 1u);
         m_names.clear();
@@ -927,6 +932,15 @@ void Shim::spiral_update(std::uint8_t* record) {
             m_touched = true;
             moved = m_wheel.step(-1);
         }
+    }
+    // The d-pad in the log, each press while the wheel shows: what was read and what it did.
+    if ((pressed & 0xF000u) != 0 && game.info) {
+        char line[200];
+        std::snprintf(line, sizeof line, "d-pad 0x%X (held 0x%X, stick %.2f): %s, slot %d", static_cast<unsigned>(pressed & 0xF000u),
+                      static_cast<unsigned>(held), magnitude,
+                      steering ? (magnitude >= kStickDeadzone ? "the stick has it" : "stepped") : "not steering yet",
+                      m_wheel.selected());
+        game.info(line);
     }
     const int selected = m_wheel.selected();
     write_i32(record, kSelected, selected);

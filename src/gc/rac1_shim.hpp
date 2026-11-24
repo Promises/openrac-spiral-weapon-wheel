@@ -476,6 +476,7 @@ private:
     spiral::PanelArt m_panel_art;
     bool m_panel_tried = false;
     int m_openings = 0;
+    std::uint32_t m_held_before = 0;  // the pad's held word last tick (the d-pad's own edges)
     void load_panel_art();
     void forget_panel_art();
     std::uint16_t item_icon(std::int32_t id, std::uint16_t fallback) const;
