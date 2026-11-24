@@ -56,6 +56,7 @@ Glyph make_glyph(const Picture& icon, int scale) {
     Glyph g;
     const int w = icon.width, h = icon.height;
     if (w < 8 || h < 8 || icon.rgba.size() < static_cast<std::size_t>(w * h * 4) || scale < 1) {
+        g.reason = "no picture";
         return g;
     }
     auto px = [&](int x, int y) { return &icon.rgba[(static_cast<std::size_t>(y) * w + x) * 4]; };
@@ -124,7 +125,14 @@ Glyph make_glyph(const Picture& icon, int scale) {
     }
     std::nth_element(all_v.begin(), all_v.begin() + static_cast<std::ptrdiff_t>(all_v.size() / 20), all_v.end());
     const float dark = static_cast<float>(all_v[all_v.size() / 20]);
-    if (ground - dark < 40.0f) {
+    // The checks of an icon (a coloured ground, a near-black glyph): a dark glyph well below the
+    // ground; a ground with colour in it.
+    if (ground - dark < 60.0f || dark > 80.0f) {
+        g.reason = "no dark glyph on a lighter ground";
+        return g;
+    }
+    if (std::max({g.tint[0], g.tint[1], g.tint[2]}) - std::min({g.tint[0], g.tint[1], g.tint[2]}) < 30) {
+        g.reason = "the ground has no colour";
         return g;
     }
     std::vector<float> cover(static_cast<std::size_t>(w * h));
@@ -150,6 +158,66 @@ Glyph make_glyph(const Picture& icon, int scale) {
         }
     }
     if (solid < 4 || x1 < x0) {
+        g.reason = "no glyph";
+        return g;
+    }
+    // The ring is mostly ground.
+    int ring_ground = 0;
+    for (const auto& [x, y] : ring) {
+        ring_ground += cover[static_cast<std::size_t>(y * w + x)] < 0.5f ? 1 : 0;
+    }
+    if (ring_ground * 2 < static_cast<int>(ring.size())) {
+        g.reason = "the edge is not mostly ground";
+        return g;
+    }
+    // A picture, not noise: an icon is flat colour with soft shading and one glyph's outline, so
+    // neighbouring pixels mostly match. Along the edge ring three in four steps are small (the
+    // icons measure a quarter under 32 of RGB difference, noise 250 or so), and over the picture
+    // under 30 % of steps are a jump (the icons under 18 %, noise 40 % to 60 %).
+    auto step = [&](int ax, int ay, int bx, int by) {
+        const std::uint8_t* p = px(ax, ay);
+        const std::uint8_t* q = px(bx, by);
+        return std::abs(p[0] - q[0]) + std::abs(p[1] - q[1]) + std::abs(p[2] - q[2]);
+    };
+    std::vector<int> edge_steps;
+    for (int x = 1; x < w - 2; ++x) {
+        edge_steps.push_back(step(x, 1, x + 1, 1));
+        edge_steps.push_back(step(x, h - 2, x + 1, h - 2));
+    }
+    for (int y = 1; y < h - 2; ++y) {
+        edge_steps.push_back(step(1, y, 1, y + 1));
+        edge_steps.push_back(step(w - 2, y, w - 2, y + 1));
+    }
+    std::nth_element(edge_steps.begin(), edge_steps.begin() + static_cast<std::ptrdiff_t>(edge_steps.size() * 3 / 4),
+                     edge_steps.end());
+    if (edge_steps[edge_steps.size() * 3 / 4] > 80) {
+        g.reason = "the edge is not one ground (noise?)";
+        return g;
+    }
+    int steps = 0, jumps = 0;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (x + 1 < w) {
+                ++steps;
+                jumps += step(x, y, x + 1, y) > 120 ? 1 : 0;
+            }
+            if (y + 1 < h) {
+                ++steps;
+                jumps += step(x, y, x, y + 1) > 120 ? 1 : 0;
+            }
+        }
+    }
+    if (jumps * 10 > steps * 3) {
+        g.reason = "the picture is noise";
+        return g;
+    }
+    // The glyph covers a sane share of the icon.
+    int covered = 0;
+    for (const float c : cover) {
+        covered += c >= 0.5f ? 1 : 0;
+    }
+    if (covered * 20 < w * h || covered * 10 > w * h * 7) {
+        g.reason = "the glyph covers too little or too much";
         return g;
     }
     // The crop, a pixel of room around it, `scale` times as big: the coverage bilinear, a mask at

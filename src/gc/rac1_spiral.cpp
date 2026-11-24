@@ -117,32 +117,77 @@ std::vector<spiral::Item> Shim::collect_items() {
     return arranged;
 }
 
-// (the mod's) An item's glyph, from its HUD icon in game memory (layout.hpp: hud_state's frames,
-// image and palette pages): the frame the Quick Select page draws for it (frame 4 for a gold
-// weapon, as draw_menu_item_grid), decoded, keyed and redrawn (glyph.hpp), and kept as an overlay
-// picture while the frame's pixels stay the same. Anything amiss leaves the item without one: the
-// game's own icon is drawn.
-void Shim::attach_glyph(spiral::Item& item) {
+// (the mod's) The items' glyphs, from their HUD icons in game memory (layout.hpp: hud_state's
+// frames, image and palette pages): the frame the Quick Select page draws for an item (frame 4 for
+// a gold weapon, as draw_menu_item_grid), decoded, checked and redrawn (glyph.hpp), kept as an
+// overlay picture for the rest of the level.
+//
+// When the pages hold the icons (games/rac1/decomp): LoadHudBanks (src/game/system/loaders.c:386)
+// decompresses bank 0, the HUD's icons, into a level resource buffer, uploads it to the GS and
+// leaves it linked there (Hud_SendResidentBank); banks 2 to 4 stay stashed. The pause menu
+// (src/overlays/shared/pause_menu.c:289-295) unlinks bank 0 (apply_group_entry_adjustment(0)) and
+// decompresses banks 0 and 2 (3 or 4) into its own buffer (decompress_and_relocate_selected_groups,
+// src/overlays/shared/weapon_hud_and_counters.c:58), the grid draws from them, and as it closes it
+// uploads bank 0 to the GS from that buffer again (pause_menu.c:399-404) and unlinks 2 to 4 (their
+// pages' bit 31). In play the HUD draws bank 0 from the GS, and both buffers are the level's to
+// reuse: bank 0's pages stay linked to memory that is no longer theirs, which is the noise 1.1.1
+// showed later in a session as it rebuilt glyphs whenever the pixels changed.
+//
+// So: while the pause menu's item grid draws (rac1.menu.item_grid.draw) the pages are certain, and
+// a glyph captured there is kept for the level. At the wheel's opening, an item without a glyph yet
+// is tried from the pages as they are, and kept only when it passes the checks; the next pause menu
+// captures it again from certain pages, once. A glyph is never made again from changed pixels; a
+// level change (its own HUD set) drops them all. Anything amiss leaves the item without one, and
+// the game's own icon is drawn.
+int Shim::icon_frame(std::int32_t id, std::uint16_t icon) const {
+    const Memory& m = game.memory;
+    if (id <= 0 || !game.get_icon_frame) {
+        return 0;
+    }
+    const bool gold = m.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(id)) != 0;
+    return game.get_icon_frame(icon, gold ? 4 : 0);
+}
+
+Shim::CachedGlyph& Shim::glyph_entry(int frame) {
+    auto it = std::find_if(m_glyphs.begin(), m_glyphs.end(), [&](const CachedGlyph& g) { return g.frame == frame; });
+    if (it == m_glyphs.end()) {
+        m_glyphs.push_back({});
+        m_glyphs.back().frame = frame;
+        return m_glyphs.back();
+    }
+    return *it;
+}
+
+void Shim::capture_glyph(CachedGlyph& entry, std::uint16_t icon, Capture when) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
-    if (item.id == 0 || !game.create_image || !game.get_icon_frame) {
-        return;
-    }
-    const bool gold = m.read<std::uint8_t>(a.gold + static_cast<std::uint32_t>(item.id)) != 0;
-    const int frame = game.get_icon_frame(item.icon, gold ? 4 : 0);
+    const int frame = entry.frame;
+    const char* where = when == Capture::Menu ? "in the pause menu" : "at the wheel's opening";
+    auto report = [&](const char* outcome, const char* reason) {
+        // Once a level for each icon, place and outcome.
+        char key[96];
+        std::snprintf(key, sizeof key, "glyph %d %d %d %s %s", m_level_number, frame, static_cast<int>(when), outcome, reason);
+        char line[200];
+        std::snprintf(line, sizeof line, "the glyph of icon 0x%X (frame %d), %s: %s%s%s", static_cast<unsigned>(icon), frame,
+                      where, outcome, *reason != 0 ? ": " : "", reason);
+        log_once(key, line);
+    };
     const std::uint32_t frames = m.read<std::uint32_t>(a.hud_state + kHudFrames);
     const std::uint32_t images = m.read<std::uint32_t>(a.hud_state + kHudImages);
     const std::uint32_t palettes = m.read<std::uint32_t>(a.hud_state + kHudPalettes);
+    // A page whose bank is not linked has bit 31 set (apply_group_entry_adjustment): out of memory.
     auto in_memory = [](std::uint32_t address, std::uint32_t bytes) {
         return address != 0 && address < 0x02000000u && address + bytes <= 0x02000000u;
     };
     if (frame <= 0 || !in_memory(frames, 4u * static_cast<std::uint32_t>(frame) + 4) || images == 0 || palettes == 0) {
+        report("rejected", "no HUD frame table");
         return;
     }
     const std::int16_t palette = m.read<std::int16_t>(frames + 4u * static_cast<std::uint32_t>(frame));
     const std::int16_t image = m.read<std::int16_t>(frames + 4u * static_cast<std::uint32_t>(frame) + 2);
     if (palette < 0 || image < 0 || !in_memory(images, 8u * static_cast<std::uint32_t>(image) + 8) ||
         !in_memory(palettes, 8u * static_cast<std::uint32_t>(palette) + 8)) {
+        report("rejected", "no pages for the frame");
         return;
     }
     const std::uint32_t pixels = m.read<std::uint32_t>(images + 8u * static_cast<std::uint32_t>(image));
@@ -150,60 +195,117 @@ void Shim::attach_glyph(spiral::Item& item) {
     const int height = 1 << (m.read<std::uint8_t>(images + 8u * static_cast<std::uint32_t>(image) + 7) & 15);
     const std::uint32_t colours = m.read<std::uint32_t>(palettes + 8u * static_cast<std::uint32_t>(palette));
     const std::uint32_t bytes = static_cast<std::uint32_t>(width * height);
-    if (width < 8 || height < 8 || width > 256 || height > 256 || !in_memory(pixels, bytes) || !in_memory(colours, 1024)) {
+    if (width < 8 || height < 8 || width > 256 || height > 256) {
+        report("rejected", "not an icon's size");
         return;
     }
-    // FNV-1a over the indices and the palette: the same picture, the same glyph.
-    std::uint64_t hash = 1469598103934665603ull;
-    auto mix = [&hash](const std::uint8_t* p, std::size_t n) {
-        for (std::size_t i = 0; i < n; ++i) {
-            hash = (hash ^ p[i]) * 1099511628211ull;
+    if (!in_memory(pixels, bytes) || !in_memory(colours, 1024)) {
+        report("rejected", "its pages are not loaded");
+        return;
+    }
+    const spiral::Glyph g = spiral::make_glyph(spiral::decode_psmt8(m.at(pixels), width, height, m.at(colours)));
+    if (!g.ok) {
+        report("rejected", g.reason);
+        return;
+    }
+    const int made = game.create_image(g.picture.width, g.picture.height, g.picture.rgba.data());
+    if (made == 0) {
+        report("rejected", "the port refused the picture");
+        return;
+    }
+    if (entry.image != 0 && game.destroy_image) {
+        game.destroy_image(entry.image);
+    }
+    entry.image = made;
+    entry.width = g.picture.width;
+    entry.height = g.picture.height;
+    entry.tinted = true;
+    std::copy(g.tint, g.tint + 3, entry.tint);
+    entry.from_menu = when == Capture::Menu;
+    report("captured and valid", "");
+}
+
+// rac1.menu.item_grid.draw: every owned cell's icon of the Quick Select page's grids that has no
+// glyph from a pause menu yet, tried once a pause menu (a rejected one is not decoded again each
+// frame).
+void Shim::menu_grid_draw() {
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    m_in_menu = true;
+    if (m.base == nullptr || !game.create_image || !game.get_icon_frame || a.hud_state == 0) {
+        return;
+    }
+    auto take = [&](std::uint32_t table, int count) {
+        for (int i = 0; i < count; ++i) {
+            const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
+            const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
+            if (m.read<std::int16_t>(cell + kCellKind) != 0 || id <= 0 || id >= static_cast<std::int32_t>(kWeapons) ||
+                m.read<std::uint8_t>(a.item_available + static_cast<std::uint32_t>(id)) == 0) {
+                continue;
+            }
+            const std::uint16_t icon = m.read<std::uint16_t>(cell + kCellIcon);
+            const int frame = icon_frame(id, icon);
+            if (frame <= 0) {
+                continue;
+            }
+            CachedGlyph& entry = glyph_entry(frame);
+            if (entry.from_menu || entry.menu_tried == m_menus) {
+                continue;
+            }
+            entry.menu_tried = m_menus;
+            capture_glyph(entry, icon, Capture::Menu);
         }
     };
-    mix(m.at(pixels), bytes);
-    mix(m.at(colours), 1024);
-    auto it = std::find_if(m_glyphs.begin(), m_glyphs.end(), [&](const auto& g) { return g.first == frame; });
-    if (it == m_glyphs.end() || it->second.hash != hash) {
-        CachedGlyph made;
-        made.hash = hash;
-        const spiral::Glyph g = spiral::make_glyph(spiral::decode_psmt8(m.at(pixels), width, height, m.at(colours)));
-        if (g.ok) {
-            made.image = game.create_image(g.picture.width, g.picture.height, g.picture.rgba.data());
-            made.width = g.picture.width;
-            made.height = g.picture.height;
-            made.tinted = true;
-            std::copy(g.tint, g.tint + 3, made.tint);
-        }
-        char line[160];
-        std::snprintf(line, sizeof line, "the glyph of icon 0x%X (frame %d, %dx%d): %s", static_cast<unsigned>(item.icon), frame,
-                      width, height, made.image != 0 ? "made" : g.ok ? "the port refused it" : "not a glyph on a ground");
-        if (game.info) {
-            game.info(line);
-        }
-        if (it == m_glyphs.end()) {
-            m_glyphs.push_back({frame, made});
-            it = m_glyphs.end() - 1;
-        } else {
-            if (it->second.image != 0 && game.destroy_image) {
-                game.destroy_image(it->second.image);
-            }
-            it->second = made;
+    take(a.weapon_cells, kWeaponCells);
+    take(a.gadget_cells, kGadgetCells);
+}
+
+void Shim::attach_glyph(spiral::Item& item) {
+    if (item.id == 0 || !game.create_image || !game.get_icon_frame || m_level.at.hud_state == 0) {
+        return;
+    }
+    const int frame = icon_frame(item.id, item.icon);
+    if (frame <= 0) {
+        return;
+    }
+    CachedGlyph& entry = glyph_entry(frame);
+    if (entry.image == 0) {
+        capture_glyph(entry, item.icon, Capture::Opening);
+    }
+    item.glyph = entry.image;
+    item.glyph_width = entry.width;
+    item.glyph_height = entry.height;
+    item.tinted = entry.tinted;
+    std::copy(entry.tint, entry.tint + 3, item.tint);
+}
+
+void Shim::forget_glyphs() {
+    for (const CachedGlyph& g : m_glyphs) {
+        if (g.image != 0 && game.destroy_image) {
+            game.destroy_image(g.image);
         }
     }
-    item.glyph = it->second.image;
-    item.glyph_width = it->second.width;
-    item.glyph_height = it->second.height;
-    item.tinted = it->second.tinted;
-    std::copy(it->second.tint, it->second.tint + 3, item.tint);
+    m_glyphs.clear();
+    m_menus = 0;
+    m_in_menu = false;
 }
 
 int Shim::glyph_image(int frame) const {
-    for (const auto& g : m_glyphs) {
-        if (g.first == frame) {
-            return g.second.image;
+    for (const CachedGlyph& g : m_glyphs) {
+        if (g.frame == frame) {
+            return g.image;
         }
     }
     return 0;
+}
+
+bool Shim::glyph_from_menu(int frame) const {
+    for (const CachedGlyph& g : m_glyphs) {
+        if (g.frame == frame) {
+            return g.from_menu;
+        }
+    }
+    return false;
 }
 
 // (the mod's) The health meter hidden while the wheel shows, as Prey hides its HUD. Its record is

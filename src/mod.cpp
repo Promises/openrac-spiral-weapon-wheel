@@ -15,7 +15,7 @@
 // the quick select's HUD record. Before the pause the game slows down for a moment (the port's
 // time_stretch), as Prey's wheel eases time down.
 //
-// Six hook points:
+// Seven hook points:
 //   rac1.level.update_play          game mode 0's tick: Going Commando's gate before it, and the
 //                                   slow-down's tick; when the pause opens, the tick is skipped
 //   rac1.freeze.update              the freeze mode's tick: the mod's kind runs UpdateModalState
@@ -24,6 +24,8 @@
 //   rac1.hud.quick_select.init      the quick select's HUD record: Going Commando's init, the
 //   rac1.hud.quick_select.update    spiral's update and draw
 //   rac1.hud.quick_select.draw
+//   rac1.menu.item_grid.draw        the pause menu's item grid: the items' glyphs captured from the
+//                                   HUD's icons while its pages are certain
 // The first three need OpenRAC with those hook points; the pictures need mod interface 1.40.
 #include <cmath>
 #include <cstdint>
@@ -390,7 +392,14 @@ void load(openrac::Mod& mod) {
         first("rac1.hud.quick_select.draw");
         return layer().selector_draw(record);
     });
-    // The pictures, under the game's HUD, in play and in the pause (the freeze mode is a menu's phase).
+    // The glyphs, captured while the pause menu's item grid draws (its HUD pages certain).
+    mod.hook<rac1::Menu_ItemGrid_Draw>([](auto original, std::uint32_t grid) -> std::int32_t {
+        connect();
+        first("rac1.menu.item_grid.draw");
+        layer().menu_grid_draw();
+        return original(grid);
+    });
+        // The pictures, under the game's HUD, in play and in the pause (the freeze mode is a menu's phase).
     mod.on_overlay_phases(draw_overlay, nullptr, OPENRAC_OVERLAY_PLAYING | OPENRAC_OVERLAY_MENU | OPENRAC_OVERLAY_UNDER_HUD);
 
     if (mod.has_settings_set()) {
@@ -402,4 +411,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.1.1", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.1.2", load)

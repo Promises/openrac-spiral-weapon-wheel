@@ -25,12 +25,17 @@ struct Picture {
 Picture decode_psmt8(const std::uint8_t* indices, int width, int height, const std::uint8_t* palette);
 
 // What make_glyph made: the glyph (its own near-black colour, alpha its shape) and the ground's
-// colour. `ok` false when the picture is not a dark glyph on a lighter ground.
+// colour. `ok` false when the picture does not pass as an icon: a near-black glyph well below a
+// coloured ground, the edge ring mostly ground and smooth, the picture mostly smooth (noise is
+// not), the glyph covering 5 % to 70 % of it; `reason` the check it failed.
 struct Glyph {
     bool ok = false;
     Picture picture;
     std::uint8_t tint[3] = {0, 0, 0};
     bool tint_from_corner = false;  // the top-right corner was ground (else the ring's brightest)
+    // Why it is not one (ok false): the checks a decoded icon must pass before it is used, so that
+    // a picture read from memory the game has since used for something else is never shown.
+    const char* reason = "";
 };
 
 // The glyph of `icon` (an RGBA picture at least 8 x 8), `scale` times its cropped size.

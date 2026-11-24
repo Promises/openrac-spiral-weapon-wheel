@@ -228,6 +228,9 @@ public:
     void selector_init(std::uint32_t record);
     void selector_update(std::uint32_t record);
     int selector_draw(std::uint32_t record);
+    // rac1.menu.item_grid.draw, before the game's draw: the glyphs captured while the pause menu's
+    // pages are certain (rac1_spiral.cpp).
+    void menu_grid_draw();
 
     // Whether the freeze mode is the mod's (its kind, entered by the copied gate, mode 7 on).
     bool in_wheel_freeze() const;
@@ -277,6 +280,8 @@ public:
     bool health_hidden() const { return m_health_hidden; }
     // The glyph made for an icon frame (its overlay picture; 0 none), for the tests.
     int glyph_image(int frame) const;
+    // Whether that glyph was captured in the pause menu (its pages certain), for the tests.
+    bool glyph_from_menu(int frame) const;
     // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
     std::string item_name(std::int32_t id) const;
     std::string item_ammo(std::int32_t id, bool& empty) const;
@@ -371,17 +376,27 @@ private:
     void end_ramp(bool ease_back);
     void publish();
     void close_wheel();
-    // The glyphs (rac1_spiral.cpp): each icon frame's, made once from its pixels in game memory and
-    // kept while they stay the same.
+    // The glyphs (rac1_spiral.cpp): each icon frame's, captured from its pixels in game memory once
+    // they pass glyph.hpp's checks and then kept for the level (the pages go stale in play: the
+    // level's HUD set loads once a level, so only a level change drops them).
     struct CachedGlyph {
-        std::uint64_t hash = 0;
-        int image = 0;
+        int frame = 0;
+        int image = 0;  // 0: none yet (the game's own icon is drawn)
         int width = 0, height = 0;
         bool tinted = false;
         std::uint8_t tint[3] = {0, 0, 0};
+        bool from_menu = false;  // captured in the pause menu, where the pages are certain
+        int menu_tried = -1;     // the pause menu (m_menus) it was last tried in
     };
-    std::vector<std::pair<int, CachedGlyph>> m_glyphs;
+    enum class Capture { Menu, Opening };
+    std::vector<CachedGlyph> m_glyphs;
+    int m_menus = 0;             // the pause menus seen this level (a new one after each return to play)
+    bool m_in_menu = false;      // the item grid drew since the last tick in play
+    CachedGlyph& glyph_entry(int frame);
+    int icon_frame(std::int32_t id, std::uint16_t icon) const;
+    void capture_glyph(CachedGlyph& entry, std::uint16_t icon, Capture when);
     void attach_glyph(spiral::Item& item);
+    void forget_glyphs();
     // The health meter hidden while the wheel shows, and how long it showed for when it was.
     bool m_health_hidden = false;
     bool m_health_logged = false;

@@ -1089,7 +1089,7 @@ void test_draw() {
     gc::shim().selector_draw(kRecord);
     CHECK(f.texts.size() == 2 && f.texts[1].text == "0/40" && f.texts[1].colour == 0x804040ffu);
     // A gold weapon: its glyph from the gold icon frame (4), as the Quick Select page draws it; the
-    // same pictures again on the next opening (kept while their pixels stay the same).
+    // same pictures again on the next opening (kept for the level).
     f.wr<std::uint8_t>(f.d.gold + 0x11, 1);
     const std::size_t made = f.images.size();
     const std::vector<spiral::Item> again = gc::shim().collect_items();
@@ -1100,12 +1100,131 @@ void test_draw() {
             CHECK_EQ(it.glyph, gc::shim().glyph_image(fake_frame(0xE900 + 0x11, 4)));
         }
     }
-    // Pixels changed (a new level's HUD): that frame's glyph made again, the old picture let go.
-    const int old = gc::shim().glyph_image(fake_frame(0xE900 + 0x12, 0));
-    f.wr<std::uint8_t>(kHudTables + 0x2000 + 5 * 32 + 5, 255);
+}
+
+// The fake HUD's pages after the level has reused their memory (what bank 0's do in play, the
+// pause menu's buffer and the level load's both being the level's again): the icons' indices, and
+// with `palette` their palette too, overwritten with bytes of no picture; `zero` cleared instead.
+void stale_pages(Fake& f, bool palette, bool zero = false) {
+    std::uint32_t x = 0x2545F491u;
+    auto next = [&x] {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        return static_cast<std::uint8_t>(x >> 7);
+    };
+    for (std::uint32_t i = 0; i < 32 * 32; ++i) {
+        f.wr<std::uint8_t>(kHudTables + 0x2000 + i, zero ? 0 : next());
+    }
+    if (palette) {
+        for (std::uint32_t i = 0; i < 1024; ++i) {
+            f.wr<std::uint8_t>(kHudTables + 0x2800 + i, zero ? 0 : next());
+        }
+    }
+}
+
+// The glyphs' capture (1.1.2): made once from pages that pass the checks and kept for the level
+// however the pages change after; captured again, once, in the pause menu (its pages certain); a
+// stale page rejected with its reason, the item left with the game's own icon (never noise); a
+// level change drops them all.
+void test_glyph_capture() {
+    Fake f;
+    set_up(f, true, false);
+    const int frame12 = fake_frame(0xE900 + 0x12, 0);
+    auto glyphs_of = [](const std::vector<spiral::Item>& items) {
+        int with = 0;
+        for (const spiral::Item& it : items) {
+            with += it.glyph != 0 ? 1 : 0;
+        }
+        return with;
+    };
+    // The first opening: every item's glyph from the pages as they are (item 0x0C's bank is not
+    // linked: none), each logged once.
+    const std::vector<spiral::Item> first = gc::shim().collect_items();
+    CHECK_EQ(glyphs_of(first), static_cast<int>(first.size()) - 1);
+    CHECK(f.logged("the glyph of icon 0xE912 (frame 19), at the wheel's opening: captured and valid"));
+    CHECK(f.logged("the glyph of icon 0xE90C (frame 13), at the wheel's opening: rejected: its pages are not loaded"));
+    CHECK(!gc::shim().glyph_from_menu(frame12));
+    const int kept = gc::shim().glyph_image(frame12);
+    CHECK(kept != 0);
+    const std::size_t images = f.images.size(), destroyed = f.destroyed.size();
+
+    // The pages go stale in play: the next openings keep every glyph, decode nothing again.
+    for (const bool palette : {false, true}) {
+        stale_pages(f, palette);
+        const std::vector<spiral::Item> later = gc::shim().collect_items();
+        CHECK_EQ(glyphs_of(later), glyphs_of(first));
+        CHECK_EQ(gc::shim().glyph_image(frame12), kept);
+        CHECK_EQ(f.images.size(), images);
+        CHECK_EQ(f.destroyed.size(), destroyed);
+    }
+    // A pause menu whose pages were stale (no such menu in the game; the checks are the guard):
+    // rejected with the reason, the glyph from the opening kept.
+    stale_pages(f, false);
+    gc::shim().menu_grid_draw();
+    CHECK(f.logged("the glyph of icon 0xE912 (frame 19), in the pause menu: rejected: "));
+    CHECK_EQ(gc::shim().glyph_image(frame12), kept);
+    CHECK(!gc::shim().glyph_from_menu(frame12));
+    CHECK_EQ(f.images.size(), images);
+    CHECK_EQ(f.destroyed.size(), destroyed);
+
+    // The next pause menu, its pages the icons again: each glyph captured from it, once (the one
+    // from the opening let go), then kept whatever its pages hold in later menus.
+    fake_hud(f);
+    play(f, 0);
+    gc::shim().menu_grid_draw();
+    CHECK(f.logged("the glyph of icon 0xE912 (frame 19), in the pause menu: captured and valid"));
+    CHECK(gc::shim().glyph_from_menu(frame12));
+    const int from_menu = gc::shim().glyph_image(frame12);
+    CHECK(from_menu != 0 && from_menu != kept);
+    CHECK(std::find(f.destroyed.begin(), f.destroyed.end(), kept) != f.destroyed.end());
+    const std::size_t menu_images = f.images.size();
+    gc::shim().menu_grid_draw();
+    stale_pages(f, true);
+    play(f, 0);
+    gc::shim().menu_grid_draw();
     gc::shim().collect_items();
-    CHECK(gc::shim().glyph_image(fake_frame(0xE900 + 0x12, 0)) != old);
-    CHECK(!f.destroyed.empty() && f.destroyed.back() == old ? true : std::find(f.destroyed.begin(), f.destroyed.end(), old) != f.destroyed.end());
+    CHECK_EQ(f.images.size(), menu_images);
+    CHECK_EQ(gc::shim().glyph_image(frame12), from_menu);
+
+    // A level change (its own HUD set): every glyph let go. Its pages stale before any capture:
+    // each kind of stale page rejected with a reason, no glyph, so the game's own icon is drawn.
+    // (Live: the menu's glyphs, one per item with a glyph.)
+    const std::size_t let_go = f.destroyed.size();
+    gc::shim().connect(f.level + 1);
+    CHECK(std::find(f.destroyed.begin() + static_cast<std::ptrdiff_t>(let_go), f.destroyed.end(), from_menu) !=
+          f.destroyed.end());
+    CHECK_EQ(f.destroyed.size() - let_go, static_cast<std::size_t>(glyphs_of(first)));
+    CHECK_EQ(gc::shim().glyph_image(frame12), 0);
+    const std::size_t level_images = f.images.size();
+    struct Stale {
+        bool palette, zero;
+        const char* reason;
+    };
+    for (const Stale& st : {Stale{false, false, "the edge is not one ground (noise?)"},
+                            Stale{true, false, "no dark glyph on a lighter ground"},
+                            Stale{true, true, "no dark glyph on a lighter ground"}}) {
+        fake_hud(f);
+        stale_pages(f, st.palette, st.zero);
+        const std::vector<spiral::Item> stale = gc::shim().collect_items();
+        CHECK_EQ(glyphs_of(stale), 0);
+        CHECK_EQ(f.images.size(), level_images);
+        CHECK(f.logged((std::string("the glyph of icon 0xE912 (frame 19), at the wheel's opening: rejected: ") + st.reason).c_str()));
+    }
+    // An icon palette gone grey (a ground with no colour) is no icon's either.
+    fake_hud(f);
+    for (int i = 0; i < 256; ++i) {
+        const std::uint32_t c = kHudTables + 0x2800 + 4u * static_cast<std::uint32_t>(i);
+        const std::uint8_t v = f.rd<std::uint8_t>(c + 1);
+        f.wr<std::uint8_t>(c, v);
+        f.wr<std::uint8_t>(c + 2, v);
+    }
+    CHECK_EQ(glyphs_of(gc::shim().collect_items()), 0);
+    CHECK(f.logged("the glyph of icon 0xE912 (frame 19), at the wheel's opening: rejected: the ground has no colour"));
+    // The pages good again: the next opening captures them.
+    fake_hud(f);
+    CHECK_EQ(glyphs_of(gc::shim().collect_items()), glyphs_of(first));
+    gc::shim().connect(f.level);
 }
 
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
@@ -1919,6 +2038,7 @@ int main() {
     test_fades_and_commit();
     test_toggle();
     test_draw();
+    test_glyph_capture();
     test_paused_path();
     test_health_hidden();
     test_slow_down();

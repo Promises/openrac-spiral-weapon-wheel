@@ -198,6 +198,9 @@ void Shim::connect(int level) {
     }
     m_level_number = level;
     reset();
+    // A level's HUD set: the glyphs made from the last one's go (after reset's publish, which took
+    // them off the wheel's picture).
+    forget_glyphs();
     const Disc& d = game.disc;
     LevelAddresses l;
     l.at = d;
@@ -629,6 +632,11 @@ void Shim::update_play(const std::function<void()>& original) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     ++m_play_ticks;
+    // Back in play after a pause menu: the next one tries the rejected glyphs again.
+    if (m_in_menu) {
+        m_in_menu = false;
+        ++m_menus;
+    }
     // The slow-down: its tick; at its end the pause, which takes this tick as the gate's does.
     if (m_ramp != Ramp::None) {
         ramp_tick();

@@ -107,6 +107,19 @@ Ratchet & Clank PAL and NTSC-U.
   colour (its top-right corner, or the ring's brightest half where the glyph reaches the corner),
   at 55 % value and 75 % saturation (85 % and 90 % when pointed at). Nothing of the game's is in
   the mod or this repository. An icon that cannot be read is drawn as the game's own sprite.
+- **When the glyphs are captured.** The game keeps the HUD's icons (its bank 0) in a buffer only
+  for a while: the level load decompresses them into one, the pause menu into another, and in
+  play the HUD draws them from the GS while the level reuses both buffers. The icon pages then
+  still point at memory that is no longer theirs (which is where 1.1.1's noise came from, as it
+  remade glyphs when the pixels changed). So a glyph is captured while the pause menu's item grid
+  draws (the hook point `rac1.menu.item_grid.draw`, the pages certain), or, for an item that has
+  none yet, at the wheel's opening from the pages as they are. Every decode is checked first: a
+  near-black glyph well below a coloured ground, the edge ring mostly ground and smooth, the
+  picture mostly smooth (noise is not), the glyph covering 5 % to 70 % of it. A glyph that passes
+  is kept for the rest of the level (one from an opening is replaced once by the next pause menu's);
+  one that fails is not used, the item keeps the glyph it had or the game's own sprite, and it is
+  tried again at the next opening or pause menu. Only a level change drops the glyphs. The log
+  has, once a level, each icon captured and each rejected with the reason.
 - **The items** are those of the pause menu's Quick Select page: the owned items of its weapons
   grid (15 cells), then of its hand gadgets grid (6 cells), read from the game's own tables
   (`pause_item_candidate_entries`, `pause_hand_gadget_cells`), shown and assigned when owned as the
@@ -129,6 +142,7 @@ Ratchet & Clank PAL and NTSC-U.
 | What the Quick Select page can assign, like Prey's favourites | the mod's own choice; the rule is the game's |
 | The quick select as the home ring, the diagonals' rounding, the first push on that loop | the mod's own choice |
 | Glyphs from the game's icons, tinted cells, the fit with 13 % padding | the user's choice; the method is the mod's own |
+| Glyphs captured while the pause menu draws, checked before use, kept for the level | the mod's own, from the HUD banks' lifetimes in the decompilation |
 | The health meter hidden while open | Prey hides its HUD; the mod's own way |
 | Nothing picked until the pointer moved | Going Commando (its quick select opens on nothing) |
 | The quick select's items marked with their number, as Prey Menu marks hotkeys | the mod's own choice |
@@ -167,8 +181,10 @@ The tests:
 - `src/spiral_weapon_wheel_test.cpp` runs the layer, the copied code and the wheel on a fake game:
   - the items offered (none of the Items page), the selection through the loops, the d-pad and the picks (an item, item 0x18,
     a blank, the item in hand, Circle, a release before moving);
-  - the glyphs (synthetic icons only: no game pixels in the tests) and their fallback, the health
-    meter hidden and restored on every way out;
+  - the glyphs (synthetic icons only: no game pixels in the tests) and their fallback; their
+    capture with the pages made stale after it (kept) and before it (rejected with the reason, the
+    game's sprite), the pause menu's capture and a level change; the health meter hidden and
+    restored on every way out;
   - the toggle mode and the draw;
   - the slow-down into the pause and the ease back;
   - the pause from the hold to the release, the gate's conditions, taps, double taps and holds at
