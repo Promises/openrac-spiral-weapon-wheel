@@ -21,6 +21,49 @@ stand-in panel pictures and a stand-in font. In the game the panels carry the ga
 scanlines, glint and static, and the names, numbers and font are Ratchet & Clank's own. The quick
 select's 1 to 8 are the first slots; the Devastator here is a gold one.*
 
+## Add your own icons
+
+The wheel draws every item as a flat glyph it colours itself, and **any mod can give it glyphs**:
+an equipment mod for its new weapon, a texture or icon pack maker for any item, a player for
+their own taste. No dependency on this mod is needed; without the wheel the folder is ignored.
+[ICONS.md](ICONS.md) has the full spec.
+
+- **Where:** a folder `spiral-wheel-icons/` in your mod's own folder
+  (`<plugins>/<your mod>/spiral-wheel-icons/`). Players put theirs in
+  `<plugins>/spiral-weapon-wheel/icons/`.
+- **What:** an `icons.json` and the glyph files beside it. The smallest pack:
+
+  ```json
+  {
+    "format": 1,
+    "name": "Laser Pistol",
+    "author": "A. Modder",
+    "license": "CC BY 4.0",
+    "icons": [
+      {"game": "rac1", "item": "0x24", "glyph": "laser-pistol.svg", "category": "weapon"}
+    ]
+  }
+  ```
+
+  Without an `icons.json`, plain files named by item id also work:
+  `<pack>/rac1/0a.svg` (hexadecimal) replaces the Bomb Glove.
+- **The glyph:** an SVG with one `<path fill="currentColor" d="..."/>` on
+  `viewBox="0 0 256 256"`, flat, with no shadow or outline (the wheel colours it and adds its own
+  shadow). A PNG works too: white on transparent, 128 px or more.
+- **The item:** `item` is the game's item id, a number or a hex string (`10`, `"0x0A"`). A weapon a
+  mod registers takes one of the port's extension items (1 or 36 today); give your icon that id.
+- **Colours:** `category` (`weapon`, `gold`, `gadget`, `pack`, `head`, `feet`, `item`) picks the
+  slot's wash and the glyph's tint, as the game colours its icons; `wash`, `glyph_color` and
+  `selected_glyph_color` (`"#RRGGBB"`) override them. A weapon whose gold version the player owns
+  turns gold by itself.
+- **Long names:** `"wrap": "Hydro-|displacer"` says where a long single-word name may break onto two
+  lines in the wheel's small middle disc (used only when it matches the game's name exactly).
+- **Precedence:** the built-in pack, then mods' packs (by folder name), then the player's own; a
+  later pack's icon for an item replaces an earlier one, and the log says so. An item no pack
+  draws gets a glyph made from your own disc data, else the game's icon.
+
+## What it does
+
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
 - **The spiral.** Everything you can put on your quick select (the weapons and gadgets of the pause
@@ -368,8 +411,8 @@ The tests:
   GPL-3.0-or-later.
 - **The glyphs** (`assets/glyphs/`) are original drawings by Henning Berge, **not** under the GPL.
   The licence they are offered under is to be decided (`assets/glyphs/LICENSE-glyphs`). Nothing in
-  the mod is taken from the game: no game-derived art is shipped. `docs/wheel.png` and
-  `docs/categories.png` are drawn by the mod's own code with these glyphs.
+  the mod is taken from the game: no game-derived art is shipped. `docs/wheel.png`,
+  `docs/icon.png` and `docs/categories.png` are drawn by the mod's own code with these glyphs.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the details. The package carries it as
   `LICENSE.THIRD_PARTY_NOTICES.md`.
 
