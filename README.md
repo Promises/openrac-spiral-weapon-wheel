@@ -13,11 +13,13 @@ while the mod runs.
 
 **[Watch it in game on YouTube](https://youtu.be/TsFeHlWv1F8)**
 
-![The wheel, a mock-up](docs/mockup.png)
+![The wheel, a mock-up](docs/wheel.png)
 
-*A mock-up drawn by the mod's own painter (`src/spiral/paint.cpp`) with its own glyphs, through its
-icon pack loader, and a stand-in font. In the game the names, numbers and font are Ratchet &
-Clank's own. The Devastator here is a gold one.*
+*A mock-up of the default look (1.4.6: counter-clockwise, growing outward, Continuous), drawn by the
+mod's own painter (`src/spiral/paint.cpp`) with its own glyphs, through its icon pack loader, its
+stand-in panel pictures and a stand-in font. In the game the panels carry the game's own
+scanlines, glint and static, and the names, numbers and font are Ratchet & Clank's own. The quick
+select's 1 to 8 are the first slots; the Devastator here is a gold one.*
 
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
@@ -26,15 +28,19 @@ Clank's own. The Devastator here is a gold one.*
   its items in their numbers' order, 1 on the start angle (12 o'clock), then 2, 3 ... 8 as the
   next slots (an empty quick select slot is skipped, not left as a gap); the others follow (the
   weapons, then the gadgets, then items mods add), on into the next loops. The first push of each
-  opening lands on the item in the pushed direction on the first loop. The spiral winds inward, each slot a little
-  further in than the one before. Turn the stick around and the pointer goes round and round through
-  the loops; twelve slots are shown whole and the ones beyond fade out either side. With "Spiral
-  motion" *Continuous* (the default) the spiral follows the pointer all the time, as Prey Menu's
-  does, the pointed-at slot in the middle of the twelve; with *Loop steps* the pointer's whole loop
-  is shown, and the spiral turns to the next loop as the pointer crosses into it. Empty slots link
-  the last item's loop on round into the first item, so the spiral reads as one path, wherever the
-  window shows them; they are drawn faint, never larger than the item they link, and never in the
-  window's fading start (where they would lie over the next loop's items). The d-pad steps one item at a time.
+  opening lands on the item in the pushed direction on the first loop. By default the spiral turns
+  counter-clockwise and grows outward: the first loop (your quick select's) is the innermost, each
+  slot a little further out than the one before, and the later loops may run past the screen's
+  edge. Turn the stick around and the pointer goes round and round through the loops. With "Spiral
+  motion" *Continuous* (the default) the spiral follows the pointer, as Prey Menu's does: while
+  the pointer is on the first loop that loop holds still and shows whole, and past it the ring the
+  pointer is in is whole, the 6 slots either side of the pointer at full strength and the ones
+  beyond fading out. With *Loop steps* the pointer's whole loop is shown, and the spiral turns to
+  the next loop as the pointer crosses into it. Empty slots after the last item complete its loop
+  and link it round to the first item, drawn faint, so the spiral reads as one path; there are
+  never rings of them inside the first loop. The d-pad steps one item at a time. The settings
+  *Clockwise* and *Spiral grows: Inward* (the design's drawing: the first loop outermost, the
+  spiral winding in, kept inside the screen) change the direction and the growth.
 - **What it shows.** Every slot is a menu panel bent into its sector: scanlines, a khaki frame and
   a white glint, washed in its item's category colour, as the game colours its icons: blue for a
   weapon, orange-tan for a weapon whose gold version you own, green for a gadget (and for mods'
@@ -362,7 +368,7 @@ The tests:
   GPL-3.0-or-later.
 - **The glyphs** (`assets/glyphs/`) are original drawings by Henning Berge, **not** under the GPL.
   The licence they are offered under is to be decided (`assets/glyphs/LICENSE-glyphs`). Nothing in
-  the mod is taken from the game: no game-derived art is shipped. `docs/mockup.png` and
+  the mod is taken from the game: no game-derived art is shipped. `docs/wheel.png` and
   `docs/categories.png` are drawn by the mod's own code with these glyphs.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the details. The package carries it as
   `LICENSE.THIRD_PARTY_NOTICES.md`.
