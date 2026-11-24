@@ -1,0 +1,236 @@
+{
+  "format": 1,
+  "name": "Spiral Weapon Wheel glyphs",
+  "author": "Henning Berge",
+  "license": "Henning Berge, licence to be decided (LICENSE-glyphs)",
+  "icons": [
+    {
+      "game": "rac1",
+      "item": "0x02",
+      "glyph": "heli-pack.svg",
+      "category": "pack"
+    },
+    {
+      "game": "rac1",
+      "item": "0x03",
+      "glyph": "thruster-pack.svg",
+      "category": "pack"
+    },
+    {
+      "game": "rac1",
+      "item": "0x04",
+      "glyph": "hydro-pack.svg",
+      "category": "pack"
+    },
+    {
+      "game": "rac1",
+      "item": "0x05",
+      "glyph": "sonic-summoner.svg",
+      "category": "head"
+    },
+    {
+      "game": "rac1",
+      "item": "0x06",
+      "glyph": "o2-mask.svg",
+      "category": "head"
+    },
+    {
+      "game": "rac1",
+      "item": "0x07",
+      "glyph": "pilots-helmet.svg",
+      "category": "head"
+    },
+    {
+      "game": "rac1",
+      "item": "0x09",
+      "glyph": "suck-cannon.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x0A",
+      "glyph": "bomb-glove.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x0B",
+      "glyph": "devastator.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x0C",
+      "glyph": "swingshot.svg",
+      "category": "gadget"
+    },
+    {
+      "game": "rac1",
+      "item": "0x0D",
+      "glyph": "visibomb-gun.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x0E",
+      "glyph": "taunter.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x0F",
+      "glyph": "blaster.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x10",
+      "glyph": "pyrocitor.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x11",
+      "glyph": "mine-glove.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x12",
+      "glyph": "walloper.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x13",
+      "glyph": "tesla-claw.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x14",
+      "glyph": "glove-of-doom.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x15",
+      "glyph": "morph-o-ray.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x16",
+      "glyph": "hydrodisplacer.svg",
+      "category": "gadget"
+    },
+    {
+      "game": "rac1",
+      "item": "0x17",
+      "glyph": "ryno.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x18",
+      "glyph": "drone-device.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x19",
+      "glyph": "decoy-glove.svg",
+      "category": "weapon"
+    },
+    {
+      "game": "rac1",
+      "item": "0x1A",
+      "glyph": "trespasser.svg",
+      "category": "gadget"
+    },
+    {
+      "game": "rac1",
+      "item": "0x1B",
+      "glyph": "metal-detector.svg",
+      "category": "gadget"
+    },
+    {
+      "game": "rac1",
+      "item": "0x1C",
+      "glyph": "magneboots.svg",
+      "category": "feet"
+    },
+    {
+      "game": "rac1",
+      "item": "0x1D",
+      "glyph": "grindboots.svg",
+      "category": "feet"
+    },
+    {
+      "game": "rac1",
+      "item": "0x1E",
+      "glyph": "hoverboard.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "item": "0x1F",
+      "glyph": "hologuise.svg",
+      "category": "gadget"
+    },
+    {
+      "game": "rac1",
+      "item": "0x20",
+      "glyph": "pda.svg",
+      "category": "gadget"
+    },
+    {
+      "game": "rac1",
+      "item": "0x21",
+      "glyph": "map-o-matic.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "item": "0x22",
+      "glyph": "bolt-grabber.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "item": "0x23",
+      "glyph": "persuader.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "special": "zoomerator",
+      "glyph": "zoomerator.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "special": "raritanium",
+      "glyph": "raritanium.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "special": "codebot",
+      "glyph": "codebot.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "special": "premium-nanotech",
+      "glyph": "premium-nanotech.svg",
+      "category": "item"
+    },
+    {
+      "game": "rac1",
+      "special": "ultra-nanotech",
+      "glyph": "ultra-nanotech.svg",
+      "category": "item"
+    }
+  ]
+}

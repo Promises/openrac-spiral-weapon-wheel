@@ -27,13 +27,21 @@ std::uint8_t median(std::vector<std::uint8_t> v) {
 
 }  // namespace
 
-Picture decode_psmt8(const std::uint8_t* indices, int width, int height, const std::uint8_t* palette) {
+Palette palette_from_csm1(const std::uint8_t* stored) {
+    Palette p{};
+    for (int i = 0; i < 256; ++i) {
+        std::copy(stored + 4 * csm1(i), stored + 4 * csm1(i) + 4, p.begin() + 4 * i);
+    }
+    return p;
+}
+
+Picture decode(const std::uint8_t* indices, int width, int height, const Palette& palette) {
     Picture p;
     p.width = width;
     p.height = height;
     p.rgba.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
     for (int i = 0; i < width * height; ++i) {
-        const std::uint8_t* c = palette + 4 * csm1(indices[i]);
+        const std::uint8_t* c = palette.data() + 4 * indices[i];
         std::uint8_t* o = &p.rgba[static_cast<std::size_t>(i) * 4];
         o[0] = c[0];
         o[1] = c[1];
@@ -43,14 +51,24 @@ Picture decode_psmt8(const std::uint8_t* indices, int width, int height, const s
     return p;
 }
 
+int chroma(const std::uint8_t* c) { return std::max({c[0], c[1], c[2]}) - std::min({c[0], c[1], c[2]}); }
 
-Glyph make_glyph(const Picture& icon, int scale) {
+std::array<float, 256> palette_cover(const Palette& palette) {
+    std::array<float, 256> cover{};
+    for (int i = 0; i < 256; ++i) {
+        const float raw = 1.0f - static_cast<float>(chroma(palette.data() + 4 * i)) / kGroundChroma;
+        cover[static_cast<std::size_t>(i)] = std::clamp((raw - kCoverFrom) / (kCoverTo - kCoverFrom), 0.0f, 1.0f);
+    }
+    return cover;
+}
+
+Glyph make_glyph(const std::uint8_t* indices, int w, int h, const Palette& palette, int scale) {
     Glyph g;
-    const int w = icon.width, h = icon.height;
-    if (w < 8 || h < 8 || icon.rgba.size() < static_cast<std::size_t>(w * h * 4) || scale < 1) {
+    if (indices == nullptr || w < 8 || h < 8 || w > 256 || h > 256 || scale < 1) {
         g.reason = "no picture";
         return g;
     }
+    const Picture icon = decode(indices, w, h, palette);
     auto px = [&](int x, int y) { return &icon.rgba[(static_cast<std::size_t>(y) * w + x) * 4]; };
     auto value = [&](int x, int y) {
         const std::uint8_t* p = px(x, y);
@@ -72,42 +90,34 @@ Glyph make_glyph(const Picture& icon, int scale) {
         ring_v.push_back(static_cast<std::uint8_t>(value(x, y)));
     }
     const int ring_mid = median(ring_v);
-    int ring_max = 0;
-    std::vector<std::uint8_t> bright[3];
     std::vector<std::uint8_t> bright_v;
     for (const auto& [x, y] : ring) {
-        const int v = value(x, y);
-        ring_max = std::max(ring_max, v);
-        if (v >= ring_mid) {
-            for (int k = 0; k < 3; ++k) {
-                bright[k].push_back(px(x, y)[k]);
-            }
-            bright_v.push_back(static_cast<std::uint8_t>(v));
+        if (value(x, y) >= ring_mid) {
+            bright_v.push_back(static_cast<std::uint8_t>(value(x, y)));
         }
     }
-    // The tint: the top-right 3 x 3 two pixels in, by its median; when that is glyph (dark), the
-    // ring's brighter half's median.
-    std::vector<std::uint8_t> corner[3];
-    int corner_v = 0;
-    for (int y = 2; y < 5; ++y) {
-        for (int x = w - 5; x < w - 2; ++x) {
+    // The tint: the mean of the ground's palette entries (the saturated ones) as the picture uses
+    // them.
+    double sum[3] = {0, 0, 0};
+    int grounds = 0;
+    for (int i = 0; i < w * h; ++i) {
+        const std::uint8_t* c = palette.data() + 4 * indices[i];
+        if (chroma(c) >= kGroundEntryChroma) {
             for (int k = 0; k < 3; ++k) {
-                corner[k].push_back(px(x, y)[k]);
+                sum[k] += c[k];
             }
+            ++grounds;
         }
+    }
+    if (grounds == 0) {
+        g.reason = "the ground has no colour";
+        return g;
     }
     for (int k = 0; k < 3; ++k) {
-        g.tint[k] = median(corner[k]);
-        corner_v = std::max(corner_v, static_cast<int>(g.tint[k]));
+        g.tint[k] = static_cast<std::uint8_t>(std::lround(sum[k] / grounds));
     }
-    g.tint_from_corner = corner_v > ring_max / 2;
-    if (!g.tint_from_corner) {
-        for (int k = 0; k < 3; ++k) {
-            g.tint[k] = median(bright[k]);
-        }
-    }
-    // The glyph against the ground, by brightness: the ground's value (the ring's brighter half)
-    // to the glyph's (the darkest 5 %), soft from 35 % to 75 % of the way.
+    // The checks of an icon (a coloured ground, a near-black glyph): a dark glyph well below the
+    // ground (the ring's brighter half against the darkest 5 %).
     const float ground = median(bright_v);
     std::vector<int> all_v;
     for (int y = 0; y < h; ++y) {
@@ -117,23 +127,19 @@ Glyph make_glyph(const Picture& icon, int scale) {
     }
     std::nth_element(all_v.begin(), all_v.begin() + static_cast<std::ptrdiff_t>(all_v.size() / 20), all_v.end());
     const float dark = static_cast<float>(all_v[all_v.size() / 20]);
-    // The checks of an icon (a coloured ground, a near-black glyph): a dark glyph well below the
-    // ground; a ground with colour in it.
     if (ground - dark < 60.0f || dark > 80.0f) {
         g.reason = "no dark glyph on a lighter ground";
         return g;
     }
-    if (std::max({g.tint[0], g.tint[1], g.tint[2]}) - std::min({g.tint[0], g.tint[1], g.tint[2]}) < 30) {
-        g.reason = "the ground has no colour";
-        return g;
-    }
+    // The glyph keyed in the palette (palette_cover): each index's coverage, times its alpha, so
+    // the icon's own anti-aliased edge stays.
+    const std::array<float, 256> keyed = palette_cover(palette);
     std::vector<float> cover(static_cast<std::size_t>(w * h));
     int x0 = w, y0 = h, x1 = -1, y1 = -1, solid = 0;
     std::vector<std::uint8_t> ink[3];
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            const float t = (ground - static_cast<float>(value(x, y))) / (ground - dark);
-            const float c = smooth(0.35f, 0.75f, t) * (px(x, y)[3] / 255.0f);
+            const float c = keyed[indices[y * w + x]] * (px(x, y)[3] / 255.0f);
             cover[static_cast<std::size_t>(y * w + x)] = c;
             if (c > 0.1f) {
                 x0 = std::min(x0, x);

@@ -119,8 +119,7 @@ struct Painter {
         // The panel: scanlines, the category's wash (none for an empty slot).
         ring(inner, outer, a0, a1, Art::Scan, {255, 255, 255}, alpha);
         if (!s.empty) {
-            ring(inner, outer, a0, a1, Art::White, s.gadget ? look::kWashGadget : look::kWashWeapon,
-                 (s.selected ? look::kWashSelected : look::kWash) * alpha);
+            ring(inner, outer, a0, a1, Art::White, s.wash, (s.selected ? look::kWashSelected : look::kWash) * alpha);
         }
         frame(inner, outer, s.angle_deg, s.selected ? look::kFrameSelected : look::kFrame, alpha);
         // The glint at the clockwise corner, inside the outer edge.
@@ -136,8 +135,7 @@ struct Painter {
             float x, y;
             at(s.radius + s.push, s.angle_deg, x, y);
             picture(Art::Glyph, s.glyph, x + look::kShadowX * f.unit, y + look::kShadowY * f.unit, w, h, look::kShadow, alpha);
-            picture(Art::Glyph, s.glyph, x, y, w, h,
-                    s.selected ? look::kHighlight : s.gadget ? look::kGlyphGadget : look::kGlyphWeapon, alpha);
+            picture(Art::Glyph, s.glyph, x, y, w, h, s.selected ? s.selected_colour : s.glyph_colour, alpha);
         }
     }
 

@@ -21,8 +21,10 @@
 #include <cstring>
 
 #include "rac1_shim.hpp"
+#include "../rac1/hud_set.hpp"
 #include "../spiral/arrange.hpp"
 #include "../spiral/glyph.hpp"
+#include "../spiral/icon_packs.hpp"
 
 namespace gc_weapon_wheel::gc {
 
@@ -64,7 +66,12 @@ int game_y(float y) { return static_cast<int>(std::lround(kScreenHeight * 0.5f +
 // The items the player can put on the quick select, in the Quick Select page's order: its weapons
 // grid, then its hand gadgets grid (layout.hpp: the cells' tables, draw_menu_item_grid's and
 // update_menu_item_slots' rule), each cell's item when it is an item (kind 0) and owned. Nothing of
-// the Items page (packs, helmets, boots, the Sonic Summoner, the Persuader...) is in them.
+// the Items page (packs, helmets, boots, the Sonic Summoner, the Persuader...) is in them. Then
+// (the mod's) a weapon an equipment mod registered (rac1_weapon_register: the port's two native
+// extension slots, items 1 and 36, which the grids do not have) when it is owned and has an icon,
+// as the port's own quick select lists it (port/game/common/mod_weapon_wheel.inc). Each item's icon
+// is its definition's (item_defs +0x38, which the port sets for a registered weapon), else its
+// cell's.
 std::vector<spiral::Item> Shim::collect_items() {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
@@ -83,8 +90,8 @@ std::vector<spiral::Item> Shim::collect_items() {
             }
             spiral::Item item;
             item.id = id;
-            item.gadget = gadgets;
-            item.icon = m.read<std::uint16_t>(cell + kCellIcon);
+            item.category = gadgets ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
+            item.icon = item_icon(id, m.read<std::uint16_t>(cell + kCellIcon));
             item.equipped = id == in_hand;
             for (std::uint32_t slot = 0; slot < 8; ++slot) {
                 if (m.read<std::int32_t>(a.slot_items + 4 * slot) == id) {
@@ -97,6 +104,24 @@ std::vector<spiral::Item> Shim::collect_items() {
     };
     take(a.weapon_cells, kWeaponCells, false);
     take(a.gadget_cells, kGadgetCells, true);
+    for (const std::int32_t id : kModWeaponItems) {
+        const bool listed = std::any_of(out.begin(), out.end(), [id](const spiral::Item& it) { return it.id == id; });
+        const std::uint16_t icon = item_icon(id, 0);
+        if (listed || icon == 0 || m.read<std::uint8_t>(a.item_available + static_cast<std::uint32_t>(id)) == 0) {
+            continue;
+        }
+        spiral::Item item;
+        item.id = id;
+        item.icon = icon;
+        item.equipped = id == in_hand;
+        for (std::uint32_t slot = 0; slot < 8; ++slot) {
+            if (m.read<std::int32_t>(a.slot_items + 4 * slot) == id) {
+                item.hot = static_cast<int>(slot) + 1;
+                break;
+            }
+        }
+        out.push_back(item);
+    }
     // The game's quick select is the home ring (arrange.hpp): slot i of its eight at the direction
     // draw_hud_item_selector_panel draws it (games/rac1/decomp
     // src/overlays/shared/weapon_hud_and_counters.c:1348-1353: FastAddRots(2 * i * pi / count - pi,
@@ -204,7 +229,7 @@ void Shim::capture_glyph(CachedGlyph& entry, std::uint16_t icon, Capture when) {
         report("rejected", "its pages are not loaded");
         return;
     }
-    const spiral::Glyph g = spiral::make_glyph(spiral::decode_psmt8(m.at(pixels), width, height, m.at(colours)));
+    const spiral::Glyph g = spiral::make_glyph(m.at(pixels), width, height, spiral::palette_from_csm1(m.at(colours)));
     if (!g.ok) {
         report("rejected", g.reason);
         return;
@@ -236,8 +261,8 @@ void Shim::menu_grid_draw() {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     m_in_menu = true;
-    if (m.base == nullptr || !game.create_image || !game.get_icon_frame || a.hud_state == 0) {
-        return;
+    if (m_hud.loaded() || m.base == nullptr || !game.create_image || !game.get_icon_frame || a.hud_state == 0) {
+        return;  // with the disc's HUD set, its pictures are the mod's own (attach_glyph)
     }
     auto take = [&](std::uint32_t table, int count) {
         for (int i = 0; i < count; ++i) {
@@ -264,21 +289,115 @@ void Shim::menu_grid_draw() {
     take(a.gadget_cells, kGadgetCells);
 }
 
+std::uint16_t Shim::item_icon(std::int32_t id, std::uint16_t fallback) const {
+    const Memory& m = game.memory;
+    if (m.base == nullptr || m_level.at.item_defs == 0 || id <= 0 || id >= static_cast<std::int32_t>(kWeapons)) {
+        return fallback;
+    }
+    const std::uint16_t icon =
+        m.read<std::uint16_t>(m_level.at.item_defs + static_cast<std::uint32_t>(id) * kItemDefStride + kItemDefIcon);
+    return icon != 0 ? icon : fallback;
+}
+
+// (the mod's) An item's picture on the wheel, the first there is of (ICONS.md):
+//   1. an icon pack's glyph for the item (icon_packs.hpp: the mod's own glyphs are a pack, read as
+//      any other; a later pack's over an earlier's), with the pack's category and colours if it
+//      gives them;
+//   2. the glyph the mod makes from the item's HUD icon in the level's own HUD set, which it reads
+//      from the player's disc data (hud_set.hpp: the game's copy is only there in the pause menu);
+//      without the disc data, from game memory as 1.1.2 did (capture_glyph);
+//   3. none: the game's own icon is drawn (spiral_draw).
+// Its colours are its category's (look.hpp): the game's grouping of the item (collect_items), or
+// its pack's; a weapon whose gold version the player owns (gold_weapon_purchased, the flag the pause
+// menu draws icon frame 4 by: games/rac1/decomp src/game/ui/pause.c:2977) is gold. Made once a
+// level for each item and frame (a gold weapon's frame is another), logged once.
 void Shim::attach_glyph(spiral::Item& item) {
-    if (item.id == 0 || !game.create_image || !game.get_icon_frame || m_level.at.hud_state == 0) {
+    if (item.id == 0 || !game.create_image) {
         return;
     }
-    const int frame = icon_frame(item.id, item.icon);
-    if (frame <= 0) {
-        return;
+    const bool gold = game.memory.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(item.id)) != 0;
+    const int variant = gold ? 4 : 0;
+    const bool disc = m_hud.loaded() && m_hud.has_icon(item.icon);
+    const int frame = disc ? m_hud.icon_frame(item.icon, variant) : icon_frame(item.id, static_cast<std::uint16_t>(item.icon));
+    const std::pair<int, int> key{item.id, frame};
+    auto found = m_item_icons.find(key);
+    if (found == m_item_icons.end()) {
+        ItemPicture made;
+        std::string source = "none: the game's own icon";
+        auto create = [&](const spiral::Picture& p) {
+            made.image = game.create_image(p.width, p.height, p.rgba.data());
+            made.width = p.width;
+            made.height = p.height;
+            return made.image != 0;
+        };
+        hud::Indexed picture;
+        std::string why;
+        const spiral::PackIcon* pack = m_icon_packs.icon(item.id);
+        const spiral::Picture* drawn = pack != nullptr ? m_icon_packs.picture(*pack, why) : nullptr;
+        if (drawn != nullptr && create(*drawn)) {
+            made.pack = pack;
+            source = "the icon pack " + pack->pack + "'s " + pack->file;
+        } else if (disc && m_hud.frame_picture(frame, picture)) {
+            if (pack != nullptr) {
+                source = "the icon pack " + pack->pack + "'s " + pack->file + " cannot be used (" + why + "); ";
+            } else {
+                source.clear();
+            }
+            spiral::Palette palette{};
+            std::copy(picture.palette.begin(), picture.palette.end(), palette.begin());
+            const spiral::Glyph g = spiral::make_glyph(picture.indices.data(), picture.width, picture.height, palette);
+            std::vector<std::uint8_t> white = g.picture.rgba;
+            for (std::size_t i = 0; i + 3 < white.size(); i += 4) {
+                white[i] = white[i + 1] = white[i + 2] = 255;
+            }
+            if (!g.ok) {
+                source += std::string("none: the disc's icon is not a glyph (") + g.reason + "): the game's own icon";
+            } else if ((made.image = game.create_image(g.picture.width, g.picture.height, white.data())) != 0) {
+                made.width = g.picture.width;
+                made.height = g.picture.height;
+                source += "the glyph made from the disc's HUD set";
+            } else {
+                source += "none: the port refused the picture: the game's own icon";
+            }
+        } else if (!m_hud.loaded()) {
+            // No disc data: game memory (1.1.2's capture, its checks); not kept here, as its glyph
+            // may yet come from the pause menu.
+            if (frame > 0 && game.get_icon_frame && m_level.at.hud_state != 0) {
+                CachedGlyph& entry = glyph_entry(frame);
+                if (entry.image == 0) {
+                    capture_glyph(entry, static_cast<std::uint16_t>(item.icon), Capture::Opening);
+                }
+                item.glyph = entry.image;
+                item.glyph_width = entry.width;
+                item.glyph_height = entry.height;
+            }
+            if (gold && item.category == spiral::look::Category::Weapon) {
+                item.category = spiral::look::Category::Gold;
+            }
+            return;
+        } else {
+            source = "none: the disc's HUD set has no such icon: the game's own icon";
+        }
+        char line[512];
+        std::snprintf(line, sizeof line, "the icon of item 0x%X (HUD icon 0x%X, frame %d): %s", static_cast<unsigned>(item.id),
+                      static_cast<unsigned>(item.icon), frame, source.c_str());
+        char logkey[64];
+        std::snprintf(logkey, sizeof logkey, "icon %d %d %d", m_level_number, item.id, frame);
+        log_once(logkey, line);
+        found = m_item_icons.emplace(key, made).first;
     }
-    CachedGlyph& entry = glyph_entry(frame);
-    if (entry.image == 0) {
-        capture_glyph(entry, item.icon, Capture::Opening);
+    item.glyph = found->second.image;
+    item.glyph_width = found->second.width;
+    item.glyph_height = found->second.height;
+    if (const spiral::PackIcon* pack = found->second.pack) {
+        if (pack->has_category) {
+            item.category = pack->category;
+        }
+        item.colours = pack->colours;
     }
-    item.glyph = entry.image;
-    item.glyph_width = entry.width;
-    item.glyph_height = entry.height;
+    if (gold && item.category == spiral::look::Category::Weapon) {
+        item.category = spiral::look::Category::Gold;
+    }
 }
 
 void Shim::forget_glyphs() {
@@ -288,6 +407,12 @@ void Shim::forget_glyphs() {
         }
     }
     m_glyphs.clear();
+    for (const auto& [key, picture] : m_item_icons) {
+        if (picture.image != 0 && game.destroy_image) {
+            game.destroy_image(picture.image);
+        }
+    }
+    m_item_icons.clear();
     m_menus = 0;
     m_in_menu = false;
 }

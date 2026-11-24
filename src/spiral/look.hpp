@@ -81,13 +81,35 @@ constexpr Band kFrameCentre[4] = {{9.0f, {0x1B, 0x18, 0x0B}}, {7.0f, {0x5F, 0x5E
 
 constexpr Rgb kScanDark = {0x0D, 0x0C, 0x13};
 constexpr Rgb kScanLightColour = {0x1C, 0x1B, 0x22};
-// The slots' wash, 30 % (45 % selected): weapons blue, gadgets green.
-constexpr Rgb kWashWeapon = {0x6B, 0x74, 0xD0};
-constexpr Rgb kWashGadget = {0x4F, 0xB5, 0x5C};
+// The categories, as Ratchet & Clank's menus group its items, each icon's ground a colour of its
+// own (sampled from the game's icons: light, mid and dark across the gradient): weapons blue, gold
+// weapons orange-tan, hand gadgets green, packs yellow, head gear peach, foot gear red, other items
+// purple. A slot is washed with its category's colour, 30 % (45 % selected), and its glyph drawn
+// in its light tint. Weapons and gadgets are the design's own values; the other five are derived
+// the same way: the wash the category's mid shade (as the design's gadget green is), the glyph its
+// light shade mixed 42 % toward white (as the design lightened blue and green).
+enum class Category { Weapon, Gold, Gadget, Pack, Head, Feet, Item };
+constexpr int kCategories = 7;
+struct CategoryColours {
+    const char* name;  // as icons.json writes it
+    Rgb wash, glyph;
+};
+constexpr CategoryColours kCategoryColours[kCategories] = {
+    {"weapon", {0x6B, 0x74, 0xD0}, {0xAE, 0xB6, 0xF4}},  // the design's (the game's #6475E1 / #4C5BBB / #2F3E97)
+    {"gold", {0xC4, 0x92, 0x57}, {0xEF, 0xCF, 0xAA}},    // #E4AD6C / #C49257 / #9B703C
+    {"gadget", {0x4F, 0xB5, 0x5C}, {0x9B, 0xE4, 0xA4}},  // the design's (#63DD6F / #4FBD5B / #359C42)
+    {"pack", {0xB0, 0xAC, 0x4E}, {0xE7, 0xE3, 0xA7}},    // #D5CF67 / #B0AC4E / #8F8D5A
+    {"head", {0xB4, 0x8A, 0x4E}, {0xEB, 0xCB, 0xA6}},    // #DDA566 / #B48A4E / #9B793E
+    {"feet", {0xAC, 0x4C, 0x4E}, {0xED, 0xA4, 0xA6}},    // #E06265 / #AC4C4E / #9D373A
+    {"item", {0x72, 0x4D, 0xAB}, {0xB7, 0xA2, 0xDF}},    // #835EC8 / #724DAB / #613B8B
+};
+inline const CategoryColours& colours_of(Category c) { return kCategoryColours[static_cast<int>(c)]; }
+constexpr Rgb kWashWeapon = kCategoryColours[0].wash;
+constexpr Rgb kWashGadget = kCategoryColours[2].wash;
+constexpr Rgb kGlyphWeapon = kCategoryColours[0].glyph;
+constexpr Rgb kGlyphGadget = kCategoryColours[2].glyph;
 constexpr float kWash = 0.30f, kWashSelected = 0.45f;
-// The glyphs: light blue, light green, the highlight yellow selected; their shadow.
-constexpr Rgb kGlyphWeapon = {0xAE, 0xB6, 0xF4};
-constexpr Rgb kGlyphGadget = {0x9B, 0xE4, 0xA4};
+// The selected glyph: the highlight yellow; the glyphs' shadow.
 constexpr Rgb kHighlight = {0xE2, 0xDF, 0x4E};
 constexpr Rgb kShadow = {0x07, 0x07, 0x0D};
 // The glints.

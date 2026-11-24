@@ -6,14 +6,16 @@ wheel in the style of Prey (2017)'s favourites wheel. Its spiral comes from
 Vegas mod. Its look is Ratchet & Clank's own menu panels, bent around the spiral. The pause and the
 timing come from Going Commando's own quick select, whose decompiled code it runs.
 
-The mod ships no art, and nothing of the game's: its panels, badges and pointer are drawn as it
-loads, and each item's glyph is made from your own game while it runs.
+**The mod ships no game-derived art.** Its panels, badges and pointer are drawn by its own code as
+it loads. Its glyphs are original drawings by Henning Berge (`assets/glyphs/`, under their own
+terms: see below). An item without a drawing gets a glyph made from your own game's disc data
+while the mod runs.
 
 ![The wheel, a mock-up](docs/mockup.png)
 
-*A mock-up drawn by the mod's own painter (`src/spiral/paint.cpp`) with placeholder glyphs and a
-stand-in font. In the game each item's glyph is made from your own game's icon (below), and the
-names, numbers and font are Ratchet & Clank's own.*
+*A mock-up drawn by the mod's own painter (`src/spiral/paint.cpp`) with its own glyphs, through its
+icon pack loader, and a stand-in font. In the game the names, numbers and font are Ratchet &
+Clank's own. The Devastator here is a gold one.*
 
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
@@ -29,9 +31,11 @@ names, numbers and font are Ratchet & Clank's own.*
   is shown, and the spiral turns to the next loop as the pointer crosses into it. The d-pad steps
   one item at a time.
 - **What it shows.** Every slot is a menu panel bent into its sector: scanlines, a khaki frame and
-  a white glint, washed blue for a weapon and green for a gadget. Each item's glyph is cut out of
-  your game's own icon and redrawn sharp, light blue or light green with a dark drop shadow. The
-  pointed-at slot has the yellow "Load Game" frame and a yellow glyph, and is pushed out. Items on
+  a white glint, washed in its item's category colour, as the game colours its icons: blue for a
+  weapon, orange-tan for a weapon whose gold version you own, green for a gadget (and for mods'
+  items, yellow packs, peach head gear, red foot gear, purple other items). Each item's glyph is
+  drawn in the category's light tint with a dark drop shadow. The pointed-at slot has the yellow
+  "Load Game" frame and a yellow glyph, and is pushed out. Items on
   your quick select carry their number on a small grey badge. The pointed-at item's name and ammo
   are in the round middle panel, in the pause menu's blue. The health meter is hidden while the
   wheel is open (the bolt and ammo counters stay), and comes back as it was.
@@ -119,29 +123,33 @@ Ratchet & Clank PAL and NTSC-U.
   meet. The others follow: the first loop's free slots in order, then outward. The first push of
   an opening points at the first loop's slot in the stick's direction; after it the stick turns
   the pointer as Prey Menu's does.
-- **The glyphs** are made as the game runs, from the player's own game: each item's HUD icon read
-  from game memory (`hud_state`: the frame's 8-bit indices and its CSM1 palette, the frame the
-  Quick Select page draws), its ground keyed out by brightness with a soft edge, cropped, and
-  redrawn four times as large from a signed distance field (smooth edges), kept as a white shape
-  that the look colours. Nothing of the game's is in the mod or this repository. An icon that
-  cannot be read is drawn as the game's own sprite, at the glyph's place and size.
-- **When the glyphs are captured.** The game keeps the HUD's icons (its bank 0) in a buffer only
-  for a while: the level load decompresses them into one, the pause menu into another, and in
-  play the HUD draws them from the GS while the level reuses both buffers. The icon pages then
-  still point at memory that is no longer theirs (which is where 1.1.1's noise came from, as it
-  remade glyphs when the pixels changed). So a glyph is captured while the pause menu's item grid
-  draws (the hook point `rac1.menu.item_grid.draw`, the pages certain), or, for an item that has
-  none yet, at the wheel's opening from the pages as they are. Every decode is checked first: a
-  near-black glyph well below a coloured ground, the edge ring mostly ground and smooth, the
-  picture mostly smooth (noise is not), the glyph covering 5 % to 70 % of it. A glyph that passes
-  is kept for the rest of the level (one from an opening is replaced once by the next pause menu's);
-  one that fails is not used, the item keeps the glyph it had or the game's own sprite, and it is
-  tried again at the next opening or pause menu. Only a level change drops the glyphs. The log
-  has, once a level, each icon captured and each rejected with the reason.
+- **The glyphs** come from icon packs ([ICONS.md](ICONS.md) is the guide for making one). The
+  mod's own glyphs are a pack (`assets/glyphs/rac1/`: 38 original SVG drawings and their
+  `icons.json`), read by the same loader as any other. Packs from other mods
+  (`<plugins>/<mod>/spiral-wheel-icons/`) and the player's own (`<plugins>/spiral-weapon-wheel/icons/`)
+  come after it, and a later pack's icon replaces an earlier one, with a line in the log. An SVG is
+  drawn at 256 pixels (nanosvg) and cropped to its shape. A PNG's alpha is the shape. The wheel
+  colours each glyph by its category, the game's own grouping: the Quick Select page's weapons and
+  hand gadgets; the pause menu's pack, head and foot grids; other items. A pack may name its own
+  category and colours. A weapon whose gold version the player owns is gold:
+  `gold_weapon_purchased`, the flag the pause menu draws the gold icon by
+  (`games/rac1/decomp src/game/ui/pause.c:2977`).
+- **An item no pack draws** (a weapon a mod registered, without an icon of its own) gets a glyph
+  made from the item's HUD icon. The mod reads that icon itself from the player's disc data: the
+  level's `data.bin` under the port's `game_data_dir`, the HUD header and its banks 0 and 1,
+  decompressed by the mod's own WAD reader (`src/rac1/`). It never reads the game's copy, which is
+  only there while the pause menu is open. The glyph is keyed in the icon's palette: its ground is
+  saturated colour and its glyph near-neutral grey, so each palette entry's coverage follows its
+  chroma, and the icon's anti-aliased edge stays. Every decode is checked before use. Without the
+  disc data, the glyph comes from game memory, as 1.1.2's did, with its checks; otherwise the
+  game's own icon is drawn. The log says, once a level, where each item's icon came from.
 - **The items** are those of the pause menu's Quick Select page: the owned items of its weapons
   grid (15 cells), then of its hand gadgets grid (6 cells), read from the game's own tables
   (`pause_item_candidate_entries`, `pause_hand_gadget_cells`), shown and assigned when owned as the
-  page does (`draw_menu_item_grid`, `update_menu_item_slots`). Nothing of the Items page.
+  page does (`draw_menu_item_grid`, `update_menu_item_slots`). Nothing of the Items page. After
+  them comes a weapon an equipment mod registered: the port's two extension items, 1 and 36, when
+  owned and with an icon in their definition (`item_defs` +0x38, which the port sets), as the
+  port's own quick select lists them. Each item's HUD icon is its definition's.
 - **The pictures** (the panels and the glyphs) are drawn under the game's HUD by the mod's overlay
   (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
   the game's own HUD calls: the quick select numbers in its small font, the name in its normal
@@ -162,8 +170,9 @@ Ratchet & Clank PAL and NTSC-U.
 | The look: menu panels on a continuous spiral, the washes, frames, glints, badges, the pointer, the middle panel, the fades either side | the user's design, after Ratchet & Clank's menus |
 | What the Quick Select page can assign, like Prey's favourites | the mod's own choice; the rule is the game's |
 | The quick select as the home ring, the diagonals' rounding, the first push on that loop | the mod's own choice |
-| Glyphs from the game's icons | the user's choice; the method is the mod's own |
-| Glyphs captured while the pause menu draws, checked before use, kept for the level | the mod's own, from the HUD banks' lifetimes in the decompilation |
+| The glyphs: original drawings, in an icon pack any mod can add to | the user's drawings and choice |
+| The categories' colours | the game's own icon grounds (sampled by the user); weapon and gadget the design's |
+| Glyphs for items without a drawing, from the player's own disc data, keyed in the palette | the mod's own, from the HUD format (OpenRAC, after ReRAC) and the decompilation |
 | The health meter hidden while open | Prey hides its HUD; the mod's own way |
 | Nothing picked until the pointer moved | Going Commando (its quick select opens on nothing) |
 | The quick select's items marked with their number, as Prey Menu marks hotkeys | the mod's own choice |
@@ -171,7 +180,7 @@ Ratchet & Clank PAL and NTSC-U.
 | The pause, the hold before it, the double tap, the fades, the pick on release | Going Commando, from its decompilation |
 | The stick's rest (0.5) and the wait for it before the stick picks | Going Commando |
 | The d-pad stepping one slot, Circle cancelling, the toggle mode's second press | the mod's own choice |
-| No background blur, no categories | not done (no blur in the port's API; Ratchet & Clank has one kind of item to pick) |
+| No background blur | not done (no blur in the port's API) |
 
 ## The log
 
@@ -180,6 +189,9 @@ The game's log (`openrac-rac1-*.log`, lines `[mod spiral-weapon-wheel]`) shows:
 - at load and in each level, whether the hook points, the quick select's functions and the
   pictures were found;
 - one line per Triangle press, giving why the wheel did not open or the trace of the hold;
+- in each level, where its HUD set came from (the disc data, or not), the icon packs read (their
+  name, author, licence and icons), each icon a later pack takes over, a pack's problems, and,
+  once, where each item's icon came from;
 - at each opening, the items on the spiral in order; the stick's first turns (as read, its
   direction, the slot); and the pick ("picked item 0x.. (name), equipped 0x..") or "cancelled";
 - one line per double-tap swap;
@@ -206,15 +218,22 @@ The tests:
 - `src/spiral_weapon_wheel_test.cpp` runs the layer, the copied code and the wheel on a fake game:
   - the items offered (none of the Items page), the selection through the loops, the d-pad and the picks (an item, item 0x18,
     a blank, the item in hand, Circle, a release before moving);
-  - the glyphs (synthetic icons only: no game pixels in the tests) and their fallback; their
-    capture with the pages made stale after it (kept) and before it (rejected with the reason, the
-    game's sprite), the pause menu's capture and a level change; the health meter hidden and
-    restored on every way out;
+  - the icons' sources: the built-in pack, a mod's pack and the player's file over it, a pack's
+    category and colours, a gold weapon, an equipment mod's item 36 from the disc data (a synthetic
+    data file), the packs read again only at a level's load;
+  - the glyphs from game memory when there is no disc data (synthetic icons only: no game pixels in
+    the tests): their capture with the pages made stale after it (kept) and before it (rejected
+    with the reason, the game's sprite), the pause menu's capture and a level change; the health
+    meter hidden and restored on every way out;
   - the toggle mode and the draw (the slots' glyphs, the badges' numbers in the small font, the
     name and ammo in the normal and large fonts over their shadow, in the menu's blue);
   - the slow-down into the pause and the ease back;
   - the pause from the hold to the release, the gate's conditions, taps, double taps and holds at
     each "Hold before pausing", 50/60 Hz, and the watchdogs.
+- `src/icons_test.cpp`: the WAD reader, a level's HUD set from a synthetic data file, the JSON
+  reader, icon packs (ICONS.md's example, bad entries, plain files, the order they count in, the
+  pictures kept until a file changes), and the mod's own pack through the same loader: all 38
+  drawings drawn, each at its category.
 
 ## Credits
 
@@ -225,8 +244,11 @@ The tests:
   "Lynder063" Malinda and its contributors; earlier llesieur99).
 - **Ratchet & Clank's**: [OpenRAC](https://github.com/OpenRAC/OpenRAC)'s decompilations and the
   OpenRAC mod SDK.
-- **stb_image** by Sean Barrett (public domain or MIT), kept in the tree (`src/third_party/`); 1.2.0
-  does not use it.
+- **The glyphs**: original drawings by **Henning Berge**.
+- **nanosvg** by Mikko Mononen (zlib licence): draws the SVG glyphs. **stb_image** by Sean Barrett
+  (public domain or MIT): reads PNG glyphs.
+- **The HUD and WAD formats**: OpenRAC's readers, after [ReRAC](https://github.com/re-rac/rerac)
+  (ISC).
 - Prey's wheel was studied through [Chairloader](https://github.com/thelivingdiamond/Chairloader)'s
   headers. Nothing of Prey's is copied.
 
@@ -235,8 +257,10 @@ The tests:
 - **The code** is under the GNU General Public License version 3 ([LICENSE](LICENSE)). The files
   copied from rac2-decomp, and `src/gc/rac1_spiral.cpp`, are GPL-3.0-only. The mod's own files are
   GPL-3.0-or-later.
-- There is no art in the mod. `docs/mockup.png` is drawn by the mod's own code with placeholder
-  glyphs.
+- **The glyphs** (`assets/glyphs/`) are original drawings by Henning Berge, **not** under the GPL.
+  The licence they are offered under is to be decided (`assets/glyphs/LICENSE-glyphs`). Nothing in
+  the mod is taken from the game: no game-derived art is shipped. `docs/mockup.png` and
+  `docs/categories.png` are drawn by the mod's own code with these glyphs.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the details. The package carries it as
   `LICENSE.THIRD_PARTY_NOTICES.md`.
 

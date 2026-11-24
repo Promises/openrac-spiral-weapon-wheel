@@ -237,7 +237,7 @@ void test_wheel_frame() {
         it.icon = 100 + i;
         it.hot = i < 8 ? i + 1 : 0;
         it.equipped = i == 3;
-        it.gadget = i == 5;
+        it.category = i == 5 ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
         items.push_back(it);
     }
     spiral::Look look;
@@ -270,7 +270,12 @@ void test_wheel_frame() {
                               : from_first < 0 ? std::min(spiral::look::kBefore[-from_first - 1], 0.6f)
                                                : spiral::look::kAfter[from_first - 12]));
         CHECK(s.empty == (s.index < 0 || s.index >= 14));
-        CHECK(s.gadget == (s.index == 5));
+        CHECK((s.category == spiral::look::Category::Gadget) == (s.index == 5));
+        if (!s.empty) {
+            const bool gadget = s.index == 5;
+            CHECK(s.wash.b == (gadget ? 0x5C : 0xD0) && s.glyph_colour.b == (gadget ? 0xA4 : 0xF4));
+            CHECK(s.selected_colour.r == 0xE2);
+        }
         CHECK(s.badge == (s.index >= 0 && s.index < 8 ? s.index + 1 : 0));
         selected += s.selected;
         CHECK(s.push == (s.selected ? 10.0f : 0.0f));
@@ -436,6 +441,44 @@ void test_continuous() {
     CHECK(near(radius_of(w.selected()), 284.0f - 66.0f, 6.0f));
 }
 
+// The categories' colours (look.hpp): each slot washed and its glyph drawn in its item's
+// category's, the highlight yellow when selected; a pack's own colours over them.
+void test_categories() {
+    using C = spiral::look::Category;
+    std::vector<spiral::Item> items(7);
+    for (int i = 0; i < 7; ++i) {
+        items[static_cast<std::size_t>(i)].id = 0x40 + i;
+        items[static_cast<std::size_t>(i)].category = static_cast<C>(i);
+    }
+    items[6].colours.has_wash = true;
+    items[6].colours.wash = {1, 2, 3};
+    items[6].colours.has_selected = true;
+    items[6].colours.selected = {4, 5, 6};
+    items[0].equipped = true;
+    spiral::Wheel w;
+    w.open(items, spiral::Look{});
+    w.advance(1.0f);
+    int seen = 0;
+    for (const spiral::Slot& sl : w.frame().slots) {
+        if (sl.empty) {
+            continue;
+        }
+        ++seen;
+        const auto& c = spiral::look::colours_of(sl.category);
+        CHECK(static_cast<int>(sl.category) == sl.index);
+        if (sl.index == 6) {
+            CHECK(sl.wash.r == 1 && sl.wash.b == 3 && sl.selected_colour.g == 5 && sl.glyph_colour.r == c.glyph.r);
+        } else {
+            CHECK(sl.wash.r == c.wash.r && sl.wash.g == c.wash.g && sl.glyph_colour.b == c.glyph.b);
+            CHECK(sl.selected_colour.r == 0xE2 && sl.selected_colour.b == 0x4E);
+        }
+    }
+    CHECK(seen == 7);
+    // The design's weapon and gadget; gold the game's orange-tan mid shade.
+    CHECK(spiral::look::colours_of(C::Weapon).wash.b == 0xD0 && spiral::look::colours_of(C::Gadget).glyph.r == 0x9B);
+    CHECK(spiral::look::colours_of(C::Gold).wash.r == 0xC4 && spiral::look::colours_of(C::Gold).wash.g == 0x92);
+}
+
 // The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
 void test_paint() {
     std::vector<spiral::Item> items(14);
@@ -447,7 +490,7 @@ void test_paint() {
     items[2].glyph = 71;  // the selected one: a weapon
     items[2].glyph_width = items[2].glyph_height = 100;
     items[4].glyph = 72;  // a gadget, 100 x 50
-    items[4].gadget = true;
+    items[4].category = spiral::look::Category::Gadget;
     items[4].glyph_width = 100;
     items[4].glyph_height = 50;
     spiral::Look look;
@@ -657,13 +700,28 @@ void test_home_ring() {
     }
 }
 
-// A synthetic HUD icon, as the game's look: a diagonal two-tone ground (lighter top left), a
+// A synthetic HUD icon, as the game's look, indexed: a diagonal ground gradient (lighter top left), a
 // near-black glyph (a ring of radii `inner` to `outer` about the middle, and a bar), the edge
-// anti-aliased by 4 x 4 supersampling; `corner_glyph` puts glyph in the top-right corner.
-spiral::Picture synthetic_icon(const std::uint8_t ground[3], float inner, float outer, bool corner_glyph) {
-    spiral::Picture p;
-    p.width = p.height = 32;
-    p.rgba.resize(32 * 32 * 4);
+// anti-aliased by 4 x 4 supersampling. Its palette: 16 shades of the ground by 16 steps of ink
+// (entry shade * 16 + ink), as the game's icons blend their glyphs' edges into the ground.
+struct SyntheticIcon {
+    std::vector<std::uint8_t> indices;
+    spiral::Palette palette{};
+};
+SyntheticIcon synthetic_icon(const std::uint8_t ground[3], float inner, float outer) {
+    SyntheticIcon icon;
+    for (int shade = 0; shade < 16; ++shade) {
+        for (int ink = 0; ink < 16; ++ink) {
+            const float shine = 1.0f - 0.25f * static_cast<float>(shade) / 15.0f;
+            const float t = static_cast<float>(ink) / 15.0f;
+            std::uint8_t* c = &icon.palette[static_cast<std::size_t>(shade * 16 + ink) * 4];
+            for (int k = 0; k < 3; ++k) {
+                c[k] = static_cast<std::uint8_t>(std::lround(static_cast<float>(ground[k]) * shine * (1.0f - t) + 15.0f * t));
+            }
+            c[3] = 0x80;
+        }
+    }
+    icon.indices.resize(32 * 32);
     for (int y = 0; y < 32; ++y) {
         for (int x = 0; x < 32; ++x) {
             float ink = 0.0f;
@@ -672,51 +730,56 @@ spiral::Picture synthetic_icon(const std::uint8_t ground[3], float inner, float 
                     const float fx = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / 4.0f - 16.0f;
                     const float fy = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / 4.0f - 16.0f;
                     const float r = std::sqrt(fx * fx + fy * fy);
-                    const bool in = (r >= inner && r <= outer) || (std::fabs(fx) < 1.5f && fy > 6.0f && fy < 14.0f) ||
-                                    (corner_glyph && fx > 9.0f && fy < -9.0f);
+                    const bool in = (r >= inner && r <= outer) || (std::fabs(fx) < 1.5f && fy > 6.0f && fy < 14.0f);
                     ink += in ? 1.0f / 16.0f : 0.0f;
                 }
             }
-            const float shine = 1.0f - 0.25f * static_cast<float>(x + y) / 62.0f;  // the gradient
-            std::uint8_t* o = &p.rgba[static_cast<std::size_t>(y * 32 + x) * 4];
-            for (int k = 0; k < 3; ++k) {
-                const float g = static_cast<float>(ground[k]) * shine;
-                o[k] = static_cast<std::uint8_t>(std::lround(g * (1.0f - ink) + 15.0f * ink));
-            }
-            o[3] = 255;
+            const int shade = (x + y) * 15 / 62;
+            icon.indices[static_cast<std::size_t>(y * 32 + x)] = static_cast<std::uint8_t>(shade * 16 + std::lround(ink * 15.0f));
         }
     }
-    return p;
+    return icon;
 }
 
 void test_glyphs() {
-    // PSMT8 with a CSM1 palette: index 8 reads entry 16, index 16 entry 8; alpha 0x80 is opaque.
+    // A CSM1 palette into index order: index 8 is stored at entry 16, index 16 at entry 8; decoded,
+    // alpha 0x80 is opaque.
     {
-        std::vector<std::uint8_t> palette(1024, 0);
-        palette[16 * 4 + 0] = 200;
-        palette[16 * 4 + 3] = 0x80;
-        palette[8 * 4 + 1] = 100;
-        palette[8 * 4 + 3] = 0x40;
+        std::vector<std::uint8_t> stored(1024, 0);
+        stored[16 * 4 + 0] = 200;
+        stored[16 * 4 + 3] = 0x80;
+        stored[8 * 4 + 1] = 100;
+        stored[8 * 4 + 3] = 0x40;
+        const spiral::Palette palette = spiral::palette_from_csm1(stored.data());
+        CHECK(palette[8 * 4] == 200 && palette[16 * 4 + 1] == 100);
         const std::uint8_t indices[4] = {8, 16, 0, 8};
-        const spiral::Picture p = spiral::decode_psmt8(indices, 2, 2, palette.data());
+        const spiral::Picture p = spiral::decode(indices, 2, 2, palette);
         CHECK(p.rgba[0] == 200 && p.rgba[3] == 255);
         CHECK(p.rgba[5] == 100 && p.rgba[7] == 128);
     }
-    const std::uint8_t blue[3] = {110, 115, 221};
-    const std::uint8_t green[3] = {105, 215, 108};
-    // A ring glyph on blue: the tint is the top-right corner's ground, the glyph cut out, cropped to
-    // the ring (radius 11: 22 pixels and a pixel of room each side, four times as big), near black,
-    // its edge smooth: along the ring the drawn radius varies by under a big pixel.
+    // The keying in the palette: saturated ground none, grey glyph whole, a blend between.
     {
-        const spiral::Glyph g = spiral::make_glyph(synthetic_icon(blue, 8.0f, 11.0f, false));
-        CHECK(g.ok && g.tint_from_corner);
-        // The corner two pixels in is the ground there, a little darker than at the top left.
-        CHECK(std::abs(g.tint[0] - 110 * 0.82) < 10 && std::abs(g.tint[2] - 221 * 0.82) < 12);
+        spiral::Palette palette{};
+        const std::uint8_t colours[4][3] = {{100, 105, 206}, {14, 14, 16}, {57, 60, 110}, {90, 193, 92}};
+        for (int i = 0; i < 4; ++i) {
+            std::copy(colours[i], colours[i] + 3, palette.begin() + 4 * i);
+        }
+        const std::array<float, 256> cover = spiral::palette_cover(palette);
+        CHECK(cover[0] == 0.0f && cover[3] == 0.0f);    // chroma 106 and 103: ground
+        CHECK(cover[1] == 1.0f);                        // chroma 2: glyph
+        CHECK(cover[2] > 0.3f && cover[2] < 0.7f);      // chroma 53: half way
+    }
+    const std::uint8_t blue[3] = {110, 115, 221};
+    // A ring glyph on blue: the tint the ground entries' mean, the glyph cut out, cropped to the ring
+    // (radius 11: 22 pixels and a pixel of room each side, four times as big), near black, its edge
+    // smooth: along the ring the drawn radius varies by under a big pixel.
+    {
+        const SyntheticIcon icon = synthetic_icon(blue, 8.0f, 11.0f);
+        const spiral::Glyph g = spiral::make_glyph(icon.indices.data(), 32, 32, icon.palette);
+        CHECK(g.ok);
+        CHECK(g.tint[2] > 180 && g.tint[0] < 110 && g.tint[0] > 80);
         CHECK(g.picture.width >= 22 * 4 && g.picture.width <= 26 * 4);
         CHECK(g.picture.rgba[0] < 40);  // the glyph's own dark colour
-        // The ring's outer edge: where alpha crosses half, in 64 directions about the centre.
-        // The ring's centre (16, 16) in the crop: it starts a pixel before the ring's left and top
-        // (16 - 11 - 1 = 4), four big pixels to a pixel.
         const float cx = (16.0f - 4.0f) * 4.0f, cy = cx;
         float lo = 1e9f, hi = 0.0f;
         for (int k = 0; k < 64; ++k) {
@@ -740,21 +803,16 @@ void test_glyphs() {
         CHECK(hi > 0.0f && hi - lo < 4.0f);  // within a source pixel all round (4 big pixels)
         CHECK(std::fabs((lo + hi) / 2.0f - 11.0f * 4.0f) < 4.0f);
     }
-    // The glyph in the top-right corner: the tint from the ring's brighter half instead.
+    // No glyph (all ground): not one. A grey palette (no coloured ground): not one, with the reason.
     {
-        const spiral::Glyph g = spiral::make_glyph(synthetic_icon(green, 8.0f, 11.0f, true));
-        CHECK(g.ok && !g.tint_from_corner);
-        CHECK(g.tint[1] > 150 && g.tint[0] < 120);
-    }
-    // No glyph (a flat square): not one.
-    {
-        spiral::Picture flat = synthetic_icon(blue, 100.0f, 101.0f, false);
-        for (std::size_t i = 0; i < flat.rgba.size(); i += 4) {
-            flat.rgba[i] = 110;
-            flat.rgba[i + 1] = 115;
-            flat.rgba[i + 2] = 221;
+        const SyntheticIcon flat = synthetic_icon(blue, 100.0f, 101.0f);
+        CHECK(!spiral::make_glyph(flat.indices.data(), 32, 32, flat.palette).ok);
+        SyntheticIcon grey = synthetic_icon(blue, 8.0f, 11.0f);
+        for (std::size_t i = 0; i < 256; ++i) {
+            grey.palette[i * 4] = grey.palette[i * 4 + 2] = grey.palette[i * 4 + 1];
         }
-        CHECK(!spiral::make_glyph(flat).ok);
+        const spiral::Glyph g = spiral::make_glyph(grey.indices.data(), 32, 32, grey.palette);
+        CHECK(!g.ok && std::string(g.reason) == "the ground has no colour");
     }
     // In the wheel: a glyph is the slot's, the game's icon not drawn for it.
     {
@@ -791,6 +849,7 @@ int main() {
     test_stick_and_opening();
     test_wheel_frame();
     test_continuous();
+    test_categories();
     test_paint();
     test_home_ring();
     test_glyphs();

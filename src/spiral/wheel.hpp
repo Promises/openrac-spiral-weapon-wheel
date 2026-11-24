@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "look.hpp"
 #include "spiral.hpp"
 
 namespace spiral {
@@ -27,15 +28,23 @@ struct Item {
     int glyph = 0;
     int glyph_width = 0;
     int glyph_height = 0;
-    // A gadget (the hand gadgets' grid), else a weapon: its slot's wash and its glyph's colour.
-    bool gadget = false;
+    // Its category (look.hpp: the game's menu groups): its slot's wash and its glyph's colour.
+    look::Category category = look::Category::Weapon;
+    // An icon pack's own colours for it, over its category's (icon_packs.hpp: wash, glyph_color,
+    // selected_glyph_color).
+    struct Colours {
+        bool has_wash = false, has_glyph = false, has_selected = false;
+        look::Rgb wash{}, glyph{}, selected{};
+    } colours;
 };
 
 // One slot as drawn (look.hpp): a menu panel bent into a sector of the spiral.
 struct Slot {
     int index = 0;           // the item (an index into the wheel's items), or a blank's index
     bool empty = false;      // no item: a blank or a hole
-    bool gadget = false;     // its item is a gadget (else a weapon)
+    look::Category category = look::Category::Weapon;  // its item's
+    // Its colours (its category's, or its pack's): the wash, the glyph, the glyph when selected.
+    look::Rgb wash{}, glyph_colour{}, selected_colour{};
     bool selected = false;   // the pointer is on it
     float angle_deg = 0;     // its middle, degrees counter-clockwise from 3 o'clock
     float radius = 0;        // to the panel's middle, the design's pixels (before the push)

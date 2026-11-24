@@ -35,11 +35,14 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "../layout.hpp"
+#include "../rac1/hud_set.hpp"
+#include "../spiral/icon_packs.hpp"
 #include "../spiral/wheel.hpp"
 
 namespace gc_weapon_wheel::gc {
@@ -186,6 +189,12 @@ struct Game {
     // The overlay's pictures (openrac_api.overlay_image_create, overlay_image_destroy): a
     // width x height RGBA picture kept, its id (0 refused); let go.
     std::function<int(int, int, const std::uint8_t*)> create_image;
+    // The level's data file in the player's disc data (hud_set.hpp: level_data_path, by the port's
+    // game_data_dir); "" when there is none.
+    std::function<std::string(int level)> level_data_path;
+    // The icon packs' folders (icon_packs.hpp), in the order they count: the mod's own glyphs
+    // first, then other mods' and the player's (as they are now: mods may come and go).
+    std::function<std::vector<std::string>()> icon_packs;
     std::function<void(int)> destroy_image;
 
     std::function<float(float)> square_root;
@@ -414,6 +423,18 @@ private:
         int menu_tried = -1;     // the pause menu (m_menus) it was last tried in
     };
     enum class Capture { Menu, Opening };
+    // The level's HUD set from the disc data, and the icon packs; each item's picture, by item
+    // and frame, made once a level (attach_glyph).
+    hud::HudSet m_hud;
+    spiral::IconPacks m_icon_packs;
+    struct ItemPicture {
+        int image = 0;
+        int width = 0, height = 0;
+        const spiral::PackIcon* pack = nullptr;  // from a pack (its category and colours)
+    };
+    std::map<std::pair<int, int>, ItemPicture> m_item_icons;
+    void load_level_icons(int level);
+    std::uint16_t item_icon(std::int32_t id, std::uint16_t fallback) const;
     std::vector<CachedGlyph> m_glyphs;
     int m_menus = 0;             // the pause menus seen this level (a new one after each return to play)
     bool m_in_menu = false;      // the item grid drew since the last tick in play

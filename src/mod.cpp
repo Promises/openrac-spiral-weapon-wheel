@@ -32,8 +32,20 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "openrac/games/rac1.hpp"
 #include "openrac/mod.hpp"
@@ -53,9 +65,52 @@ openrac::Mod* g_mod = nullptr;
 gc::Shim& layer() { return gc::shim(); }
 
 constexpr const char* kName = "Spiral Weapon Wheel";
+constexpr const char* kId = "spiral-weapon-wheel";  // the manifest's, its folder's name
 constexpr float kPi = 3.14159265358979f;
 
-// --- The pictures (paint.hpp: made as the mod loads, nothing shipped) ---
+// The folder the mod's library is in (its package's folder).
+std::string own_folder() {
+#if defined(_WIN32)
+    HMODULE module = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&own_folder), &module) == 0) {
+        return "";
+    }
+    wchar_t path[2048];
+    const DWORD n = GetModuleFileNameW(module, path, 2048);
+    if (n == 0 || n >= 2048) {
+        return "";
+    }
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(n), nullptr, 0, nullptr, nullptr);
+    std::string out(static_cast<std::size_t>(bytes), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(n), out.data(), bytes, nullptr, nullptr);
+    const std::size_t cut = out.find_last_of("\\/");
+    return cut == std::string::npos ? "" : out.substr(0, cut);
+#else
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<void*>(&own_folder), &info) == 0 || info.dli_fname == nullptr) {
+        return "";
+    }
+    const std::string path = info.dli_fname;
+    const std::size_t cut = path.find_last_of('/');
+    return cut == std::string::npos ? "" : path.substr(0, cut);
+#endif
+}
+
+// The package's folder: the library is in its lib/<platform>/ (the SDK's package layout), else
+// beside it; without either, the plugins folder's spiral-weapon-wheel/. Found by the mod's own
+// glyphs (assets/glyphs/rac1/icons.json).
+std::string package_folder(const openrac::Mod& mod) {
+    const std::string library = own_folder();
+    for (const std::string& folder : {library + "/../..", library}) {
+        if (!library.empty() && std::ifstream(folder + "/assets/glyphs/rac1/icons.json", std::ios::binary)) {
+            return folder;
+        }
+    }
+    return mod.plugins_folder() + "/" + kId;
+}
+
+// --- The pictures (paint.hpp: made as the mod loads) ---
 
 struct Art {
     int scan = 0, white = 0, badge = 0, pointer = 0;
@@ -260,6 +315,35 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
         return m->overlay_image_create(width, height, rgba, true);
     };
     g.destroy_image = [m](int image) { m->overlay_image_destroy(image); };
+    // The items' icons from the player's own disc data (the level's HUD set) and from icon files.
+    const std::string game(mod.game());
+    g.level_data_path = [m, game](int level) {
+        std::string data;
+        return m->game_data_dir(game, data) > 0 ? gcw::hud::level_data_path(data, game, level) : std::string();
+    };
+    g.icon_packs = [m, game] {
+        // The mod's own glyphs (a pack in its package), then the other mods' packs by their
+        // folders' names, then the player's own: each later one's icons over the earlier's.
+        std::vector<std::string> packs{package_folder(*m) + "/assets/glyphs/" + game};
+        const std::string plugins = m->plugins_folder();
+        if (plugins.empty()) {
+            return packs;
+        }
+        std::error_code e;
+        std::vector<std::string> mods;
+        for (const auto& entry : std::filesystem::directory_iterator(plugins, e)) {
+            const std::string name = entry.path().filename().string();
+            if (entry.is_directory(e) && name != kId) {
+                mods.push_back(name);
+            }
+        }
+        std::sort(mods.begin(), mods.end());
+        for (const std::string& name : mods) {
+            packs.push_back(plugins + "/" + name + "/spiral-wheel-icons");
+        }
+        packs.push_back(plugins + "/" + kId + "/icons");
+        return packs;
+    };
 
     // The math: Ratchet & Clank's own where its build has them by these names.
     if (const auto f = optional_function<float (*)(float)>(mod, n.square_root)) g.square_root = f;
@@ -342,4 +426,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.2.1", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.3.0", load)

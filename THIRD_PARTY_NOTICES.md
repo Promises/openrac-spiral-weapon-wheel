@@ -6,10 +6,16 @@ Commando's decompilation, and `src/gc/rac1_spiral.cpp`, which follows two of its
 under that project's license, the GPL version 3 (it names no later version, so they are
 GPL-3.0-only). Each file says which in its `SPDX-License-Identifier` line.
 
-There is **no art** in the mod (since 1.2.0): its pictures are drawn by its own code as it loads
-(`src/spiral/paint.cpp`, after the user's design), and its glyphs are made from the player's own
-game as it runs. Up to 1.1.2 it shipped Prey Menu's art (below); that is no longer in the mod or
-this repository's current tree.
+There is **no game-derived art** in the mod. Its panels are drawn by its own code as it loads
+(`src/spiral/paint.cpp`, after the user's design). Up to 1.1.2 it shipped Prey Menu's art (below);
+that is no longer in the mod or in this repository's current tree.
+
+## The glyphs, by Henning Berge
+
+`assets/glyphs/rac1/*.svg` and `assets/glyphs/rac1/icons.json` are original drawings by Henning
+Berge, made for this mod. They are not traced from or derived from the game's pictures. **They are
+not under the GPL.** The licence they are offered under is to be decided:
+`assets/glyphs/LICENSE-glyphs` (carried in the package beside them) says so.
 
 ## Prey Menu (Fallout: New Vegas), by KerosenileArsonist
 
@@ -37,8 +43,57 @@ check the port against them.
 
 `src/third_party/stb_image.h`: stb_image v2.34 by Sean Barrett and contributors
 (<https://github.com/nothings/stb>, commit `6b5799bae8a1fe3792691ef4b72ae26434c3e799`), unchanged.
-Kept in the tree for reading PNGs; 1.2.0 does not use it. Public domain, or the MIT License (its
-own notice, at the file's end, gives both).
+It reads PNG glyphs (`src/spiral/icon_packs.cpp`). Public domain, or the MIT License (its own
+notice, at the file's end, gives both).
+
+## nanosvg
+
+`src/third_party/nanosvg.h` and `nanosvgrast.h`: nanosvg by Mikko Mononen
+(<https://github.com/memononen/nanosvg>, commit `239e102ec2c691f2902e20ace2ed36ee4a35cfe6`),
+unchanged. It draws the SVG glyphs. The zlib licence (its notice at each file's start):
+
+    Copyright (c) 2013-14 Mikko Mononen memon@inside.org
+
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+    claim that you wrote the original software. If you use this software
+    in a product, an acknowledgment in the product documentation would be
+    appreciated but is not required.
+    2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+    3. This notice may not be removed or altered from any source distribution.
+
+## The WAD reader and the HUD format: OpenRAC, after ReRAC
+
+`src/rac1/wad.cpp` is adapted from OpenRAC's `port/assets/disc/wad.cpp` (GPL-3.0-or-later,
+Copyright (c) 2026 the OpenRAC contributors), itself adapted from ReRAC
+(<https://github.com/re-rac/rerac>, `crates/rc-formats/src/wad.rs` and
+`docs/formats/disc_layout.md` section 3). `src/rac1/hud_set.cpp` reads the HUD format as OpenRAC's
+`port/assets/world/hud.h` documents it, after ReRAC's `docs/plan/hud_text.md` section 1. ReRAC's
+licence:
+
+    ISC License
+
+    Copyright (c) 2026 ReRAC contributors
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose with or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+    MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ## Prey (2017)
 

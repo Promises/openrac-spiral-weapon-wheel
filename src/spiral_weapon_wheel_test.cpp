@@ -11,11 +11,17 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
 #include "gc/rac1_shim.hpp"
+#include "icons_test_data.hpp"
+#include "spiral/icon_packs.hpp"
 #include "layout.hpp"
 
 namespace {
@@ -68,6 +74,10 @@ struct Text {
 // The fake game.
 struct Fake {
     std::vector<std::uint8_t> ram = std::vector<std::uint8_t>(kMemory, 0);
+    // The player's disc data (a level's data file: icons_test_data.hpp) and the icon folders; none
+    // unless a test gives them.
+    std::string level_file;
+    std::vector<std::string> icon_packs;
     gcw::Disc d{};
     gc::Memory m{};
     int handle_next = 100;
@@ -567,6 +577,8 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         }
         return 0;
     };
+    g.level_data_path = [](int) { return g_fake->level_file; };
+    g.icon_packs = [] { return g_fake->icon_packs; };
     g.create_image = [](int width, int height, const std::uint8_t* rgba) {
         // A glyph: a picture of its own, with something drawn in it.
         int ink = 0;
@@ -787,7 +799,7 @@ void test_items() {
     // are gadgets (0x0C, 0x16, 0x1A...), the weapons grid's weapons.
     for (const spiral::Item& it : gc::shim().wheel().items()) {
         CHECK((it.glyph != 0) == (it.id != 0x0C));
-        CHECK(it.gadget == (std::find(std::begin(kGadgetCellItems), std::end(kGadgetCellItems), it.id) != std::end(kGadgetCellItems)));
+        CHECK((it.category == spiral::look::Category::Gadget) == (std::find(std::begin(kGadgetCellItems), std::end(kGadgetCellItems), it.id) != std::end(kGadgetCellItems)));
     }
     CHECK(f.white_glyphs);
     CHECK(f.logged("(frame 13, 32x32): not a glyph") == false);
@@ -1264,6 +1276,121 @@ void test_glyph_capture() {
     fake_hud(f);
     CHECK_EQ(glyphs_of(gc::shim().collect_items()), glyphs_of(first));
     gc::shim().connect(f.level);
+}
+
+// The icons (1.3.0): the mod's own glyphs (its built-in icon pack, read as any pack) for the game's
+// items; another pack's icon over it (the player's plain file); a pack's category and colours; a
+// gold weapon gold; an item no pack draws (an equipment mod's weapon, item 36) from the level's HUD
+// set the mod reads from the player's disc data (a synthetic data file), whatever game memory
+// holds; the packs read again only at a level's load.
+void test_icon_sources() {
+    namespace fs = std::filesystem;
+    using C = spiral::look::Category;
+    const fs::path root =
+        fs::temp_directory_path() /
+        ("spiral-icons-layer-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    std::vector<int> ring;
+    for (int id = 1; id < 0x30; ++id) {
+        ring.push_back(0xE900 + id);
+    }
+    const test_data::LevelData level = test_data::level_data(ring, {});
+    const fs::path data = root / "data.bin";
+    std::ofstream(data, std::ios::binary).write(reinterpret_cast<const char*>(level.bytes.data()), static_cast<std::streamsize>(level.bytes.size()));
+    auto write = [](const fs::path& path, const std::string& text) {
+        fs::create_directories(path.parent_path());
+        std::ofstream(path, std::ios::binary) << text;
+    };
+    auto square = [](int size) {
+        const int at = (256 - size) / 2;
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\"><path fill=\"currentColor\" d=\"M" +
+               std::to_string(at) + " " + std::to_string(at) + "h" + std::to_string(size) + "v" + std::to_string(size) + "h-" +
+               std::to_string(size) + "z\"/></svg>";
+    };
+    // A mod's pack: 0x13 as an "item" with its own wash; the player's own plain file for 0x12.
+    const fs::path mod = root / "plugins" / "a-mod" / "spiral-wheel-icons";
+    write(mod / "icons.json", R"({"format": 1, "name": "A Mod", "icons": [
+        {"game": "rac1", "item": "0x13", "glyph": "t.svg", "category": "item", "wash": "#102030"}]})");
+    write(mod / "t.svg", square(90));
+    const fs::path player = root / "plugins" / "spiral-weapon-wheel" / "icons";
+    write(player / "rac1" / "12.svg", square(40));
+    Fake f;
+    f.level_file = data.string();
+    f.icon_packs = {std::string(SPIRAL_SOURCE_DIR) + "/assets/glyphs/rac1", mod.string(), player.string()};
+    set_up(f, true, false);
+    // An equipment mod's weapon in item 36 (owned, its icon in its definition, no pack draws it);
+    // item 1 owned without an icon is not one. 0x11 gold.
+    f.wr<std::uint8_t>(f.d.item_available + 36, 1);
+    f.wr<std::uint16_t>(f.d.item_defs + 36 * gcw::kItemDefStride + gcw::kItemDefIcon, 0xE924);
+    f.wr<std::uint8_t>(f.d.item_available + 1, 1);
+    f.wr<std::uint16_t>(f.d.item_defs + 1 * gcw::kItemDefStride + gcw::kItemDefIcon, 0);
+    f.wr<std::uint8_t>(f.d.gold + 0x11, 1);
+    stale_pages(f, true);  // game memory's pages are noise: nothing is read from them
+    CHECK(f.logged("level 0: its HUD set read from"));
+    CHECK(f.logged("icon pack \"Spiral Weapon Wheel glyphs\""));
+    CHECK(f.logged("icon packs: item 0x13: A Mod's icon over Spiral Weapon Wheel glyphs's"));
+    const std::vector<spiral::Item> items = gc::shim().collect_items();
+    std::map<int, spiral::Item> by_id;
+    for (const spiral::Item& it : items) {
+        if (it.id != 0) {
+            by_id[it.id] = it;
+        }
+    }
+    for (const auto& [id, it] : by_id) {
+        CHECK(it.glyph != 0);
+    }
+    // The built-in glyphs: weapons blue, the hand gadgets green (the Quick Select page's grids).
+    CHECK(by_id.count(0x0A) && by_id[0x0A].category == C::Weapon && !by_id[0x0A].colours.has_wash);
+    CHECK(by_id.count(0x0C) && by_id[0x0C].category == C::Gadget);
+    CHECK(f.logged("the icon of item 0xA (HUD icon 0xE90A, frame ") && f.logged("Spiral Weapon Wheel glyphs's") &&
+          f.logged("bomb-glove.svg"));
+    // Gold: a weapon whose gold version is owned (its frame 4, as the pause menu's).
+    CHECK(by_id.count(0x11) && by_id[0x11].category == C::Gold);
+    // The mod's pack: its category and wash. The player's file: over the built-in, the item's category.
+    CHECK(by_id.count(0x13) && by_id[0x13].category == C::Item && by_id[0x13].colours.has_wash &&
+          by_id[0x13].colours.wash.b == 0x30);
+    CHECK(by_id.count(0x12) && by_id[0x12].category == C::Weapon && by_id[0x12].glyph_width == 42);
+    // Item 36: no pack draws it, so the glyph made from the disc's HUD set; a weapon.
+    CHECK(by_id.count(36) == 1 && by_id.count(1) == 0);
+    if (by_id.count(36) == 1) {
+        CHECK(by_id[36].category == C::Weapon && by_id[36].icon == 0xE924 && by_id[36].glyph != 0);
+    }
+    CHECK(f.logged("the icon of item 0x24 (HUD icon 0xE924, frame ") && f.logged("the glyph made from the disc's HUD set"));
+    // The slots draw them in their colours: the gold one's wash is gold's.
+    open_hud(f);
+    play(f, 0x10);
+    for (const spiral::Slot& sl : gc::shim().picture().frame.slots) {
+        if (!sl.empty && gc::shim().wheel().items()[static_cast<std::size_t>(sl.index)].id == 0x11) {
+            CHECK(sl.wash.r == 0xC4 && sl.glyph_colour.r == 0xEF);
+        }
+    }
+    // Made once a level: the next opening makes nothing; the pause menu's capture is not used.
+    const std::size_t made = f.images.size();
+    gc::shim().collect_items();
+    gc::shim().menu_grid_draw();
+    CHECK_EQ(f.images.size(), made);
+    CHECK(!f.logged("in the pause menu"));
+    // A file changed: nothing until the next level's load; then the new picture, the old let go.
+    write(player / "rac1" / "12.svg", square(80));
+    for (const spiral::Item& it : gc::shim().collect_items()) {
+        if (it.id == 0x12) {
+            CHECK_EQ(it.glyph_width, 42);
+        }
+    }
+    const std::size_t let_go = f.destroyed.size();
+    gc::shim().connect(f.level + 1);
+    CHECK(f.destroyed.size() - let_go >= by_id.size());
+    for (const spiral::Item& it : gc::shim().collect_items()) {
+        if (it.id == 0x12) {
+            CHECK_EQ(it.glyph_width, 82);
+        }
+    }
+    // No disc data and no packs: game memory, as before (the other tests), and the log says why.
+    f.level_file = (root / "missing.bin").string();
+    gc::shim().connect(f.level + 2);
+    CHECK(f.logged("no HUD set from the disc data (the level's data file cannot be read)"));
+    gc::shim().connect(f.level);
+    fs::remove_all(root);
 }
 
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
@@ -2078,6 +2205,7 @@ int main() {
     test_toggle();
     test_draw();
     test_glyph_capture();
+    test_icon_sources();
     test_paused_path();
     test_health_hidden();
     test_slow_down();

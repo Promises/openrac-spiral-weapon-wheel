@@ -58,7 +58,7 @@ set(gc_copied
   src/gc/gfx_render_frame_extra_layers.c
   src/gc/func_0029CE38.c)
 set(gc_layer src/gc/rac1_shim.cpp src/gc/rac1_spiral.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp
-  src/spiral/paint.cpp)
+  src/spiral/paint.cpp src/spiral/icon_packs.cpp src/spiral/json.cpp src/rac1/hud_set.cpp src/rac1/wad.cpp)
 set(gc_copied_options -w)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   list(APPEND gc_copied_options -Wno-int-conversion -Wno-incompatible-pointer-types)
@@ -83,10 +83,17 @@ openrac_add_mod(spiral_weapon_wheel MANIFEST openrac-mod.json SOURCES src/mod.cp
 target_compile_features(spiral_weapon_wheel PRIVATE cxx_std_17)
 target_include_directories(spiral_weapon_wheel PRIVATE src)
 # The notices of what is copied go in the package (and so the archive, which carries the files
-# named LICENSE* beside the manifest). The wheel's pictures are made as the mod loads (paint.hpp):
-# no art is shipped.
+# named LICENSE* beside the manifest). The wheel's panels are made as the mod loads (paint.hpp);
+# its own glyphs, the user's original drawings, are an icon pack in assets/glyphs/ (the manifest's
+# "assets"), under their own terms (assets/glyphs/LICENSE-glyphs), not the GPL.
 get_target_property(spiral_weapon_wheel_package spiral_weapon_wheel OPENRAC_MOD_PACKAGE_DIR)
 configure_file(THIRD_PARTY_NOTICES.md "${spiral_weapon_wheel_package}/LICENSE.THIRD_PARTY_NOTICES.md" COPYONLY)
+file(GLOB spiral_glyphs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/glyphs/rac1/*")
+foreach(glyph ${spiral_glyphs})
+  get_filename_component(glyph_name "${glyph}" NAME)
+  configure_file("${glyph}" "${spiral_weapon_wheel_package}/assets/glyphs/rac1/${glyph_name}" COPYONLY)
+endforeach()
+configure_file(assets/glyphs/LICENSE-glyphs "${spiral_weapon_wheel_package}/assets/glyphs/LICENSE-glyphs" COPYONLY)
 
 # The spiral's math against Prey Menu's formulas, and the translation layer with the copied code on
 # a fake game (ctest; the workflow runs them on every platform).
@@ -95,6 +102,15 @@ add_executable(spiral_test src/spiral_test.cpp src/spiral/spiral.cpp src/spiral/
   src/spiral/paint.cpp)
 target_compile_features(spiral_test PRIVATE cxx_std_17)
 add_test(NAME spiral COMMAND spiral_test)
+add_executable(icons_test src/icons_test.cpp src/spiral/icon_packs.cpp src/spiral/json.cpp src/spiral/glyph.cpp
+  src/rac1/hud_set.cpp src/rac1/wad.cpp)
+target_compile_features(icons_test PRIVATE cxx_std_17)
+target_include_directories(icons_test PRIVATE src)
+# The tests read the mod's own glyphs from the source tree, through the loader any pack goes through.
+target_compile_definitions(icons_test PRIVATE SPIRAL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME icons COMMAND icons_test)
 add_executable(spiral_weapon_wheel_test src/spiral_weapon_wheel_test.cpp ${gc_layer} ${gc_copied})
 target_compile_features(spiral_weapon_wheel_test PRIVATE cxx_std_17)
+target_include_directories(spiral_weapon_wheel_test PRIVATE src)
+target_compile_definitions(spiral_weapon_wheel_test PRIVATE SPIRAL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME spiral_weapon_wheel COMMAND spiral_weapon_wheel_test)

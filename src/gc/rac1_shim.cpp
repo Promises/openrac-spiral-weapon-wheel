@@ -11,6 +11,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 
 namespace gcw = gc_weapon_wheel;
 using gc_weapon_wheel::gc::CopyScope;
@@ -192,6 +193,39 @@ void Shim::log_once(const std::string& key, const std::string& line, bool warnin
     }
 }
 
+// The level's HUD set from the player's disc data (hud_set.hpp), and the icon packs read again
+// (icon_packs.hpp): at each level's load, so a changed pack counts from the next level on.
+void Shim::load_level_icons(int level) {
+    m_hud = hud::HudSet{};
+    if (level >= 0 && game.level_data_path) {
+        const std::string path = game.level_data_path(level);
+        std::string why = "the disc data is not there (the port's game_data_dir)";
+        const hud::Reader read = [path](std::uint64_t offset, std::size_t size, std::vector<std::uint8_t>& out) {
+            std::ifstream file(path, std::ios::binary);
+            if (!file) {
+                return false;
+            }
+            file.seekg(static_cast<std::streamoff>(offset));
+            out.resize(size);
+            file.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(size));
+            return static_cast<std::size_t>(file.gcount()) == size;
+        };
+        if (!path.empty() && m_hud.load(read, why)) {
+            log_once("hud " + std::to_string(level), "level " + std::to_string(level) + ": its HUD set read from " + path);
+        } else {
+            log_once("hud " + std::to_string(level), "level " + std::to_string(level) + ": no HUD set from the disc data (" +
+                                                         why + "): the icons from game memory, as before");
+        }
+    }
+    if (game.icon_packs) {
+        std::vector<std::string> lines;
+        m_icon_packs.refresh(game.icon_packs(), "rac1", &lines);
+        for (const std::string& line : lines) {
+            log_once("packs " + std::to_string(level) + " " + line, line);
+        }
+    }
+}
+
 void Shim::connect(int level) {
     if (level == m_level_number) {
         return;
@@ -199,8 +233,9 @@ void Shim::connect(int level) {
     m_level_number = level;
     reset();
     // A level's HUD set: the glyphs made from the last one's go (after reset's publish, which took
-    // them off the wheel's picture).
+    // them off the wheel's picture), and the new level's pictures are read.
     forget_glyphs();
+    load_level_icons(level);
     const Disc& d = game.disc;
     LevelAddresses l;
     l.at = d;

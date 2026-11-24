@@ -213,7 +213,13 @@ Frame Wheel::frame() const {
         Slot s;
         s.index = t.index;
         s.empty = item == nullptr;
-        s.gadget = item != nullptr && item->gadget;
+        if (item != nullptr) {
+            const look::CategoryColours& c = look::colours_of(item->category);
+            s.category = item->category;
+            s.wash = item->colours.has_wash ? item->colours.wash : c.wash;
+            s.glyph_colour = item->colours.has_glyph ? item->colours.glyph : c.glyph;
+            s.selected_colour = item->colours.has_selected ? item->colours.selected : look::kHighlight;
+        }
         s.selected = item != nullptr && t.hover;
         s.angle_deg = t.angle_deg;
         s.radius = look::kFirstRadius - step * k;

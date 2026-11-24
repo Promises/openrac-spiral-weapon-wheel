@@ -59,6 +59,9 @@ constexpr std::uint32_t kItemDefStride = 0x4Cu;
 constexpr std::uint32_t kItemDefIcon = 0x38u;
 constexpr std::uint32_t kItemDefName = 0x46u;
 constexpr std::uint32_t kItemDefGoldName = 0x48u;
+// The port's native extension slots for weapons a mod registers (rac1_weapon_register: "item_id:
+// native extension slot 1 or 36"), which the Quick Select page's grids do not have.
+constexpr std::int32_t kModWeaponItems[2] = {1, 36};
 // item_price_table: 24 bytes a record; +8 uses ammo (u16), +0xE its most ammo (u16).
 constexpr std::uint32_t kPriceStride = 24u;
 constexpr std::uint32_t kPriceUsesAmmo = 8u;
