@@ -77,6 +77,7 @@ struct Fake {
     std::uint32_t next_text = kTexts;
     bool opener = false;       // Ratchet & Clank's own Triangle opener in the play tick
     bool rac1_timers = false;  // Ratchet & Clank's own double-tap timers in the play tick
+    bool rac1_switch = false;  // Ratchet & Clank's hero_switch_item after them, the same tick
     bool match_code = true;    // whether the function table has the callbacks at their places
     bool block_selector = false;  // queue_animation_update refuses the quick select's record
     int level = 0;
@@ -179,11 +180,33 @@ struct Fake {
         if (rac1_timers) {
             hero_timers();
         }
+        if (rac1_switch) {
+            hero_switch();
+        }
         if (opener && (rd<std::uint32_t>(d.pad + gcw::kPadPressed) & 0x10) != 0) {
             const gcw::LevelCallbacks cb = gcw::level_callbacks(d.ntsc, level);
             queue(3, 0, cb.selector_init, cb.selector_update, cb.selector_draw, 0, 0);
         }
         update_hud(1);
+    }
+    // Ratchet & Clank's hero_switch_item for slot 0 (hero_animation_slots.c): a pending item other than
+    // the one taken becomes it; the quick swap item takes the last weapon, the last weapon the new
+    // item (here the hand changes at once).
+    void hero_switch() {
+        const std::uint32_t h = d.hero;
+        const std::int32_t u = rd<std::int32_t>(h + gcw::kHeroPendingItem);
+        if (u == 0) {
+            return;
+        }
+        if (u != rd<std::int32_t>(h + gcw::kHeroRequestedItem)) {
+            if (u != 0x24 && rd<std::int32_t>(h + gcw::kHeroItem) != 8) {
+                wr<std::int32_t>(d.quick_swap_item, rd<std::int32_t>(d.last_weapon));
+            }
+            wr<std::int32_t>(h + gcw::kHeroRequestedItem, u);
+            wr<std::int32_t>(d.last_weapon, u);
+            wr<std::int32_t>(h + gcw::kHeroItem, u);
+        }
+        wr<std::int32_t>(h + gcw::kHeroPendingItem, 0);
     }
     // Ratchet & Clank's own double tap (hero_update_transitions, hero_item_input_and_hud.c:142-170).
     void hero_timers() {
@@ -1112,6 +1135,67 @@ void test_double_tap_logs() {
     CHECK(f.logged("no swap: the quick swap item is in hand (item 0x11, quick swap 0x11"));
 }
 
+// Weapons picked with the wheel go through Ratchet & Clank's own change of item (the pending item,
+// hero_switch_item's bookkeeping), so the double tap swaps between the last two: A, then B, picked;
+// a double tap goes back to A, another to B.
+void test_wheel_picks_then_double_tap() {
+    Fake f;
+    f.opener = true;
+    f.rac1_timers = true;
+    f.rac1_switch = true;
+    set_up(f, true, true);
+    f.wr<std::int32_t>(f.d.hero + gcw::kHeroItem, 0x10);
+    f.wr<std::int32_t>(f.d.hero + gcw::kHeroRequestedItem, 0x10);
+    f.wr<std::int32_t>(f.d.last_weapon, 0x10);
+    f.wr<std::int32_t>(f.d.quick_swap_item, 0);
+    auto pick = [&](float angle) {
+        for (int i = 0; i < 30; ++i) {
+            play(f, 0);
+        }
+        hold_until_freeze(f);
+        float x, y;
+        stick_at(angle, x, y);
+        for (int i = 0; i < 6; ++i) {
+            freeze(f, 0x10, i < 2 ? 0.0f : x, i < 2 ? 0.0f : y);
+        }
+        int n = 0;
+        while (f.rd<std::int32_t>(f.d.game_mode) == 4 && n < 20) {
+            freeze(f, 0);
+            ++n;
+        }
+        for (int i = 0; i < 30; ++i) {
+            play(f, 0);
+        }
+    };
+    auto double_tap = [&] {
+        for (int i = 0; i < 30; ++i) {
+            play(f, 0);
+        }
+        play(f, 0x10);
+        play(f, 0);
+        play(f, 0x10);
+        play(f, 0);
+        for (int i = 0; i < 30; ++i) {
+            play(f, 0);
+        }
+    };
+    pick(-kPi / 4);  // slot 1: item 0x11 (A)
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
+    pick(0.0f);  // slot 2: item 0x12 (B)
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x12);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.quick_swap_item), 0x11);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.last_weapon), 0x12);
+    double_tap();
+    CHECK_EQ(f.swaps, 1);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x11);
+    CHECK(f.logged("double tap: swap from item 0x12 to 0x11 (the quick swap item"));
+    double_tap();
+    CHECK_EQ(f.swaps, 2);
+    CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroItem), 0x12);
+    CHECK(f.logged("double tap: swap from item 0x11 to 0x12 (the quick swap item"));
+    CHECK_EQ(f.freeze_inits, 2);
+}
+
 void test_quick_swap() {
     Fake f;
     set_up(f, false, true);
@@ -1185,6 +1269,7 @@ int main() {
     test_taps();
     test_hold_timing();
     test_double_tap_logs();
+    test_wheel_picks_then_double_tap();
     test_unavailable_paused_open();
     test_watchdog_update_bypassed();
     test_watchdog_record_never_opens();

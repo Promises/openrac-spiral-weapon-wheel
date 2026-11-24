@@ -171,6 +171,19 @@ on Ratchet & Clank, whose quick select is Going Commando's ancestor, record for 
   picture, never the freeze dialog.
 - The gate asks again each tick a press is within its window (10 frames), as Going Commando's does:
   a tap's request ends for good once the press is out of the window; a hold opens 4 frames after.
+  So a double tap whose second press is held about 3 to 5 ticks opens the paused quick select
+  instead of swapping. That is Going Commando's own order, copied: the countdown runs first each
+  tick (`L00_0036F488-g8.c:106`), then the gate asks again while `PadPressedWithin` still finds the
+  press (108-112); case 1 of the countdown arms without looking at Triangle, case 2 cancels only on
+  a release or the swap flag (`L00_002FC058-g8.c:22-38`); nothing clears the pad's history or the
+  press window on a request or a cancel (only `menu_end`'s `pad_clear_port_state` as the pause ends,
+  and an input block, `L00_003266D8-g8.c:19-27`); the swap flag is set on the second release, not
+  the second press (`L00_002CB218.c:32-38`).
+- The double tap's words, Ratchet & Clank's (`hero_switch_item`): on a change of item (wheel picks
+  included: the commit writes `pending_item[0]`, the path Ratchet & Clank's own quick select uses),
+  the quick swap item takes `last_weapon_id[0]` and `last_weapon_id[0]` takes the new item. So
+  `last_weapon_id[0]` is the item in hand and the quick swap item the one before; the double tap
+  swaps to the quick swap item, and to `last_weapon_id[0]` only with the wrench in hand.
 - The NTSC address of `frame_scale` is the port's guess (not checked); a value out of range takes
   the tick rate's factor.
 - The log (`openrac-rac1-ntsc.log`, lines "[mod gc-weapon-wheel]"): the first call of each hook

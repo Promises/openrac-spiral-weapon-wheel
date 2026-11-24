@@ -29,6 +29,9 @@ constexpr std::uint32_t kHeroSelectBlocked = 0x20A7u;
 constexpr std::uint32_t kHeroUseLocked = 0x20ACu;
 // pending_item[0]: the item hero_switch_item changes to (Going Commando's hero+0x22C8).
 constexpr std::uint32_t kHeroPendingItem = 0x20B8u;
+// The item hero_switch_item has taken for slot 0 (its `b[0]`, pending_item + 7 words): the one the
+// hand changes to once its animation allows.
+constexpr std::uint32_t kHeroRequestedItem = 0x20D4u;
 // item_selector_timer (hud_item_selector_close_timer): Going Commando's hero+0x24F6.
 constexpr std::uint32_t kHeroCloseTimer = 0x22D2u;
 // quick_swap_tap_timer and quick_swap_tap_window: Going Commando's hero+0x24F8 and +0x24FA.

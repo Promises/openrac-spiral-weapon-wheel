@@ -745,10 +745,20 @@ void Shim::trace_request(int before, bool held, bool swap_flag) {
 // Ratchet & Clank's own double tap (hero_update_transitions, hero_item_input_and_hud.c:142-170: the
 // same timers as Going Commando's hero_update_button_hold_timers, which Going Commando's hero decider
 // runs in its place), seen from its effect on a tick Triangle is let go: both timers count down,
-// then a release with the window open swaps (the quick swap item, or the last weapon with the
-// wrench in hand) unless there is none or it is the item in hand. Its swap is Going Commando's swap
-// request, whose flag (level_set_flag_d_true) cancels the HUD-open request. In the log: each swap,
-// and each release in the window that does not swap, and why.
+// then a release with the window open swaps: pending_item[0] = the quick swap item (or, with the
+// wrench in hand, last_weapon_id[0]) and both timers cleared, the only place that clears both. The
+// hero's update applies the pending item the same tick (update_hero_equipped_items, after
+// hero_update_transitions: hero_switch_item), so the swap is seen by the cleared timers, not the
+// pending item. Its swap is Going Commando's swap request, whose flag (level_set_flag_d_true)
+// cancels the HUD-open request. In the log: each swap, and each release in the window that does
+// not swap, and why.
+//
+// Ratchet & Clank's words, as hero_switch_item keeps them (hero_animation_slots.c:1796-2000): on a
+// change of slot 0's item to `u` (not item 0x24, the wrench not in hand), the quick swap item
+// (quick_swap_item, D_0015EE8C, g_game_language[1] in the decomp) takes last_weapon_id[0], then
+// last_weapon_id[0] takes `u`. So last_weapon_id[0] is the item last switched to (the one in hand),
+// the quick swap item the one before it: the double tap swaps to the quick swap item, and uses
+// last_weapon_id[0] only with the wrench in hand (the weapon before the wrench).
 void Shim::explain_double_tap(const TapSnapshot& b) {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
@@ -757,16 +767,19 @@ void Shim::explain_double_tap(const TapSnapshot& b) {
     }
     const std::int16_t tap = m.read<std::int16_t>(a.hero + kHeroTapTimer);
     const std::int16_t window = m.read<std::int16_t>(a.hero + kHeroTapWindow);
-    const std::int32_t pending = m.read<std::int32_t>(a.hero + kHeroPendingItem);
     const std::int16_t tap_counted = b.tap != 0 ? static_cast<std::int16_t>(b.tap - 1) : 0;
     const std::int16_t window_counted = b.window != 0 ? static_cast<std::int16_t>(b.window - 1) : 0;
     const std::int32_t next = b.item == 8 ? b.last_weapon : b.swap_item;
-    char line[256];
+    char line[320];
     line[0] = 0;
-    if (b.window != 0 && tap == 0 && window == 0 && pending == next && next != 0) {
+    if (window_counted != 0 && tap == 0 && window == 0) {
         gc_shim_hud_flag_a = 1;
-        std::snprintf(line, sizeof line, "double tap: swap from item 0x%X to 0x%X (%s; tap timer %d, window %d before)",
-                      b.item, next, b.item == 8 ? "the wrench: the last weapon" : "the quick swap item", b.tap, b.window);
+        std::snprintf(line, sizeof line,
+                      "double tap: swap from item 0x%X to 0x%X (%s; tap timer %d, window %d before); now pending 0x%X, "
+                      "the hand's next item 0x%X, quick swap 0x%X, last weapon 0x%X",
+                      b.item, next, b.item == 8 ? "the wrench: the last weapon" : "the quick swap item", b.tap, b.window,
+                      m.read<std::int32_t>(a.hero + kHeroPendingItem), m.read<std::int32_t>(a.hero + kHeroRequestedItem),
+                      m.read<std::int32_t>(a.quick_swap_item), m.read<std::int32_t>(a.last_weapon));
     } else if (window_counted != 0) {
         const char* why = next == 0 ? (b.item == 8 ? "no last weapon" : "no quick swap item")
                           : b.item == b.swap_item ? "the quick swap item is in hand"
