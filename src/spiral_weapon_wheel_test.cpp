@@ -16,6 +16,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "gc/rac1_shim.hpp"
 #include "icons_test_data.hpp"
 #include "spiral/icon_packs.hpp"
+#include "spiral/json.hpp"
 #include "spiral/paint.hpp"
 #include "layout.hpp"
 
@@ -1695,7 +1697,7 @@ void test_gold_label() {
     set_up(f, true, false);
     f.wr<std::int16_t>(f.d.item_defs + 0x0D * gcw::kItemDefStride + gcw::kItemDefGoldName, 0x20D);
     gc::WheelOptions w = gc::shim().wheel_options();
-    w.debug_gold = gc::DebugGold::VisibombGun;
+    w.debug_preview = gc::DebugPreview::GoldVisibombGun;
     gc::shim().set_wheel_options(w);
     open_hud(f);
     play(f, 0x10);
@@ -1723,8 +1725,112 @@ void test_gold_label() {
         CHECK(label->size == gc::TextSize::Small && label->y < name->y);
     }
     CHECK(f.rd<std::uint8_t>(f.d.gold + 0x0D) == 0);  // the game's flag untouched
-    w.debug_gold = gc::DebugGold::Off;
+    w.debug_preview = gc::DebugPreview::Off;
     gc::shim().set_wheel_options(w);
+}
+
+// (1.4.5, TEMPORARY with the setting) The debug preview's Everything: every Quick Select weapon and
+// gadget, owned or not, and a gold entry for each of the ten weapons the game sells gold (the gold
+// weapon case's table) after its weapon; the home ring the real quick select's as always. Letting
+// go on an item not owned or on a gold entry picks nothing (a log line says so), and the game's
+// state is not written; an owned item still picks.
+void test_everything() {
+    Fake f;
+    set_up(f, true, false);
+    gc::WheelOptions w = gc::shim().wheel_options();
+    w.debug_preview = gc::DebugPreview::Everything;
+    gc::shim().set_wheel_options(w);
+    const std::vector<spiral::Item> items = gc::shim().collect_items();
+    int gold = 0, unowned = 0;
+    std::vector<std::int32_t> listed;
+    for (const spiral::Item& it : items) {
+        if (it.id == 0) {
+            continue;
+        }
+        const bool sold_gold = std::find(std::begin(gc::kGoldWeapons), std::end(gc::kGoldWeapons), it.id) != std::end(gc::kGoldWeapons);
+        if (it.gold) {
+            ++gold;
+            CHECK(sold_gold && it.preview && it.hot == 0 && !it.equipped);
+            continue;
+        }
+        listed.push_back(it.id);
+        unowned += it.preview ? 1 : 0;
+        CHECK(it.preview == (f.rd<std::uint8_t>(f.d.item_available + static_cast<std::uint32_t>(it.id)) == 0));
+        CHECK(!it.preview || it.hot == 0);
+    }
+    for (const std::int32_t id : kWeaponCellItems) {
+        CHECK(std::count(listed.begin(), listed.end(), id) == 1);  // the grids' cells, all of them, once
+    }
+    for (const std::int32_t id : kGadgetCellItems) {
+        CHECK(std::count(listed.begin(), listed.end(), id) == 1);
+    }
+    CHECK_EQ(gold, 10);      // the weapons grid holds all ten
+    CHECK(unowned > 0);
+    // The quick select's items still on their ring directions; each gold entry right after its
+    // weapon along the path (past the home ring's slots), or after where it would be when that
+    // weapon is on the quick select.
+    std::vector<std::int32_t> home_ids;
+    for (int i = 0; i < 8; ++i) {
+        if (kItems[i] != 0) {
+            home_ids.push_back(kItems[i]);
+        }
+    }
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        if (items[i].hot > 0) {
+            CHECK(i < 12);
+        }
+        if (!items[i].gold || !items[i].preview) {
+            continue;
+        }
+        const bool weapon_home = std::find(home_ids.begin(), home_ids.end(), items[i].id) != home_ids.end();
+        std::size_t before = i;
+        while (before > 0 && items[before - 1].hot > 0) {
+            --before;
+        }
+        CHECK(weapon_home || (before > 0 && items[before - 1].id == items[i].id && !items[before - 1].gold));
+    }
+    // Picking: a gold entry and an unowned item pick nothing; the stats and the hand untouched.
+    open_hud(f);
+    play(f, 0x10);
+    CHECK(f.logged("(gold preview)") && f.logged("(preview)"));
+    const std::uint32_t usage = f.d.usage_stats + gcw::kUsageStride * gcw::kUsageQuickSelect;
+    const std::uint16_t uses = f.rd<std::uint16_t>(usage);
+    auto preview_index = [](bool want_gold) {
+        const std::vector<spiral::Item>& in = gc::shim().wheel().items();
+        for (std::size_t i = 0; i < in.size(); ++i) {
+            if (in[i].preview && in[i].gold == want_gold) {
+                return static_cast<int>(i);
+            }
+        }
+        return -100;
+    };
+    for (const bool want_gold : {true, false}) {
+        const int target = preview_index(want_gold);
+        CHECK(target >= 0);
+        if (target < 0) {
+            continue;
+        }
+        f.logs.clear();
+        commit(f, target);
+        CHECK(f.logged("let go on a debug preview entry: nothing equipped"));
+        CHECK(!f.logged("picked item"));
+        CHECK_EQ(f.rd<std::int32_t>(f.d.hero + gcw::kHeroPendingItem), 0);
+        CHECK_EQ(f.rd<std::uint16_t>(usage), uses);
+        CHECK(f.rd<std::uint8_t>(f.d.gold + static_cast<std::uint32_t>(gc::shim().wheel().items()[static_cast<std::size_t>(target)].id)) == 0);
+    }
+    // An owned item still picks.
+    f.logs.clear();
+    commit(f, wheel_index(0x0D) >= 0 ? static_cast<int>(std::find_if(gc::shim().wheel().items().begin(), gc::shim().wheel().items().end(),
+                                                                   [](const spiral::Item& it) { return it.id == 0x0D; }) -
+                                                      gc::shim().wheel().items().begin())
+                                     : 0);
+    CHECK(f.logged("picked item 0xD (Visibomb Gun), equipped 0xD"));
+    // Off: none of it.
+    w.debug_preview = gc::DebugPreview::Off;
+    gc::shim().set_wheel_options(w);
+    for (const spiral::Item& it : gc::shim().collect_items()) {
+        CHECK(!it.preview && !it.gold);
+    }
 }
 
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
@@ -2537,7 +2643,7 @@ void test_quick_swap() {
 // d-pad's edges (in game in 1.4.2 it stopped: the held word's own edges count now), and logs it.
 void regression_dpad() {
     for (const bool continuous : {true, false}) {
-      for (const bool clockwise : {true, false}) {  // clockwise: the default since 1.2.0
+      for (const bool clockwise : {true, false}) {  // clockwise: the default 1.2.0 to 1.4.4
         for (const bool masked : {false, true}) {
             Fake f;
             set_up(f, true, true);  // "Pause while open": the wheel in the game's freeze mode
@@ -2596,6 +2702,120 @@ void regression_home_ring() {
         }
     }
     CHECK(rest_min >= home_max - 1e-3f || rest_min == 1e9f);
+}
+
+// (1.4.5) The defaults as shipped (the manifest's, which the layer gets as they are): counter-
+// clockwise, outward, continuous, the size 0.5 to 1.5; the spiral's own defaults the same (the
+// tests that use them test what ships). Opened with them, item 1 is a slot counter-clockwise of
+// item 0. And the debug setting is one the release guard catches (its key "debug_...").
+const spiral::json::Value* setting(const spiral::json::Value& manifest, const char* key) {
+    const spiral::json::Value* settings = manifest.find("settings");
+    if (settings == nullptr) {
+        return nullptr;
+    }
+    for (const spiral::json::Value& v : settings->array) {
+        const spiral::json::Value* k = v.find("key");
+        if (k != nullptr && k->string == key) {
+            return &v;
+        }
+    }
+    return nullptr;
+}
+void regression_defaults() {
+    std::ifstream in(std::string(SPIRAL_SOURCE_DIR) + "/openrac-mod.json");
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    spiral::json::Value manifest;
+    std::string why;
+    CHECK(spiral::json::parse(text, manifest, why));
+    auto value = [&](const char* key, const char* member) -> const spiral::json::Value* {
+        const spiral::json::Value* s = setting(manifest, key);
+        return s != nullptr ? s->find(member) : nullptr;
+    };
+    const spiral::json::Value* clockwise = value("clockwise", "default");
+    CHECK(clockwise != nullptr && clockwise->kind == spiral::json::Value::Kind::Bool && !clockwise->boolean);
+    const spiral::json::Value* grows = value("spiral_grows", "default");
+    CHECK(grows != nullptr && grows->string == "outward");
+    const spiral::json::Value* motion = value("spiral_motion", "default");
+    CHECK(motion != nullptr && motion->string == "continuous");
+    const spiral::json::Value* low = value("scale", "min");
+    const spiral::json::Value* high = value("scale", "max");
+    CHECK(low != nullptr && high != nullptr && low->number == 0.5 && high->number == 1.5);
+    const spiral::Look look;
+    CHECK(!look.spiral.clockwise && look.outward && look.continuous && look.scale == 1.0f);
+    // Opened with them (the layer's options as the mod reads them).
+    Fake f;
+    set_up(f, true, false);
+    gc::WheelOptions w = gc::shim().wheel_options();
+    w.look.spiral.clockwise = clockwise != nullptr && clockwise->boolean;
+    gc::shim().set_wheel_options(w);
+    open_hud(f);
+    play(f, 0x10);
+    float first = 0.0f, second = 0.0f;
+    for (const spiral::Slot& sl : gc::shim().picture().frame.slots) {
+        first = sl.index == 0 ? sl.angle_deg : first;
+        second = sl.index == 1 ? sl.angle_deg : second;
+    }
+    CHECK(std::fabs(std::remainder(second - first - 30.0f, 360.0f)) < 1e-3f);  // counter-clockwise
+    // The temporary debug setting: one, its key the guard's (tools/no_debug_settings.cmake).
+    int debug = 0;
+    for (const spiral::json::Value& v : manifest.find("settings")->array) {
+        const spiral::json::Value* k = v.find("key");
+        debug += k != nullptr && k->string.rfind("debug_", 0) == 0 ? 1 : 0;
+    }
+    CHECK(debug == 0 || setting(manifest, "debug_preview") != nullptr);
+}
+
+// (1.4.5) Outward and continuous, the ring whole: opened on each of the quick select's items, all
+// of them drawn at full strength; and stepping the pointer to each item of the wheel, the items 6
+// either side of it whole, and the blanks only linking the last item (drawn) on round to item 0,
+// further out than it, never a ring of them inside item 0.
+void regression_ring_whole() {
+    for (int slot = 0; slot < 8; ++slot) {
+        if (kItems[slot] == 0) {
+            continue;
+        }
+        Fake f;
+        set_up(f, true, false);
+        f.wr<std::int32_t>(f.d.hero + gcw::kHeroItem, kItems[slot]);
+        open_hud(f);
+        play(f, 0x10);
+        CHECK_EQ(selected(f), wheel_index(kItems[slot]));
+        int whole = 0;
+        for (const spiral::Slot& sl : gc::shim().picture().frame.slots) {
+            if (sl.index >= 0 && gc::shim().wheel().items()[static_cast<std::size_t>(sl.index)].hot > 0) {
+                whole += sl.opacity >= 1.0f - 1e-4f ? 1 : 0;
+            }
+        }
+        CHECK_EQ(whole, 7);  // kItems: 7 of the 8 slots hold an item
+    }
+    Fake f;
+    set_up(f, true, false);
+    open_hud(f);
+    play(f, 0x10);
+    const int n = kWheelItems;
+    for (int at = 0; at < n; ++at) {
+        dpad_to(f, at);
+        for (int i = 0; i < 3; ++i) {
+            play(f, 0x10);
+        }
+        std::map<int, const spiral::Slot*> by;
+        const spiral::Frame frame = gc::shim().picture().frame;
+        for (const spiral::Slot& sl : frame.slots) {
+            by[sl.index] = &sl;
+        }
+        for (int i = std::max(0, at - 6); i <= std::min(n - 1, at + 6); ++i) {
+            CHECK(by.count(i) == 1 && by[i]->opacity >= 1.0f - 1e-4f);
+        }
+        for (const spiral::Slot& sl : frame.slots) {
+            if (sl.index >= 0) {
+                continue;
+            }
+            CHECK(by.count(n - 1) == 1);  // a blank only with the last item there to link
+            if (by.count(n - 1) == 1) {
+                CHECK(sl.radius > by[n - 1]->radius);
+            }
+        }
+    }
 }
 
 // The settings reach the wheel: the start angle, the direction, the size, the depth, the motion and
@@ -2763,6 +2983,8 @@ int run_regressions() {
         {"hold vs toggle", test_toggle},
         {"the items: the Quick Select page's only", test_items},
         {"the home ring at its directions, innermost", regression_home_ring},
+        {"the defaults: counter-clockwise, outward, continuous, size 0.5 to 1.5", regression_defaults},
+        {"the ring whole (all 8 at opening, 6 either side), blanks only linking", regression_ring_whole},
         {"no \"None\"", regression_no_none},
         {"the selection through the loops", test_spiral_selection},
         {"health orbs hidden and restored on every path", test_health_hidden},
@@ -2776,6 +2998,7 @@ int run_regressions() {
         {"gold detection, the icon sources, the packs", test_icon_sources},
         {"the glyphs from memory without disc data", test_glyph_capture},
         {"the gold label", test_gold_label},
+        {"the debug preview's Everything (all items, gold entries, picks nothing)", test_everything},
         {"the middle's text fit", test_text_fit},
         {"the panel textures", test_panel_art},
         {"any number of items", test_many_items},
@@ -2816,6 +3039,7 @@ int main(int argc, char** argv) {
     test_many_items();
     test_text_fit();
     test_gold_label();
+    test_everything();
     test_paused_path();
     test_health_hidden();
     test_slow_down();

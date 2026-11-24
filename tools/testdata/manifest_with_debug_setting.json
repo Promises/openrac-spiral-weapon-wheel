@@ -1,0 +1,14 @@
+{
+  "settings": [
+    {
+      "key": "scale",
+      "type": "float",
+      "default": 1.0
+    },
+    {
+      "key": "debug_preview",
+      "type": "choice",
+      "default": "off"
+    }
+  ]
+}

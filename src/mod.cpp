@@ -227,11 +227,12 @@ void read_settings(openrac::Mod& mod) {
     w.look.spiral.depth = static_cast<float>(mod.setting<double>("depth"));
     w.look.continuous = mod.setting<std::string>("spiral_motion") != "loop_steps";
     w.look.outward = mod.setting<std::string>("spiral_grows") != "inward";
-    // TEMPORARY (remove before release): the gold preview, the wheel's look only.
-    const std::string debug_gold = mod.setting<std::string>("debug_gold");
-    w.debug_gold = debug_gold == "visibomb_gun" ? gc::DebugGold::VisibombGun
-                   : debug_gold == "all_weapons" ? gc::DebugGold::AllWeapons
-                                                 : gc::DebugGold::Off;
+    // TEMPORARY (remove before release): the debug preview, the wheel's look only.
+    const std::string preview = mod.setting<std::string>("debug_preview");
+    w.debug_preview = preview == "gold_visibomb_gun"  ? gc::DebugPreview::GoldVisibombGun
+                      : preview == "all_weapons_gold" ? gc::DebugPreview::AllWeaponsGold
+                      : preview == "everything"       ? gc::DebugPreview::Everything
+                                                      : gc::DebugPreview::Off;
     w.toggle = mod.setting<std::string>("mode") == "toggle";
     w.ramp_frames = ramp_frames(mod.setting<std::string>("slowdown"));
     w.ease_back = mod.setting<bool>("ease_back");
@@ -475,4 +476,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.4.4", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.4.5", load)

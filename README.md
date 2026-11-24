@@ -55,13 +55,14 @@ Clank's own. The Devastator here is a gold one.*
 | Ease back on close | off | On, the game's time eases back up as the wheel closes, the way it slowed down. |
 | Open and close | Hold | *Hold*: let go of Triangle to pick. *Toggle*: the wheel stays up when you let go; press Triangle again to pick. |
 | Hold before pausing | A little longer | How long Triangle is held before the wheel opens. *Going Commando* is its own 4 frames, *A little longer* 8 frames (so taps and double taps don't open it), *Longer* 12. On PAL: 3, 7, 10. |
-| Size | 1 | 1, the largest, is the design's size as it fits any screen with a margin: no slot further out than the loop's first, the wheel inside the screen by 3 % of its height. Smaller values shrink it. |
+| Size | 1 | 0.5 to 1.5. At 1 the home ring is the design's size as it fits any screen with a margin. With *Spiral grows* Outward the later loops grow past the screen's edge (they are meant to); Inward keeps the design's drawing inside the screen. |
 | Start angle | 90 | Where the spiral starts, in degrees counter-clockwise from 3 o'clock (90 is 12 o'clock). |
-| Clockwise | on | Which way the spiral turns (on is the design's; Prey Menu's default was off). |
+| Clockwise | off | Which way the spiral turns: off, counter-clockwise (Prey Menu's default); on, clockwise (the design's drawing). |
 | Spiral grows | Outward | *Outward* (as 1.0 and 1.1 had it): your quick select's ring is the innermost, the other items spiral further out. *Inward* (the design's drawing): the quick select's ring is outermost, the others spiral in. |
-| Spiral motion | Continuous | *Continuous*: the spiral follows the pointer at all times (Prey Menu's way), the pointed-at slot in the middle of the twelve shown whole. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
+| Spiral motion | Continuous | *Continuous*: the spiral follows the pointer (Prey Menu's way). Outward, the home ring holds still while the pointer is on it, so all of it shows whole; past it the pointer sits in the middle of the ring, the 6 slots either side whole and fading beyond. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
 | Spiral depth | 0.75 | How far in each slot is from the one before: the design's 11 pixels (of 720) at 0.75 and below, less above it, down to 5 at 1. |
 | Click sound | off | A sound as the pointer moves to another item (Ratchet & Clank's quick select is silent; this is a stand-in). |
+| Debug: preview (temporary) | Off | For testing the look: *Gold Visibomb Gun*, *All weapons gold* draw those as gold; *Everything* shows every Quick Select weapon and gadget, owned or not, and the ten gold weapons as entries of their own. The wheel only: letting go on a preview entry picks nothing. Removed before a release. |
 
 ## Requirements
 
@@ -114,7 +115,14 @@ Ratchet & Clank PAL and NTSC-U.
     18 %; an empty slot among the twelve at 60 %. *Continuous*: the twelve are the pointer's 6
     before it and 5 after it, so every slot's radius and opacity follow the pointer's distance
     from it. *Loop steps*: the twelve are the pointer's loop; when the pointer moves into another
-    loop, the spiral eases there (0.06 s), turning the way the pointer went.
+    loop, the spiral eases there (0.06 s), turning the way the pointer went. That is *Inward*,
+    the design's drawing, held inside the screen. *Outward* (the default) mirrors the radii (the
+    shown ring's first slot 163 out, its last 284) and grows on past the screen's edge with no cap;
+    nothing is drawn inside 130 (the middle disc). Its *Continuous* holds the home ring still while
+    the pointer is on the first loop and then keeps the pointer 6 into the ring, so the ring shown
+    and the 6 slots either side of the pointer are whole, fading over the 6 beyond. The blanks are
+    drawn only where they link the last item, when it shows, on round to item 0: never a ring of
+    them inside item 0.
   - The panel is Ratchet & Clank's own menu panel, as its pause menu draws one
     (`render_level_effects_and_screen_sprites`, `draw_menu_flashing_panel`): an opaque fill
     (#080810), the vignette (HUD icon 0xE99E frame 7, from the disc's HUD set), the category's
@@ -245,6 +253,8 @@ fails by name.
 | Hold vs Toggle | 1.0.0 | `test_toggle` |
 | The items: the Quick Select page's only, plus registered and provided items | 1.0.2 / 1.4.0 | `test_items`, `test_many_items` |
 | The home ring at its ring directions, innermost (Spiral grows: Outward) | 1.0.3 (fixed 1.4.3) | `regression_home_ring` |
+| The defaults: counter-clockwise, Outward, Continuous; Size 0.5 to 1.5 | 1.4.5 | `regression_defaults` |
+| The ring whole: all 8 of the quick select at full when the wheel opens on any of them, 6 either side of the pointer whole, blanks only linking the last item round (Outward, Continuous) | 1.4.5 | `regression_ring_whole` |
 | No "None" | 1.1.0 | `regression_no_none` |
 | The selection through the loops | 1.0.0 | `test_spiral_selection` |
 | Health orbs hidden and restored on every path | 1.1.1 | `test_health_hidden` |
@@ -258,23 +268,31 @@ fails by name.
 | Gold detection, the icon packs, the disc's HUD set | 1.1.0 / 1.3.0 | `test_icon_sources` |
 | Glyphs from memory without disc data, checked | 1.1.2 | `test_glyph_capture` |
 | The gold label, the middle's text fit and wrap hints | 1.4.1 to 1.4.3 | `test_gold_label`, `test_text_fit` |
+| The debug preview's Everything: every item, the gold entries, a preview entry picks nothing (temporary) | 1.4.5 | `test_everything` |
 | The panel textures | 1.4.0 | `test_panel_art` |
 | The logging | 1.0.0 | `regression_logging` |
 | PAL and NTSC | 1.0.0 | `regression_pal_ntsc` |
 | The relocated game mode; frames and ticks at 50/60 Hz; the pad history | GC port | `test_relocated_game_mode`, `test_frames_and_ticks`, `test_pad_history_and_press_window` |
 
-The geometry and the painter have their own tests in `src/spiral_test.cpp`: the fit on the screen,
-the links, outward and inward growth, both motions, the panel.
+The geometry and the painter have their own tests in `src/spiral_test.cpp`: the fit on the screen
+(inward), the links, outward growth past the screen (`test_outward`), the ring whole and the
+linking blanks for 14, 23, 30 and 35 items (`test_full_ring`), both motions, the panel. ctest's
+`release_guard_trips` checks that the release guard fails on a manifest with a debug setting.
 
 ## Remove before release
 
 Temporary things that must not ship. A tag's build fails while any is still there: its CI runs
 `tools/no_debug_settings.cmake` as a test, which fails on a manifest setting named `debug_...`.
 
-- The setting **"Debug: preview gold (temporary)"** (`debug_gold`: Off / Visibomb Gun / All
-  weapons). It draws those weapons as gold on the wheel only, to see the gold look in game. It
-  writes nothing and gives nothing. Remove it from `openrac-mod.json`, along with `DebugGold` and
-  its uses (`src/gc/rac1_shim.hpp`, `Shim::shows_gold`, `read_settings` in `src/mod.cpp`).
+- The setting **"Debug: preview (temporary)"** (`debug_preview`: Off / Gold Visibomb Gun / All
+  weapons gold / Everything). It draws weapons as gold, or (Everything) every Quick Select weapon
+  and gadget, owned or not, plus a gold entry after each of the ten weapons with a gold version,
+  on the wheel only, to check the look and the layout in game. It writes nothing and gives nothing;
+  letting go on a preview entry picks nothing. Remove it from `openrac-mod.json`, along with
+  `DebugPreview`, `kVisibombGun` and `kGoldWeapons` (`src/gc/rac1_shim.hpp`), their uses
+  (`Shim::shows_gold`, `Shim::collect_items`, `quick_select_items` and `registered_items`'
+  `everything`, `read_settings` in `src/mod.cpp`), `spiral::Item::preview` with
+  `Shim::preview_entry`, and `test_everything`.
 
 ## Build
 

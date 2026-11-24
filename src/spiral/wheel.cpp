@@ -138,6 +138,31 @@ float Wheel::anchor_target() const {
     return total > 0.0f ? wrap_into(target_loop(), 0.0f, total) : 0.0f;
 }
 
+// Outward and continuous (1.4.5): where the pointer sits in the ring shown (k 0 to 11, at 163 to
+// 284), for the pointer at `at` slots along the path (0 up to `total`), `items` long. On the first
+// loop the home ring holds still and the pointer goes round it (k = at); past it the spiral turns,
+// twice as fast for 5 slots, until the pointer sits at k 6 (Prey Menu's place, 6 either side);
+// over the blanks back round to item 0 the same in reverse, to k 0 at the path's end (item 0
+// again). Continuous in `at` everywhere, the wrap included, so the stick turns it smoothly.
+float ring_place(float at, float total, int items) {
+    if (at <= 11.0f) {
+        return std::max(at, 0.0f);
+    }
+    if (at <= 16.0f) {
+        return 22.0f - at;
+    }
+    const float back = std::max(total - 6.0f, static_cast<float>(items) - 0.5f);
+    if (at < back) {
+        return kContinuousIn;
+    }
+    return kContinuousIn * (total - at) / (total - back);
+}
+
+float Wheel::pointer_at() const {
+    const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
+    return p.total > 0 ? wrap_into(p.index * static_cast<float>(sign(spiral_options())), 0.0f, static_cast<float>(p.total)) : 0.0f;
+}
+
 float Wheel::anchor() const {
     const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
     const float total = static_cast<float>(p.total);
@@ -145,8 +170,11 @@ float Wheel::anchor() const {
         return 0.0f;
     }
     if (m_look.continuous && p.spiral) {
-        // The pointer's place in items (its index is signed by the direction).
-        return wrap_into(p.index * static_cast<float>(sign(spiral_options())) - kContinuousIn, 0.0f, total);
+        // The pointer's place in items (its index is signed by the direction): kContinuousIn into
+        // the window; outward, its place in the ring (ring_place).
+        const float at = pointer_at();
+        const float in = m_look.outward ? ring_place(at, total, static_cast<int>(m_items.size())) : kContinuousIn;
+        return wrap_into(at - in, 0.0f, total);
     }
     return wrap_into(m_anchor, 0.0f, total);
 }
@@ -303,39 +331,67 @@ Frame Wheel::frame() const {
     std::vector<std::pair<float, Slot>> drawn;
     // Where the first and the last items are in the window (k), their radii, and the end of the last
     // item's loop along the path.
-    const float first_k = wrap_into(-anchor(), -5.0f, total);
-    const float last_k = n > 0 ? wrap_into(static_cast<float>(n - 1) - anchor(), -5.0f, total) : 0.0f;
-    // A slot k on from the window's first: inward, the loop's first at 284 and each after it 11
-    // further in; outward, the loop's last at 284 and each before it 11 further in (the window's
-    // twelve the same radii, mirrored). Held to kMinRadius .. kMaxRadius.
     const bool outward = m_look.outward;
+    // Outward and continuous (1.4.5): whole, the ring shown (k 0 to 11) and the 6 either side of the
+    // pointer (Prey Menu's rule), so the ring the pointer is in is never cut; fading out over the 6
+    // beyond either end. The window runs to the 6 past the far end (ahead of the pointer first).
+    const bool prey = outward && m_look.continuous && p.spiral;
+    const float in = prey ? ring_place(pointer_at(), total, n) : 0.0f;
+    const float whole_from = std::min(0.0f, in - 6.0f), whole_to = std::max(static_cast<float>(kPerLoop - 1), in + 6.0f);
+    const float from = prey ? whole_to + 6.5f - total : -5.0f;
+    const float first_k = wrap_into(-anchor(), from, total);
+    const float last_k = n > 0 ? wrap_into(static_cast<float>(n - 1) - anchor(), from, total) : 0.0f;
+    auto fade_at = [&](float k) {
+        if (prey) {
+            const float beyond = std::max({whole_from - k, k - whole_to, 0.0f});
+            return std::clamp(1.0f - beyond / 6.0f, 0.0f, 1.0f);
+        }
+        return slot_opacity(k, p.spiral);
+    };
+    // A slot k on from the window's first: inward, the loop's first at 284 and each after it 11
+    // further in, held to kMinRadius .. kMaxRadius (the design's drawing, inside the screen);
+    // outward, the loop's last at 284 and each before it 11 further in, the later ones on out past
+    // the screen's edge if they go there (1.4.5: off the screen is fine), none drawn inside
+    // kMinRadius (the middle disc).
     auto radius_at = [step, outward](float k) {
-        const float r = outward ? look::kFirstRadius - step * (static_cast<float>(kPerLoop - 1) - k) : look::kFirstRadius - step * k;
-        return std::clamp(r, look::kMinRadius, look::kMaxRadius);
+        if (outward) {
+            return look::kFirstRadius - step * (static_cast<float>(kPerLoop - 1) - k);
+        }
+        return std::clamp(look::kFirstRadius - step * k, look::kMinRadius, look::kMaxRadius);
     };
     const int last_loop_end = (n + kPerLoop - 1) / kPerLoop * kPerLoop;
+    // Outward, whether a slot at k is drawn at all: in the fade and outside the middle disc.
+    auto shown_at = [&](float k) { return fade_at(k) > 0.0f && radius_at(k) >= look::kMinRadius; };
+    // Outward, the blanks link the last item round to the first: drawn on from the last item when it
+    // is drawn (completing its ring), or when the pointer is in them (it points at one of them).
+    const bool link_blanks = outward && p.spiral && n > 0 &&
+                             (shown_at(last_k) || wrap_index(p.selected, p.total) >= n);
     for (const Tile& t : tiles(n, p, o)) {
         const float at = static_cast<float>(wrap_index(t.index, p.total)) - anchor();
-        const float k = p.spiral ? wrap_into(at, -5.0f, total) : wrap_into(at, -0.5f, total);
+        const float k = p.spiral ? wrap_into(at, from, total) : wrap_into(at, -0.5f, total);
         // The blanks (the slots after the last item, to the end of its loop) link the spiral into
         // one path, wherever the window shows them from its first slot on: on from the last item,
         // and on into the first (the loop round to item 0). Never larger than the item they link
         // to (inside the last; at most the first's size), never in the window's fading start (they
         // would lie over the next loop's items there: an outer ring), none with one loop or less.
-        float link_cap = look::kMaxRadius;
-        if (t.index < 0) {
+        float link_cap = 1e9f;
+        if (t.index < 0 && outward) {
+            // Outward (1.4.5): only the blanks on from the last item (k after its), to the end of its
+            // loop, completing that ring; never the stretch behind the first item when the last is
+            // not there to link to (1.4.4 drew it: rings of blanks inside item 0).
+            if (!link_blanks || k <= last_k || static_cast<int>(total) + t.index >= last_loop_end) {
+                continue;
+            }
+        } else if (t.index < 0) {
             if (!p.spiral || k < 0.0f || static_cast<int>(total) + t.index >= last_loop_end) {
                 continue;
             }
             // Never larger than the item it links: the last item (after it) or the first (before it).
             link_cap = k > last_k && last_k >= 0.0f ? radius_at(last_k) : radius_at(first_k < k ? first_k + total : first_k);
-            if (outward && k > last_k && last_k >= 0.0f) {
-                continue;  // outward, the blanks after the last item would be an outer ring: not drawn
-            }
         }
-        const float fade = slot_opacity(k, p.spiral);
-        if (fade <= 0.0f) {
-            continue;
+        const float fade = fade_at(k);
+        if (fade <= 0.0f || (outward && !shown_at(k))) {
+            continue;  // out of the fade, or (outward) inside the middle disc
         }
         const Item* item = t.index >= 0 && t.index < n ? &m_items[static_cast<std::size_t>(t.index)] : nullptr;
         if (item != nullptr && item->id == 0) {

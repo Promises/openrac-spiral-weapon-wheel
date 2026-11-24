@@ -65,21 +65,23 @@ int game_y(float y) { return static_cast<int>(std::lround(kScreenHeight * 0.5f +
 
 // The game's own provider: the pause menu's Quick Select page, its weapons grid then its hand
 // gadgets grid (layout.hpp: the cells' tables, draw_menu_item_grid's and update_menu_item_slots'
-// rule), each cell's item when it is an item (kind 0) and owned. Nothing of the Items page (packs,
-// helmets, boots, the Sonic Summoner, the Persuader...) is in them. Each item's icon is its
-// definition's (item_defs +0x38), else its cell's.
-void Shim::quick_select_items(std::vector<spiral::Item>& out) const {
+// rule), each cell's item when it is an item (kind 0) and owned (`everything`, the debug preview:
+// owned or not, the unowned a preview entry). Nothing of the Items page (packs, helmets, boots, the
+// Sonic Summoner, the Persuader...) is in them. Each item's icon is its definition's (item_defs
+// +0x38), else its cell's.
+void Shim::quick_select_items(std::vector<spiral::Item>& out, bool everything) const {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     auto take = [&](std::uint32_t table, int count, bool gadgets) {
         for (int i = 0; i < count; ++i) {
             const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
             const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
-            if (m.read<std::int16_t>(cell + kCellKind) != 0 || !owned(id)) {
+            if (m.read<std::int16_t>(cell + kCellKind) != 0 || id <= 0 || id >= kItemTable || (!owned(id) && !everything)) {
                 continue;
             }
             spiral::Item item;
             item.id = id;
+            item.preview = !owned(id);
             item.category = gadgets ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
             item.icon = item_icon(id, m.read<std::uint16_t>(cell + kCellIcon));
             out.push_back(item);
@@ -94,29 +96,34 @@ void Shim::quick_select_items(std::vector<spiral::Item>& out) const {
 // and 36, which the grids do not have), when owned and with an icon, as the port's own quick
 // select lists them (port/game/common/mod_weapon_wheel.inc). More slots, or an SDK list of them,
 // are more items here, or another provider (add_item_provider).
-void Shim::registered_items(std::vector<spiral::Item>& out) const {
+void Shim::registered_items(std::vector<spiral::Item>& out, bool everything) const {
     for (const std::int32_t id : game.extension_items) {
         const std::uint16_t icon = item_icon(id, 0);
-        if (icon == 0 || !owned(id)) {
+        if (icon == 0 || (!owned(id) && !everything)) {
             continue;
         }
         spiral::Item item;
         item.id = id;
         item.icon = icon;
+        item.preview = !owned(id);
         out.push_back(item);
     }
 }
 
-// (the mod's) Whether the wheel shows item `id` (a weapon) as gold: the player owns its gold
-// version (gold_weapon_purchased), or the temporary debug setting previews it (look only: nothing
-// of the game's is read or written for it).
-bool Shim::shows_gold(std::int32_t id) const {
-    if (m_wheel_options.debug_gold == DebugGold::AllWeapons ||
-        (m_wheel_options.debug_gold == DebugGold::VisibombGun && id == kVisibombGun)) {
-        return true;
-    }
+bool Shim::owns_gold(std::int32_t id) const {
     return id > 0 && id < kItemTable && game.memory.base != nullptr &&
            game.memory.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(id)) != 0;
+}
+
+// (the mod's) Whether the wheel shows item `id` (a weapon) as gold: the player owns its gold
+// version (gold_weapon_purchased), or the temporary debug setting previews it (look only: nothing
+// of the game's is written for it).
+bool Shim::shows_gold(std::int32_t id) const {
+    const DebugPreview preview = m_wheel_options.debug_preview;
+    if (preview == DebugPreview::AllWeaponsGold || (preview == DebugPreview::GoldVisibombGun && id == kVisibombGun)) {
+        return true;
+    }
+    return owns_gold(id);
 }
 
 // (the mod's) The label over a gold weapon's name: the game's own word, from its gold name and its
@@ -153,9 +160,11 @@ std::vector<spiral::Item> Shim::collect_items() {
     if (m.base == nullptr) {
         return out;
     }
+    // TEMPORARY (the debug preview, README "Remove before release"): Everything.
+    const bool everything = m_wheel_options.debug_preview == DebugPreview::Everything;
     std::vector<spiral::Item> listed;
-    quick_select_items(listed);
-    registered_items(listed);
+    quick_select_items(listed, everything);
+    registered_items(listed, everything);
     for (const ItemProvider& provider : m_item_providers) {
         provider(*this, listed);
     }
@@ -165,8 +174,9 @@ std::vector<spiral::Item> Shim::collect_items() {
             continue;
         }
         item.equipped = item.id == in_hand;
+        item.gold = shows_gold(item.id);
         item.hot = 0;
-        for (std::uint32_t slot = 0; slot < 8; ++slot) {
+        for (std::uint32_t slot = 0; slot < 8 && !item.preview; ++slot) {
             if (m.read<std::int32_t>(a.slot_items + 4 * slot) == item.id) {
                 item.hot = static_cast<int>(slot) + 1;
                 break;
@@ -179,6 +189,8 @@ std::vector<spiral::Item> Shim::collect_items() {
     // src/overlays/shared/weapon_hud_and_counters.c:1348-1353: FastAddRots(2 * i * pi / count - pi,
     // pi / 2) with y down, so slot 0 at the top and the others clockwise: 90 - 45 * i degrees
     // counter-clockwise from 3 o'clock); an empty slot leaves its place to the others.
+    // The debug preview's Everything: after each weapon with a gold version (kGoldWeapons), that
+    // version as an entry of its own (in the rest, where the weapon is or would be).
     std::vector<spiral::HomeItem> home;
     std::vector<spiral::Item> rest;
     for (const spiral::Item& item : out) {
@@ -186,6 +198,14 @@ std::vector<spiral::Item> Shim::collect_items() {
             home.push_back({item, 90.0f - 45.0f * static_cast<float>(item.hot - 1)});
         } else {
             rest.push_back(item);
+        }
+        if (everything && std::find(std::begin(kGoldWeapons), std::end(kGoldWeapons), item.id) != std::end(kGoldWeapons)) {
+            spiral::Item gold = item;
+            gold.hot = 0;
+            gold.equipped = false;
+            gold.gold = true;
+            gold.preview = true;
+            rest.push_back(gold);
         }
     }
     std::vector<spiral::Item> arranged = spiral::arrange(home, rest, m_wheel_options.look.spiral);
@@ -217,13 +237,8 @@ std::vector<spiral::Item> Shim::collect_items() {
 // captures it again from certain pages, once. A glyph is never made again from changed pixels; a
 // level change (its own HUD set) drops them all. Anything amiss leaves the item without one, and
 // the game's own icon is drawn.
-int Shim::icon_frame(std::int32_t id, std::uint16_t icon) const {
-    const Memory& m = game.memory;
-    if (id <= 0 || !game.get_icon_frame) {
-        return 0;
-    }
-    const bool gold = m.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(id)) != 0;
-    return game.get_icon_frame(icon, gold ? 4 : 0);
+int Shim::icon_frame(std::uint16_t icon, bool gold) const {
+    return game.get_icon_frame ? game.get_icon_frame(icon, gold ? 4 : 0) : 0;
 }
 
 Shim::CachedGlyph& Shim::glyph_entry(int frame) {
@@ -324,7 +339,7 @@ void Shim::menu_grid_draw() {
                 continue;
             }
             const std::uint16_t icon = m.read<std::uint16_t>(cell + kCellIcon);
-            const int frame = icon_frame(id, icon);
+            const int frame = icon_frame(icon, owns_gold(id));
             if (frame <= 0) {
                 continue;
             }
@@ -366,10 +381,10 @@ void Shim::attach_glyph(spiral::Item& item) {
     if (item.id == 0 || !game.create_image) {
         return;
     }
-    const bool gold = shows_gold(item.id);
+    const bool gold = item.gold;
     const int variant = gold ? 4 : 0;
     const bool disc = m_hud.loaded() && m_hud.has_icon(item.icon);
-    const int frame = disc ? m_hud.icon_frame(item.icon, variant) : icon_frame(item.id, static_cast<std::uint16_t>(item.icon));
+    const int frame = disc ? m_hud.icon_frame(item.icon, variant) : icon_frame(static_cast<std::uint16_t>(item.icon), gold);
     const std::pair<int, int> key{item.id, frame};
     auto found = m_item_icons.find(key);
     if (found == m_item_icons.end()) {
@@ -876,6 +891,7 @@ void Shim::spiral_update(std::uint8_t* record) {
                 char id[16];
                 std::snprintf(id, sizeof id, item.id != 0 ? " 0x%X" : " -", static_cast<unsigned>(item.id));
                 line += id;
+                line += item.preview ? (item.gold ? "(gold preview)" : "(preview)") : "";
             }
             game.info(line.c_str());
         }
@@ -976,9 +992,12 @@ void Shim::spiral_update(std::uint8_t* record) {
         if (fade[0] == 0 && game.info) {
             char line[200];
             const std::int32_t in_hand = Memory{gc_shim_hero}.read<std::int32_t>(kGcHeroItem);
-            if (m_cancelled || !m_touched || !m_wheel.is_item(selected)) {
+            if (m_cancelled || !m_touched || !m_wheel.is_item(selected) || preview_entry(selected)) {
                 std::snprintf(line, sizeof line, "cancelled (%s; 0x%X in hand)",
-                              m_cancelled ? "Circle" : !m_touched ? "the pointer never moved" : "let go on a blank",
+                              m_cancelled                ? "Circle"
+                              : !m_touched               ? "the pointer never moved"
+                              : preview_entry(selected) ? "let go on a debug preview entry: nothing equipped"
+                                                         : "let go on a blank",
                               static_cast<unsigned>(in_hand));
             } else {
                 const std::int32_t pick = m_wheel.items()[static_cast<std::size_t>(selected)].id;
@@ -992,7 +1011,7 @@ void Shim::spiral_update(std::uint8_t* record) {
         // A wheel let go before the stick or the d-pad moved its pointer picks nothing, as Going
         // Commando's, which opens on nothing (here on the item in hand): a double tap's swap in the
         // pause stands.
-        if (fade[0] == 0 && !m_cancelled && m_touched && m_wheel.is_item(selected)) {
+        if (fade[0] == 0 && !m_cancelled && m_touched && m_wheel.is_item(selected) && !preview_entry(selected)) {
             Memory hero{gc_shim_hero};
             Memory stats{gc_shim_stats};
             const std::int32_t id = m_wheel.items()[static_cast<std::size_t>(selected)].id;
@@ -1195,7 +1214,7 @@ int Shim::spiral_draw(std::uint8_t* record) {
     const float pick = std::clamp(static_cast<float>(record[kFade + 1]) / 8.0f, 0.0f, 1.0f);
     for (const spiral::Icon& icon : f.icons) {
         const spiral::Item& item = m_wheel.items()[static_cast<std::size_t>(icon.item)];
-        const bool gold = m.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(item.id)) != 0;
+        const bool gold = item.gold;
         const int w = std::max(1, static_cast<int>(std::lround(icon.size * kAcrossPerHeight)));
         const int h = std::max(1, static_cast<int>(std::lround(icon.size * kScreenHeight)));
         const int alpha = static_cast<int>(kFullAlpha * icon.alpha * open);

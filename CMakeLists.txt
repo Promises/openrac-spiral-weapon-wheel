@@ -116,6 +116,11 @@ target_compile_definitions(spiral_weapon_wheel_test PRIVATE SPIRAL_SOURCE_DIR="$
 add_test(NAME spiral_weapon_wheel COMMAND spiral_weapon_wheel_test)
 # Every behaviour the wheel has had, a named check each (README "Behaviours and their tests").
 add_test(NAME regressions COMMAND spiral_weapon_wheel_test --regressions)
+# The release guard itself trips on a manifest with a debug setting (every build).
+add_test(NAME release_guard_trips
+         COMMAND ${CMAKE_COMMAND} -DMANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/tools/testdata/manifest_with_debug_setting.json
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/no_debug_settings.cmake)
+set_tests_properties(release_guard_trips PROPERTIES WILL_FAIL TRUE)
 # A release (a tag's build, or -DSPIRAL_RELEASE=ON) fails while a temporary debug setting is still
 # in the manifest (README "Remove before release").
 if("$ENV{GITHUB_REF}" MATCHES "^refs/tags/" OR SPIRAL_RELEASE)

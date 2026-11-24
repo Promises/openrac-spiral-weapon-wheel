@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <cstdio>
+#include <map>
 #include <vector>
 
 #include "spiral/arrange.hpp"
@@ -764,9 +765,8 @@ void test_links() {
 }
 
 // "Spiral grows" Outward (the default since 1.4.3, as 1.0 to 1.1 had it): the first loop, the
-// quick select's home ring, innermost, the later loops further out. With the pointer on the first
-// loop (loop steps), its twelve run from 163 to 284, the next loop's (fading) held at 284, nothing
-// inside 130; the blanks after the last item, an outer ring then, not drawn.
+// quick select's home ring, innermost, the later loops further out, past the screen's edge when
+// they go there (1.4.5: no 284 cap), nothing inside 130.
 void test_outward() {
     std::vector<spiral::Item> items(30);
     for (int i = 0; i < 30; ++i) {
@@ -774,34 +774,140 @@ void test_outward() {
     }
     items[0].equipped = true;
     spiral::Look look;
-    CHECK(look.outward);
+    CHECK(look.outward && !look.spiral.clockwise);  // the defaults: outward, counter-clockwise
     look.continuous = false;
     spiral::Wheel w;
     w.open(items, look);
     w.advance(1.0f);
-    float home_max = 0.0f, rest_min = 1e9f;
+    float home_max = 0.0f, rest_min = 1e9f, item_12 = 0.0f;
     for (const spiral::Slot& sl : w.frame().slots) {
-        CHECK(sl.radius >= 130.0f - 1e-3f && sl.radius <= 284.0f + 1e-3f);
+        CHECK(sl.radius >= 130.0f - 1e-3f);
         if (sl.index >= 0 && sl.index < 12) {
-            CHECK(std::fabs(sl.radius - (163.0f + 11.0f * static_cast<float>(sl.index))) < 1e-3f);
+            CHECK(near(sl.radius, 163.0f + 11.0f * static_cast<float>(sl.index)));
+            CHECK(near(sl.opacity, 1.0f));
             home_max = std::max(home_max, sl.radius);
         } else if (sl.index >= 12) {
             rest_min = std::min(rest_min, sl.radius);
+            item_12 = sl.index == 12 ? sl.radius : item_12;
         }
-        CHECK(sl.index >= 0 || sl.radius <= 163.0f + 1e-3f);  // no outer ring of blanks
+        CHECK(sl.index >= 0);  // no blanks before item 0 (the last item is not there to link)
     }
     CHECK(rest_min >= home_max - 1e-3f);  // the rest outside the home ring
-    // Continuous: the pointer's slot at 163 + 66, the ones after it further out.
+    CHECK(near(item_12, 284.0f + 11.0f));  // on out, not held at 284
+    // Continuous, the pointer on the first loop: the home ring held where loop steps has it (163 to
+    // 284), the pointer going round it; past it (item 20), the pointer at 163 + 66, the ones after
+    // it further out, uncapped.
     look.continuous = true;
-    spiral::Wheel c;
-    c.open(items, look);
-    c.advance(1.0f);
-    float at_pointer = 0.0f, after = 0.0f;
-    for (const spiral::Slot& sl : c.frame().slots) {
-        at_pointer = sl.index == 0 ? sl.radius : at_pointer;
-        after = sl.index == 3 ? sl.radius : after;
+    for (const int at : {0, 20}) {
+        for (spiral::Item& it : items) {
+            it.equipped = false;
+        }
+        items[static_cast<std::size_t>(at)].equipped = true;
+        spiral::Wheel c;
+        c.open(items, look);
+        c.advance(1.0f);
+        std::map<int, float> r;
+        for (const spiral::Slot& sl : c.frame().slots) {
+            r[sl.index] = sl.radius;
+        }
+        if (at == 0) {
+            CHECK(near(r[0], 163.0f) && near(r[3], 196.0f) && near(r[11], 284.0f) && near(r[12], 295.0f));
+        } else {
+            CHECK(near(r[20], 229.0f) && near(r[26], 295.0f) && near(r[29], 328.0f) && near(r[14], 163.0f));
+        }
     }
-    CHECK(std::fabs(at_pointer - 229.0f) < 1e-3f && after > at_pointer);
+    // Where the pointer sits in the ring: continuous along the whole path, the wrap included.
+    for (const int n : {14, 23, 30, 35}) {
+        const float total = static_cast<float>((n + 12) / 12 * 12);
+        CHECK(near(spiral::ring_place(0.0f, total, n), 0.0f) && near(spiral::ring_place(11.0f, total, n), 11.0f));
+        CHECK(near(spiral::ring_place(16.0f, total, n), 6.0f));
+        for (float at = 0.0f; at < total; at += 0.01f) {
+            const float jump = std::fabs(spiral::ring_place(at + 0.01f, total, n) - spiral::ring_place(at, total, n));
+            CHECK(jump < 0.13f);
+        }
+        CHECK(spiral::ring_place(total - 0.001f, total, n) < 0.1f);
+    }
+}
+
+// (1.4.5) Outward and continuous, the pointer's ring whole (Prey Menu's rule): every item within 6
+// slots of the pointer either side drawn at full strength, so the quick select's 8 all show when the
+// wheel opens on any of them; and the blanks only where they link the last item round to the first
+// (completing its ring), never a ring of blanks inside item 0. For 14 items (10 blanks), 23 (1), 30
+// (6) and 35 (1), the pointer on each item.
+void test_full_ring() {
+    for (const int n : {14, 23, 30, 35}) {
+        const int total = (n + 12) / 12 * 12;
+        std::vector<spiral::Item> items(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            items[static_cast<std::size_t>(i)].id = 0x40 + i;
+            items[static_cast<std::size_t>(i)].hot = i < 8 ? i + 1 : 0;
+        }
+        spiral::Look look;
+        CHECK(look.outward && look.continuous);
+        for (int at = 0; at < n; ++at) {
+            for (spiral::Item& it : items) {
+                it.equipped = false;
+            }
+            items[static_cast<std::size_t>(at)].equipped = true;
+            spiral::Wheel w;
+            w.open(items, look);
+            w.advance(1.0f);
+            const spiral::Frame f = w.frame();
+            CHECK(w.selected() == at);
+            std::vector<float> opacity(static_cast<std::size_t>(total), -1.0f), radius(static_cast<std::size_t>(total), 0.0f);
+            for (const spiral::Slot& sl : f.slots) {
+                const int pos = sl.index >= 0 ? sl.index : total + sl.index;
+                CHECK(opacity[static_cast<std::size_t>(pos)] < 0.0f);  // each slot once
+                opacity[static_cast<std::size_t>(pos)] = sl.opacity;
+                radius[static_cast<std::size_t>(pos)] = sl.radius;
+                CHECK(sl.radius >= 130.0f - 1e-3f);
+            }
+            auto drawn = [&](int pos) { return opacity[static_cast<std::size_t>(pos)] >= 0.0f; };
+            // The ring around the pointer: the items 6 either side whole (on the path, not wrapped).
+            for (int i = std::max(0, at - 6); i <= std::min(n - 1, at + 6); ++i) {
+                if (!drawn(i) || !near(opacity[static_cast<std::size_t>(i)], 1.0f)) {
+                    std::fprintf(stderr, "n %d, pointer on %d: item %d not whole\n", n, at, i);
+                    CHECK(false);
+                }
+            }
+            if (at < 12) {
+                // The first loop (the quick select's home ring: its 8 are on it, wherever the
+                // arrangement puts them) whole, whichever of its items the wheel opens on.
+                for (int i = 0; i < 12; ++i) {
+                    CHECK(drawn(i) && near(opacity[static_cast<std::size_t>(i)], 1.0f));
+                }
+            }
+            // The blanks: linking the last item on round to item 0, contiguous from it, each a
+            // slot further out than the one before; none when the last item is not drawn.
+            const bool last_drawn = drawn(n - 1);
+            bool gap = false;
+            for (int b = n; b < total; ++b) {
+                if (!last_drawn) {
+                    CHECK(!drawn(b));
+                    continue;
+                }
+                if (drawn(b)) {
+                    CHECK(!gap);  // no hole in the link
+                    CHECK(radius[static_cast<std::size_t>(b)] > radius[static_cast<std::size_t>(b - 1)]);
+                } else {
+                    gap = true;
+                }
+            }
+            // Completeness: a drawn last item with the next slot whole on the path has its blank.
+            if (last_drawn && opacity[static_cast<std::size_t>(n - 1)] >= 1.0f && at >= n - 6) {
+                CHECK(drawn(n));
+            }
+            for (int b = n; b < total; ++b) {
+                // Further out than the last item, each; and with 10 blanks the last item never
+                // wraps in behind item 0, so no blank inside item 0 (on the path before it: item 0
+                // drawn further in than the last item, not wrapped on past the blanks).
+                CHECK(!drawn(b) || radius[static_cast<std::size_t>(b)] > radius[static_cast<std::size_t>(n - 1)]);
+                if (n == 14 && drawn(0) && radius[0] < radius[static_cast<std::size_t>(n - 1)]) {
+                    CHECK(!drawn(b) || radius[static_cast<std::size_t>(b)] > radius[0]);
+                }
+            }
+        }
+    }
 }
 
 // The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
@@ -1180,6 +1286,7 @@ int main() {
     test_fit();
     test_links();
     test_outward();
+    test_full_ring();
     test_paint();
     test_home_ring();
     test_glyphs();

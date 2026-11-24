@@ -2,7 +2,7 @@
   "format": 2,
   "id": "spiral-weapon-wheel",
   "name": "Spiral Weapon Wheel",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "author": "Henning Berge",
   "description": "A weapon wheel in the style of Prey (2017)'s favourites wheel: hold Triangle and the game slows down for a moment, then holds (Going Commando's own pause, run from its copied code), while everything you can put on the quick select (the Quick Select page's weapons and gadgets) lies on a spiral that the stick turns through, loop after loop, twelve to a loop. Each slot is a Ratchet & Clank menu panel bent into a sector: scanlines, a khaki frame, washed in its item's category colour as the game colours its icons (blue weapons, orange-tan gold weapons, green gadgets); the pointed-at one has the yellow Load Game frame and is pushed out. The glyphs are original drawings, in an icon pack other mods can add to or replace (an equipment mod's new weapon included); an item without one gets a glyph made from your own disc data; the quick select's items carry their number on a grey badge; the name and ammo show in the round middle panel; the health meter hides while it is open; let go of Triangle to equip. A double tap is the quick swap. No game-derived art is shipped: the panels are drawn as the mod loads. Settings: size, start angle, direction, the spiral's depth, hold or toggle, the hold before the pause, the slow-down and the ease back. Needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay) and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet). Spiral design from Prey Menu by KerosenileArsonist.",
   "license": "GPL-3.0-or-later AND GPL-3.0-only AND ISC AND Zlib AND LicenseRef-Spiral-Wheel-Glyphs",
@@ -118,9 +118,9 @@
       "type": "float",
       "default": 1.0,
       "min": 0.5,
-      "max": 1.0,
+      "max": 1.5,
       "step": 0.05,
-      "description": "The wheel's size: 1, the largest, is the design's as it fits a screen of any shape with a margin (its outermost slot and badge 3 % of the screen's height inside the edge); smaller values shrink it."
+      "description": "The wheel's size: 1 is the design's (at 95 %); larger values make it bigger. With \"Spiral grows\" Outward the later loops may run past the screen's edge; Inward keeps the design's drawing inside the screen."
     },
     {
       "key": "start_angle",
@@ -135,8 +135,8 @@
       "key": "clockwise",
       "name": "Clockwise",
       "type": "bool",
-      "default": true,
-      "description": "On (the design's): the spiral turns clockwise, each slot after the loop's first a little further in. Off: counter-clockwise (Prey Menu's default)."
+      "default": false,
+      "description": "Off (the default, Prey Menu's): the spiral turns counter-clockwise. On: clockwise (the design's drawing)."
     },
     {
       "key": "spiral_motion",
@@ -183,8 +183,8 @@
       "description": "How far in each slot is from the one before it: 11 pixels of a 720 pixel tall screen at the default 0.75 and below (the loops fill the screen), less above it (Prey Menu's fDepth, as its per-slot shrink), down to 5 at 1."
     },
     {
-      "key": "debug_gold",
-      "name": "Debug: preview gold (temporary)",
+      "key": "debug_preview",
+      "name": "Debug: preview (temporary)",
       "type": "choice",
       "default": "off",
       "choices": [
@@ -193,15 +193,19 @@
           "name": "Off"
         },
         {
-          "value": "visibomb_gun",
-          "name": "Visibomb Gun"
+          "value": "gold_visibomb_gun",
+          "name": "Gold Visibomb Gun"
         },
         {
-          "value": "all_weapons",
-          "name": "All weapons"
+          "value": "all_weapons_gold",
+          "name": "All weapons gold"
+        },
+        {
+          "value": "everything",
+          "name": "Everything"
         }
       ],
-      "description": "TEMPORARY, for testing the look: the wheel draws these weapons as gold ones (their colours, the Gold label), as if you owned their gold versions. The wheel only: nothing in the game changes, nothing is given. Removed before a release."
+      "description": "TEMPORARY, for testing the look and the layout: Gold Visibomb Gun and All weapons gold draw those weapons as gold ones (their colours, the Gold label). Everything shows every Quick Select weapon and gadget, owned or not, and after each weapon with a gold version (ten) its gold one, for a full spiral. The wheel only: nothing in the game changes, nothing is given; letting go on an item you do not own, or on a gold entry, picks nothing. Removed before a release."
     },
     {
       "key": "click",

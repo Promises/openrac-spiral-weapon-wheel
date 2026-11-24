@@ -38,6 +38,11 @@ struct Item {
     } colours;
     // An icon pack's hint where the name may break (icon_packs.hpp: "wrap"), "" none.
     std::string wrap;
+    // Drawn as its gold version (the layer's: owned, or a debug preview's).
+    bool gold = false;
+    // A debug preview's entry (an item not owned, or a gold version shown beside its weapon): drawn
+    // and stepped to like any item, never picked (letting go on it picks nothing).
+    bool preview = false;
 };
 
 // One slot as drawn (look.hpp): a menu panel bent into a sector of the spiral.
@@ -125,7 +130,8 @@ struct Look {
 };
 
 // Continuous motion: where the pointer sits in the 12 slots shown whole (6: the 6 before it and
-// the 5 after it whole, then the design's fades either side).
+// the 5 after it whole, then the design's fades either side). Inward; outward (1.4.5) the ring
+// holds on the first loop and the pointer sits here past it (wheel.cpp ring_place).
 constexpr float kContinuousIn = 6.0f;
 
 // Lines of `heights` (screen heights) stacked `gap` apart, the block centred on `centre`: each
@@ -139,6 +145,8 @@ float radius_step(const Options& o);
 // A slot's opacity `k` slots on from the first of the loop shown (look.hpp: 1 in the loop, the
 // loops either side fading), in between whole slots linearly; `spiral` false: 1 for the one loop.
 float slot_opacity(float k, bool spiral);
+// Outward and continuous: the pointer's place in the ring shown for it `at` slots along the path.
+float ring_place(float at, float total, int items);
 
 class Wheel {
 public:
@@ -183,6 +191,8 @@ public:
     float anchor() const;
     // The loop's first slot the anchor eases to: the pointer's loop's.
     float anchor_target() const;
+    // Where the pointer is along the path, in slots from item 0 (0 up to the spiral's slots).
+    float pointer_at() const;
 
     // What to draw now.
     Frame frame() const;

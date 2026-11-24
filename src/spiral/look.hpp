@@ -19,10 +19,12 @@ constexpr float kCentreY = -8.0f;
 // after it 11 smaller; a panel 0.33 of its radius thick, 25.2 degrees of the 30 a slot has; the
 // selected one pushed 10 out (its thickness its own radius's).
 constexpr float kFirstRadius = 284.0f;
-// No slot further out than the loop's first (the design's outermost whole loop): the slots further
-// back (the continuous motion's, the loop before) stay at it and fade, so the wheel keeps inside the
-// screen. And the design is drawn at kFit of its size: its furthest point (that slot's outer edge,
-// the push and a badge, 8 above the middle) then leaves a margin of 3 % of the screen's height.
+// Inward (the design's drawing), no slot further out than the loop's first (the design's outermost
+// whole loop): the slots further back (the continuous motion's, the loop before) stay at it and
+// fade, so the wheel keeps inside the screen. Outward grows past it, off the screen if it goes there
+// (1.4.5, as the user asked). The design is drawn at kFit of its size: its furthest point (that
+// slot's outer edge, the push and a badge, 8 above the middle) then leaves a margin of 3 % of the
+// screen's height.
 constexpr float kMaxRadius = kFirstRadius;
 // And none further in than the design's innermost slot (its loop's 15th: 284 - 14 x 11), so the
 // slots stay clear of the middle disc.
