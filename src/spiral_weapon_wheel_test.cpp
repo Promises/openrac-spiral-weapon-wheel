@@ -23,6 +23,7 @@
 #include "gc/rac1_shim.hpp"
 #include "icons_test_data.hpp"
 #include "spiral/icon_packs.hpp"
+#include "spiral/paint.hpp"
 #include "layout.hpp"
 
 namespace {
@@ -580,6 +581,7 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         }
         return 0;
     };
+    g.extension_items = {1, 36};  // the port's, as mod.cpp gives them
     g.level_data_path = [](int) { return g_fake->level_file; };
     g.icon_packs = [] { return g_fake->icon_packs; };
     g.create_image = [](int width, int height, const std::uint8_t* rgba) {
@@ -1477,6 +1479,69 @@ void test_panel_art() {
     gc::shim().connect(f.level);
 }
 
+// Nothing capped (1.4.0): another item provider (as a later SDK's list of items would be) adds 60
+// items past the game's tables, ids up to 0x12345; the wheel offers them all after the game's,
+// steps through every one, and an icon pack draws the highest by its id.
+void test_many_items() {
+    namespace fs = std::filesystem;
+    const fs::path pack = fs::temp_directory_path() /
+                          ("spiral-many-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(pack);
+    std::ofstream(pack / "icons.json") << R"({"format": 1, "name": "Many", "icons": [
+        {"game": "rac1", "item": "0x12345", "glyph": "far.svg", "category": "item"}]})";
+    std::ofstream(pack / "far.svg") << "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\"><path "
+                                       "fill=\"currentColor\" d=\"M28 28h200v200h-200z\"/></svg>";
+    Fake f;
+    f.icon_packs = {pack.string()};
+    set_up(f, true, false);
+    std::vector<std::int32_t> ids;
+    for (int i = 0; i < 59; ++i) {
+        ids.push_back(0x100 + i * 7);
+    }
+    ids.push_back(0x12345);
+    gc::shim().add_item_provider([ids](const gc::Shim&, std::vector<spiral::Item>& out) {
+        for (const std::int32_t id : ids) {
+            spiral::Item it;
+            it.id = id;
+            it.icon = 0;
+            it.category = id % 2 ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
+            out.push_back(it);
+        }
+        spiral::Item again;  // one listed already: skipped
+        again.id = 0x0A;
+        out.push_back(again);
+    });
+    gc::shim().connect(f.level + 1);  // the packs read at a level's load
+    const std::vector<spiral::Item> items = gc::shim().collect_items();
+    int game = 0, added = 0, tens = 0;
+    for (const spiral::Item& it : items) {
+        game += it.id > 0 && it.id < gcw::kItemTable;
+        added += it.id >= 0x100;
+        tens += it.id == 0x0A;
+        if (it.id == 0x12345) {
+            CHECK(it.glyph != 0 && it.category == spiral::look::Category::Item);
+        }
+    }
+    CHECK(game == 14 && added == 60 && tens == 1);
+    // The wheel: every item reachable, the spiral as many loops as it takes.
+    spiral::Wheel w;
+    w.open(items, spiral::Look{});
+    w.advance(1.0f);
+    std::vector<int> seen;
+    for (int i = 0; i < 200; ++i) {
+        w.step(1);
+        if (w.is_item(w.selected())) {
+            seen.push_back(w.items()[static_cast<std::size_t>(w.selected())].id);
+        }
+    }
+    std::sort(seen.begin(), seen.end());
+    seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
+    CHECK(seen.size() == 74u);
+    CHECK(!spiral::paint(w.frame()).empty());
+    gc::shim().connect(f.level);
+    fs::remove_all(pack);
+}
+
 // "Slow-down before pausing": the hold done, the wheel opens in play and the game slows down (the
 // port's time_stretch going up to 8, the scale down evenly), then Going Commando's pause; let go,
 // and (with "Ease back on close") the time comes back up.
@@ -2291,6 +2356,7 @@ int main() {
     test_glyph_capture();
     test_icon_sources();
     test_panel_art();
+    test_many_items();
     test_paused_path();
     test_health_hidden();
     test_slow_down();

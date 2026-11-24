@@ -164,9 +164,11 @@ Ratchet & Clank PAL and NTSC-U.
   grid (15 cells), then of its hand gadgets grid (6 cells), read from the game's own tables
   (`pause_item_candidate_entries`, `pause_hand_gadget_cells`), shown and assigned when owned as the
   page does (`draw_menu_item_grid`, `update_menu_item_slots`). Nothing of the Items page. After
-  them comes a weapon an equipment mod registered: the port's two extension items, 1 and 36, when
-  owned and with an icon in their definition (`item_defs` +0x38, which the port sets), as the
-  port's own quick select lists them. Each item's HUD icon is its definition's.
+  them comes a weapon an equipment mod registered: the port's extension items (today 1 and 36),
+  when owned and with an icon in their definition (`item_defs` +0x38, which the port sets), as the
+  port's own quick select lists them. Each item's HUD icon is its definition's. Both are item
+  providers. Another one (a later SDK's list of items) is one more provider, with no change to the
+  wheel. Nothing is capped: any number of items, any item ids, as many loops as it takes.
 - **The pictures** (the panels and the glyphs) are drawn under the game's HUD by the mod's overlay
   (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
   the game's own HUD calls: the quick select numbers in its small font, the name in its normal

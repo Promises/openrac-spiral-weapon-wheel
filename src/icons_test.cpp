@@ -146,7 +146,8 @@ void test_names() {
     CHECK(spiral::parse_item("0a", item) && item == 0x0A);
     CHECK(spiral::parse_item("A", item) && item == 0x0A);
     CHECK(spiral::parse_item("24", item) && item == 0x24);
-    CHECK(!spiral::parse_item("bomb", item) && !spiral::parse_item("", item) && !spiral::parse_item("12345", item));
+    CHECK(spiral::parse_item("0x12345", item) && item == 0x12345);  // any item id, past the game's tables
+    CHECK(!spiral::parse_item("bomb", item) && !spiral::parse_item("", item) && !spiral::parse_item("123456789", item));
     spiral::look::Rgb c{};
     CHECK(spiral::parse_colour("#C49257", c) && c.r == 0xC4 && c.g == 0x92 && c.b == 0x57);
     CHECK(!spiral::parse_colour("C49257", c) && !spiral::parse_colour("#C4925", c) && !spiral::parse_colour("#GG0000", c));

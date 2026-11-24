@@ -63,15 +63,59 @@ int game_y(float y) { return static_cast<int>(std::lround(kScreenHeight * 0.5f +
 
 }  // namespace
 
-// The items the player can put on the quick select, in the Quick Select page's order: its weapons
-// grid, then its hand gadgets grid (layout.hpp: the cells' tables, draw_menu_item_grid's and
-// update_menu_item_slots' rule), each cell's item when it is an item (kind 0) and owned. Nothing of
-// the Items page (packs, helmets, boots, the Sonic Summoner, the Persuader...) is in them. Then
-// (the mod's) a weapon an equipment mod registered (rac1_weapon_register: the port's two native
-// extension slots, items 1 and 36, which the grids do not have) when it is owned and has an icon,
-// as the port's own quick select lists it (port/game/common/mod_weapon_wheel.inc). Each item's icon
-// is its definition's (item_defs +0x38, which the port sets for a registered weapon), else its
-// cell's.
+// The game's own provider: the pause menu's Quick Select page, its weapons grid then its hand
+// gadgets grid (layout.hpp: the cells' tables, draw_menu_item_grid's and update_menu_item_slots'
+// rule), each cell's item when it is an item (kind 0) and owned. Nothing of the Items page (packs,
+// helmets, boots, the Sonic Summoner, the Persuader...) is in them. Each item's icon is its
+// definition's (item_defs +0x38), else its cell's.
+void Shim::quick_select_items(std::vector<spiral::Item>& out) const {
+    const Memory& m = game.memory;
+    const Disc& a = m_level.at;
+    auto take = [&](std::uint32_t table, int count, bool gadgets) {
+        for (int i = 0; i < count; ++i) {
+            const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
+            const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
+            if (m.read<std::int16_t>(cell + kCellKind) != 0 || !owned(id)) {
+                continue;
+            }
+            spiral::Item item;
+            item.id = id;
+            item.category = gadgets ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
+            item.icon = item_icon(id, m.read<std::uint16_t>(cell + kCellIcon));
+            out.push_back(item);
+        }
+    };
+    take(a.weapon_cells, kWeaponCells, false);
+    take(a.gadget_cells, kGadgetCells, true);
+}
+
+// (the mod's) The port's provider: weapons equipment mods registered (rac1_weapon_register), in
+// the items the port gives them (Game::extension_items: today its two native extension slots, 1
+// and 36, which the grids do not have), when owned and with an icon, as the port's own quick
+// select lists them (port/game/common/mod_weapon_wheel.inc). More slots, or an SDK list of them,
+// are more items here, or another provider (add_item_provider).
+void Shim::registered_items(std::vector<spiral::Item>& out) const {
+    for (const std::int32_t id : game.extension_items) {
+        const std::uint16_t icon = item_icon(id, 0);
+        if (icon == 0 || !owned(id)) {
+            continue;
+        }
+        spiral::Item item;
+        item.id = id;
+        item.icon = icon;
+        out.push_back(item);
+    }
+}
+
+bool Shim::owned(std::int32_t id) const {
+    return id > 0 && id < kItemTable && game.memory.base != nullptr &&
+           game.memory.read<std::uint8_t>(m_level.at.item_available + static_cast<std::uint32_t>(id)) != 0;
+}
+
+// The items the player can put on the quick select: what each item provider lists, in the
+// providers' order, an item listed once (the first provider's). Nothing here is sized or capped:
+// any number of items, any item ids. Each item's place on the game's quick select and whether it
+// is in hand, for whichever item it is.
 std::vector<spiral::Item> Shim::collect_items() {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
@@ -79,43 +123,21 @@ std::vector<spiral::Item> Shim::collect_items() {
     if (m.base == nullptr) {
         return out;
     }
+    std::vector<spiral::Item> listed;
+    quick_select_items(listed);
+    registered_items(listed);
+    for (const ItemProvider& provider : m_item_providers) {
+        provider(*this, listed);
+    }
     const std::int32_t in_hand = m.read<std::int32_t>(a.hero + kHeroItem);
-    auto take = [&](std::uint32_t table, int count, bool gadgets) {
-        for (int i = 0; i < count; ++i) {
-            const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
-            const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
-            if (m.read<std::int16_t>(cell + kCellKind) != 0 || id <= 0 || id >= static_cast<std::int32_t>(kWeapons) ||
-                m.read<std::uint8_t>(a.item_available + static_cast<std::uint32_t>(id)) == 0) {
-                continue;
-            }
-            spiral::Item item;
-            item.id = id;
-            item.category = gadgets ? spiral::look::Category::Gadget : spiral::look::Category::Weapon;
-            item.icon = item_icon(id, m.read<std::uint16_t>(cell + kCellIcon));
-            item.equipped = id == in_hand;
-            for (std::uint32_t slot = 0; slot < 8; ++slot) {
-                if (m.read<std::int32_t>(a.slot_items + 4 * slot) == id) {
-                    item.hot = static_cast<int>(slot) + 1;
-                    break;
-                }
-            }
-            out.push_back(item);
-        }
-    };
-    take(a.weapon_cells, kWeaponCells, false);
-    take(a.gadget_cells, kGadgetCells, true);
-    for (const std::int32_t id : kModWeaponItems) {
-        const bool listed = std::any_of(out.begin(), out.end(), [id](const spiral::Item& it) { return it.id == id; });
-        const std::uint16_t icon = item_icon(id, 0);
-        if (listed || icon == 0 || m.read<std::uint8_t>(a.item_available + static_cast<std::uint32_t>(id)) == 0) {
+    for (spiral::Item& item : listed) {
+        if (item.id == 0 || std::any_of(out.begin(), out.end(), [&item](const spiral::Item& it) { return it.id == item.id; })) {
             continue;
         }
-        spiral::Item item;
-        item.id = id;
-        item.icon = icon;
-        item.equipped = id == in_hand;
+        item.equipped = item.id == in_hand;
+        item.hot = 0;
         for (std::uint32_t slot = 0; slot < 8; ++slot) {
-            if (m.read<std::int32_t>(a.slot_items + 4 * slot) == id) {
+            if (m.read<std::int32_t>(a.slot_items + 4 * slot) == item.id) {
                 item.hot = static_cast<int>(slot) + 1;
                 break;
             }
@@ -268,8 +290,7 @@ void Shim::menu_grid_draw() {
         for (int i = 0; i < count; ++i) {
             const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
             const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
-            if (m.read<std::int16_t>(cell + kCellKind) != 0 || id <= 0 || id >= static_cast<std::int32_t>(kWeapons) ||
-                m.read<std::uint8_t>(a.item_available + static_cast<std::uint32_t>(id)) == 0) {
+            if (m.read<std::int16_t>(cell + kCellKind) != 0 || !owned(id)) {
                 continue;
             }
             const std::uint16_t icon = m.read<std::uint16_t>(cell + kCellIcon);
@@ -291,7 +312,7 @@ void Shim::menu_grid_draw() {
 
 std::uint16_t Shim::item_icon(std::int32_t id, std::uint16_t fallback) const {
     const Memory& m = game.memory;
-    if (m.base == nullptr || m_level.at.item_defs == 0 || id <= 0 || id >= static_cast<std::int32_t>(kWeapons)) {
+    if (m.base == nullptr || m_level.at.item_defs == 0 || id <= 0 || id >= kItemTable) {
         return fallback;
     }
     const std::uint16_t icon =
@@ -315,7 +336,8 @@ void Shim::attach_glyph(spiral::Item& item) {
     if (item.id == 0 || !game.create_image) {
         return;
     }
-    const bool gold = game.memory.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(item.id)) != 0;
+    const bool gold = item.id > 0 && item.id < kItemTable &&
+                      game.memory.read<std::uint8_t>(m_level.at.gold + static_cast<std::uint32_t>(item.id)) != 0;
     const int variant = gold ? 4 : 0;
     const bool disc = m_hud.loaded() && m_hud.has_icon(item.icon);
     const int frame = disc ? m_hud.icon_frame(item.icon, variant) : icon_frame(item.id, static_cast<std::uint16_t>(item.icon));
@@ -632,8 +654,8 @@ void Shim::restore_health() {
 std::string Shim::item_name(std::int32_t id) const {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
-    if (id <= 0 || static_cast<std::size_t>(id) >= kWeapons || !game.msg_string) {
-        return "";
+    if (id <= 0 || id >= kItemTable || !game.msg_string) {
+        return "";  // past the game's tables: no name of the game's
     }
     const std::uint32_t u = static_cast<std::uint32_t>(id);
     const bool gold = m.read<std::uint8_t>(a.gold + u) != 0;
@@ -650,7 +672,7 @@ std::string Shim::item_ammo(std::int32_t id, bool& empty) const {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
     empty = false;
-    if (id <= 0 || static_cast<std::size_t>(id) >= kWeapons) {
+    if (id <= 0 || id >= kItemTable) {
         return "";
     }
     const std::uint32_t u = static_cast<std::uint32_t>(id);

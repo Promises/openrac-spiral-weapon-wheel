@@ -334,6 +334,9 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
         return m->overlay_image_create(width, height, rgba, false);
     };
     g.destroy_image = [m](int image) { m->overlay_image_destroy(image); };
+    // The port's items for registered weapons (rac1_weapon_register: "native extension slot 1 or
+    // 36"). Another, when the port has more, is one more here.
+    g.extension_items = {1, 36};
     // The items' icons from the player's own disc data (the level's HUD set) and from icon files.
     const std::string game(mod.game());
     g.level_data_path = [m, game](int level) {

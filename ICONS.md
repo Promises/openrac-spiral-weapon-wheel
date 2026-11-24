@@ -123,6 +123,10 @@ presentation weapon's). Its HUD icon is usually a retail weapon's, so to give it
 
 That is all. No dependency on this mod is needed: without the wheel, the folder is ignored.
 
+More equipment slots are expected as OpenRAC grows. The wheel caps nothing: any number of items, any
+item id (up to `0xFFFFFFF`), as many spiral loops as it takes. An icon is looked up by whatever id
+the item has.
+
 Texture-pack authors can ship a wheel pack the same way (a `spiral-wheel-icons/` folder).
 Texture-pack pictures (`<data>/texture_packs/`) are not used by the wheel. That may come later.
 

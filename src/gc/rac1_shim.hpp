@@ -189,6 +189,9 @@ struct Game {
     // The overlay's pictures (openrac_api.overlay_image_create, overlay_image_destroy): a
     // width x height RGBA picture kept, its id (0 refused); let go.
     std::function<int(int, int, const std::uint8_t*)> create_image;
+    // The items the port gives weapons a mod registers (rac1_weapon_register's "item_id": today 1
+    // and 36); any ids, any number.
+    std::vector<std::int32_t> extension_items;
     // The same, sampled by the nearest texel (the scanlines, the noise); unset: create_image.
     std::function<int(int, int, const std::uint8_t*)> create_image_nearest;
     // The level's data file in the player's disc data (hud_set.hpp: level_data_path, by the port's
@@ -314,6 +317,13 @@ public:
     // quick select (its weapons grid, then its hand gadgets grid, the owned items of their cells:
     // layout.hpp), in that order; each one's quick select place and whether it is in hand.
     std::vector<spiral::Item> collect_items();
+    // Another source of items (a later SDK's list of them, the tests'): it adds the items it knows
+    // to `out` (their id, icon and category; one listed already is skipped), after the game's own
+    // providers (the Quick Select page's grids, the registered weapons).
+    using ItemProvider = std::function<void(const Shim&, std::vector<spiral::Item>& out)>;
+    void add_item_provider(ItemProvider provider) { m_item_providers.push_back(std::move(provider)); }
+    // Whether the game's own tables say item `id` is owned (none past them: kItemTable).
+    bool owned(std::int32_t id) const;
     // Whether the health meter is hidden now (the wheel's).
     bool health_hidden() const { return m_health_hidden; }
     // The glyph made for an icon frame (its overlay picture; 0 none), for the tests.
@@ -436,6 +446,9 @@ private:
     };
     std::map<std::pair<int, int>, ItemPicture> m_item_icons;
     void load_level_icons(int level);
+    std::vector<ItemProvider> m_item_providers;
+    void quick_select_items(std::vector<spiral::Item>& out) const;
+    void registered_items(std::vector<spiral::Item>& out) const;
     // The game's menu panel's pictures (look.hpp), made once a level at the wheel's first opening:
     // the effect textures from game memory, the vignette from the disc's HUD set.
     spiral::PanelArt m_panel_art;

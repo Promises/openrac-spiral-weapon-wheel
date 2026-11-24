@@ -117,8 +117,8 @@ bool parse_item(const std::string& text, int& item) {
     if (t.rfind("0x", 0) == 0) {
         t = t.substr(2);
     }
-    if (t.empty() || t.size() > 4) {
-        return false;
+    if (t.empty() || t.size() > 7) {
+        return false;  // up to 0xFFFFFFF: any item a game or a port could number
     }
     int v = 0;
     for (const char c : t) {
@@ -208,7 +208,7 @@ bool read_pack(const std::string& folder, IconPack& out, std::vector<std::string
             const json::Value* item = entry.find("item");
             icon.special = field("special");
             const bool item_ok = item != nullptr
-                                     ? (item->is_number() ? (icon.item = static_cast<int>(item->number), item->number >= 0 && item->number < 65536)
+                                     ? (item->is_number() ? (icon.item = static_cast<int>(item->number), item->number >= 0 && item->number < 268435456.0)
                                                           : item->is_string() && parse_item(item->string, icon.item))
                                      : !icon.special.empty();
             const std::string glyph = field("glyph");
