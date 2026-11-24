@@ -2,10 +2,10 @@
   "format": 2,
   "id": "spiral-weapon-wheel",
   "name": "Spiral Weapon Wheel",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "author": "Henning Berge",
-  "description": "A weapon wheel in the style of Prey (2017)'s favourites wheel: hold Triangle and the game slows down for a moment, then holds (Going Commando's own pause, run from its copied code), while everything you can put on the quick select (the Quick Select page's weapons and gadgets) lies on a spiral that the stick turns through, loop after loop, twelve to a loop. Each item's glyph is made as the game runs from your own game's icon, on a cell of its colour; the one in hand and the ones on your quick select are marked (with their quick select number); the health meter hides while it is open; its name and ammo show in the middle; let go of Triangle to equip it. A double tap is the quick swap. Ratchet & Clank's own icons, names and font. Settings: size, start angle, direction, the spiral's depth, hold or toggle, the hold before the pause, the slow-down and the ease back. Needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay) and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet). Wheel art and spiral design from Prey Menu by KerosenileArsonist.",
-  "license": "GPL-3.0-or-later AND GPL-3.0-only AND LicenseRef-Prey-Menu-Art",
+  "description": "A weapon wheel in the style of Prey (2017)'s favourites wheel: hold Triangle and the game slows down for a moment, then holds (Going Commando's own pause, run from its copied code), while everything you can put on the quick select (the Quick Select page's weapons and gadgets) lies on a spiral that the stick turns through, loop after loop, twelve to a loop. Each slot is a Ratchet & Clank menu panel bent into a sector: scanlines, a khaki frame, a blue wash for weapons and a green one for gadgets; the pointed-at one has the yellow Load Game frame and is pushed out. Each item's glyph is made as the game runs from your own game's icon; the quick select's items carry their number on a grey badge; the name and ammo show in the round middle panel; the health meter hides while it is open; let go of Triangle to equip. A double tap is the quick swap. The mod ships no art: its panels are drawn as it loads. Settings: size, start angle, direction, the spiral's depth, hold or toggle, the hold before the pause, the slow-down and the ease back. Needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay) and the hook points rac1.level.update_play, rac1.freeze.update and rac1.freeze.draw (not in a release yet). Spiral design from Prey Menu by KerosenileArsonist.",
+  "license": "GPL-3.0-or-later AND GPL-3.0-only",
   "homepage": "https://github.com/Promises/rac1-spiral-weapon-wheel",
   "api": "1.40",
   "games": {
@@ -14,7 +14,6 @@
       "ntsc"
     ]
   },
-  "assets": "assets",
   "hooks": [
     "rac1.level.update_play",
     "rac1.freeze.update",
@@ -120,7 +119,7 @@
       "min": 0.5,
       "max": 1.5,
       "step": 0.05,
-      "description": "The wheel's size: 1 is two thirds of the screen's height (Prey Menu's)."
+      "description": "The wheel's size: 1 is the design's (the first loop's outer edge about nine tenths of the screen's height across)."
     },
     {
       "key": "start_angle",
@@ -135,8 +134,8 @@
       "key": "clockwise",
       "name": "Clockwise",
       "type": "bool",
-      "default": false,
-      "description": "Off: the spiral turns counter-clockwise (Prey Menu's default). On: clockwise."
+      "default": true,
+      "description": "On (the design's): the spiral turns clockwise, each slot after the loop's first a little further in. Off: counter-clockwise (Prey Menu's default)."
     },
     {
       "key": "depth",
@@ -146,7 +145,7 @@
       "min": 0.0,
       "max": 1.0,
       "step": 0.05,
-      "description": "Prey Menu's fDepth: each slot behind the pointer is drawn 0.9 + 0.0666 * depth times as large as the one after it. A lower value spreads the loops further apart; a higher one keeps them closer."
+      "description": "How far in each slot is from the one before it: 11 pixels of a 720 pixel tall screen at the default 0.75 and below (the loops fill the screen), less above it (Prey Menu's fDepth, as its per-slot shrink), down to 5 at 1."
     },
     {
       "key": "click",

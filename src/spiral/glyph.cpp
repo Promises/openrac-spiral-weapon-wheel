@@ -43,14 +43,6 @@ Picture decode_psmt8(const std::uint8_t* indices, int width, int height, const s
     return p;
 }
 
-void shade(const std::uint8_t in[3], float value, float saturation, float out[3]) {
-    const float r = in[0] / 255.0f, g = in[1] / 255.0f, b = in[2] / 255.0f;
-    const float grey = 0.299f * r + 0.587f * g + 0.114f * b;
-    const float c[3] = {grey + (r - grey) * saturation, grey + (g - grey) * saturation, grey + (b - grey) * saturation};
-    for (int k = 0; k < 3; ++k) {
-        out[k] = std::clamp(c[k] * value, 0.0f, 1.0f);
-    }
-}
 
 Glyph make_glyph(const Picture& icon, int scale) {
     Glyph g;

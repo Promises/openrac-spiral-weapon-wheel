@@ -3,7 +3,7 @@
 // The items' glyphs, made at run time from the player's own game (nothing of the game's is shipped):
 // a HUD icon (a flat dark glyph on a coloured, gently graded square) decoded, its ground keyed out
 // by brightness with a soft edge, cropped to the glyph, and redrawn larger from a signed distance
-// field, so its edges are smooth at any size; and the ground's colour, to tint the item's cell.
+// field, so its edges are smooth at any size; and the ground's colour (one of the checks).
 // Game-agnostic: the game's layer reads the icon's indices and palette from game memory.
 #pragma once
 
@@ -40,8 +40,5 @@ struct Glyph {
 
 // The glyph of `icon` (an RGBA picture at least 8 x 8), `scale` times its cropped size.
 Glyph make_glyph(const Picture& icon, int scale = 4);
-
-// A tint for a cell: the colour's value times `value` and its saturation times `saturation`.
-void shade(const std::uint8_t in[3], float value, float saturation, float out[3]);
 
 }  // namespace spiral

@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Spiral Weapon Wheel: a weapon wheel for Ratchet & Clank in the style of Prey (2017)'s favourites
-// wheel, after "Prey Menu" (KerosenileArsonist's Fallout: New Vegas mod: its spiral and its art,
-// with its author's credit as its Nexus permissions ask), on the pause and timing of Going
+// wheel, after "Prey Menu" (KerosenileArsonist's Fallout: New Vegas mod: its spiral, with its
+// author's credit as its Nexus permissions ask), on the pause and timing of Going
 // Commando's weapon quick select, whose code it runs (the mod it grew from, "Going Commando weapon
 // wheel").
 //
 // The pause, the hold before it and the double tap are Going Commando's own code (src/gc/*.c,
 // copied from rac2-decomp) through the translation layer (src/gc/rac1_shim.*). The wheel is the
 // spiral (src/spiral/, game-agnostic): every owned weapon and gadget of the hand, the stick turning
-// the pointer around the loops. Its pictures (sectors, borders, pointer, the info bar, the quick
-// select's numbers) are drawn by the mod's overlay under the game's HUD (interface 1.40's pictures
-// and OPENRAC_OVERLAY_UNDER_HUD); the items' icons and the text are the game's own, drawn through
-// the quick select's HUD record. Before the pause the game slows down for a moment (the port's
+// the pointer around the loops. Its look is the user's design (src/spiral/look.hpp: Ratchet &
+// Clank's menu panels bent around the spiral), drawn by the mod's overlay under the game's HUD
+// (interface 1.40's pictures and OPENRAC_OVERLAY_UNDER_HUD) from pictures it makes as it loads
+// (src/spiral/paint.cpp; no art is shipped); the items' fallback icons and the text are the
+// game's own, drawn through the quick select's HUD record. Before the pause the game slows down for a moment (the port's
 // time_stretch), as Prey's wheel eases time down.
 //
 // Seven hook points:
@@ -31,29 +32,15 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <iterator>
 #include <string>
 #include <vector>
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 
 #include "openrac/games/rac1.hpp"
 #include "openrac/mod.hpp"
 
 #include "gc/rac1_shim.hpp"
 #include "layout.hpp"
-
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#define STBI_NO_STDIO
-#include "third_party/stb_image.h"
+#include "spiral/paint.hpp"
 
 namespace {
 
@@ -68,116 +55,46 @@ gc::Shim& layer() { return gc::shim(); }
 constexpr const char* kName = "Spiral Weapon Wheel";
 constexpr float kPi = 3.14159265358979f;
 
-// --- The pictures (assets/spiral-wheel/, Prey Menu's art) ---
+// --- The pictures (paint.hpp: made as the mod loads, nothing shipped) ---
 
 struct Art {
-    int sector = 0, border = 0, border_eq = 0, border_hot = 0, border_eq_hot = 0, pointer = 0, info = 0;
-    int badge[9] = {};
-    bool any = false;
+    int scan = 0, white = 0, badge = 0, pointer = 0;
+    bool all = false;
 };
 Art g_art;
 
-// The folder the mod's library is in (its package's folder).
-std::string own_folder() {
-#if defined(_WIN32)
-    HMODULE module = nullptr;
-    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(&own_folder), &module) == 0) {
-        return "";
-    }
-    wchar_t path[2048];
-    const DWORD n = GetModuleFileNameW(module, path, 2048);
-    if (n == 0 || n >= 2048) {
-        return "";
-    }
-    const int bytes = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(n), nullptr, 0, nullptr, nullptr);
-    std::string out(static_cast<std::size_t>(bytes), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(n), out.data(), bytes, nullptr, nullptr);
-    const std::size_t cut = out.find_last_of("\\/");
-    return cut == std::string::npos ? "" : out.substr(0, cut);
-#else
-    Dl_info info{};
-    if (dladdr(reinterpret_cast<void*>(&own_folder), &info) == 0 || info.dli_fname == nullptr) {
-        return "";
-    }
-    const std::string path = info.dli_fname;
-    const std::size_t cut = path.find_last_of('/');
-    return cut == std::string::npos ? "" : path.substr(0, cut);
-#endif
-}
-
-// A PNG of the mod's assets as an overlay picture; 0 when it cannot be read.
-int load_picture(openrac::Mod& mod, const std::string& folder, const char* name) {
-    const std::string path = folder + "/assets/spiral-wheel/" + name;
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        mod.warn(std::string(kName) + ": no picture " + path);
-        return 0;
-    }
-    const std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    int width = 0, height = 0, channels = 0;
-    unsigned char* rgba = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width, &height, &channels, 4);
-    if (rgba == nullptr) {
-        mod.warn(std::string(kName) + ": cannot read " + path);
-        return 0;
-    }
-    const int id = mod.overlay_image_create(width, height, rgba, true);
-    stbi_image_free(rgba);
-    if (id == 0) {
-        mod.warn(std::string(kName) + ": the port refused the picture " + path);
-    }
-    return id;
-}
-
-// The package's folder: the library is in its lib/<platform>/ (the SDK's package layout), else
-// beside it; without either, the plugins folder's spiral-weapon-wheel/.
-std::string package_folder(openrac::Mod& mod) {
-    const std::string library = own_folder();
-    for (const std::string& folder : {library + "/../..", library}) {
-        if (!library.empty() && std::ifstream(folder + "/assets/spiral-wheel/sector.png", std::ios::binary)) {
-            return folder;
+void make_art(openrac::Mod& mod) {
+    auto make = [&mod](spiral::Art which) {
+        const spiral::Picture p = spiral::make_art(which);
+        const int id = mod.overlay_image_create(p.width, p.height, p.rgba.data(), true);
+        if (id == 0) {
+            mod.warn(std::string(kName) + ": the port refused a picture of the wheel");
         }
-    }
-    return mod.plugins_folder() + "/spiral-weapon-wheel";
+        return id;
+    };
+    g_art.scan = make(spiral::Art::Scan);
+    g_art.white = make(spiral::Art::White);
+    g_art.badge = make(spiral::Art::Badge);
+    g_art.pointer = make(spiral::Art::Pointer);
+    g_art.all = g_art.scan != 0 && g_art.white != 0 && g_art.badge != 0 && g_art.pointer != 0;
 }
 
-void load_art(openrac::Mod& mod) {
-    const std::string folder = package_folder(mod);
-    g_art.sector = load_picture(mod, folder, "sector.png");
-    g_art.border = load_picture(mod, folder, "border.png");
-    g_art.border_eq = load_picture(mod, folder, "borderEq.png");
-    g_art.border_hot = load_picture(mod, folder, "borderHot.png");
-    g_art.border_eq_hot = load_picture(mod, folder, "borderEqHot.png");
-    g_art.pointer = load_picture(mod, folder, "pointer.png");
-    g_art.info = load_picture(mod, folder, "info.png");
-    for (int n = 1; n <= 8; ++n) {
-        char name[32];
-        std::snprintf(name, sizeof name, "hotkey%d.png", n);
-        g_art.badge[n] = load_picture(mod, folder, name);
-    }
-    g_art.any = g_art.sector != 0 || g_art.border != 0 || g_art.pointer != 0;
-}
-
-int picture_for(const spiral::Sprite& s) {
-    switch (s.art) {
-        case spiral::Art::Sector: return g_art.sector;
-        case spiral::Art::Border: return g_art.border;
-        case spiral::Art::BorderEq: return g_art.border_eq;
-        case spiral::Art::BorderHot: return g_art.border_hot;
-        case spiral::Art::BorderEqHot: return g_art.border_eq_hot;
+int picture_for(const spiral::Quad& q) {
+    switch (q.art) {
+        case spiral::Art::Scan: return g_art.scan;
+        case spiral::Art::White: return g_art.white;
+        case spiral::Art::Badge: return g_art.badge;
         case spiral::Art::Pointer: return g_art.pointer;
-        case spiral::Art::Info: return g_art.info;
-        case spiral::Art::Badge: return s.badge >= 1 && s.badge <= 8 ? g_art.badge[s.badge] : 0;
-        case spiral::Art::Glyph: return s.image;
+        case spiral::Art::Glyph: return q.image;
     }
     return 0;
 }
 
-// The overlay's call under the game's 2D: the wheel's pictures. Its places are the screen's heights
-// from the middle; the overlay's are 512 x 448 units over the whole frame (a unit across is aspect *
-// 448 / 512 of one down), sizes in units down.
+// The overlay's call under the game's 2D: the wheel's panels (paint.hpp). Its places are the
+// screen's heights from the middle; the overlay's are 512 x 448 units over the whole frame (a unit
+// across is aspect * 448 / 512 of one down).
 void draw_overlay(void*, const openrac_overlay* overlay) {
-    if (!g_art.any || openrac::overlay_layer(overlay) != OPENRAC_OVERLAY_LAYER_UNDER_HUD) {
+    if (!g_art.all || openrac::overlay_layer(overlay) != OPENRAC_OVERLAY_LAYER_UNDER_HUD) {
         return;
     }
     const gc::WheelPicture picture = layer().picture();
@@ -185,19 +102,19 @@ void draw_overlay(void*, const openrac_overlay* overlay) {
         return;
     }
     const float aspect = overlay->aspect > 0.0f ? overlay->aspect : 4.0f / 3.0f;
-    for (const spiral::Sprite& s : picture.frame.sprites) {
-        const int id = picture_for(s);
-        if (id == 0 || s.alpha <= 0.0f) {
+    auto byte = [](float v) { return static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(v, 0.0f), 1.0f) * 255.0f)); };
+    for (const spiral::Quad& q : spiral::paint(picture.frame)) {
+        const int id = picture_for(q);
+        if (id == 0 || q.rgba[3] <= 0.0f) {
             continue;
         }
-        const float x = 256.0f + s.x * 512.0f / aspect;
-        const float y = 224.0f + s.y * 448.0f;
-        auto byte = [](float v) { return static_cast<std::uint32_t>(std::lround(std::fmin(std::fmax(v, 0.0f), 1.0f) * 255.0f)); };
-        const std::uint32_t r = byte(s.coloured ? s.rgb[0] : s.grey);
-        const std::uint32_t g = byte(s.coloured ? s.rgb[1] : s.grey);
-        const std::uint32_t b = byte(s.coloured ? s.rgb[2] : s.grey);
-        const std::uint32_t rgba = (r << 24) | (g << 16) | (b << 8) | byte(s.alpha);
-        openrac::overlay_image(overlay, id, x, y, s.w * 448.0f, s.h * 448.0f, s.angle_deg * kPi / 180.0f, rgba);
+        float xy[8];
+        for (int i = 0; i < 4; ++i) {
+            xy[2 * i] = 256.0f + q.xy[2 * i] * 512.0f / aspect;
+            xy[2 * i + 1] = 224.0f + q.xy[2 * i + 1] * 448.0f;
+        }
+        const std::uint32_t rgba = (byte(q.rgba[0]) << 24) | (byte(q.rgba[1]) << 16) | (byte(q.rgba[2]) << 8) | byte(q.rgba[3]);
+        openrac::overlay_image_quad(overlay, id, xy, q.uv, rgba);
     }
 }
 
@@ -294,6 +211,19 @@ void connect_game(openrac::Mod& mod, bool ntsc) {
         std::memcpy(m->memory().pointer(frame.address()), text, size);
         print(x, y, colour, static_cast<int>(frame.address()), length);
     };
+    using Print = int (*)(int, int, unsigned long long, int, int);
+    for (const auto& [name, slot] : {std::pair<const char*, decltype(&g.font_print_center_small)>{n.font_print_center_small,
+                                                                                                    &g.font_print_center_small},
+                                     {n.font_print_center_large, &g.font_print_center_large}}) {
+        if (const auto other = optional_function<Print>(mod, name)) {
+            *slot = [m, other](int x, int y, std::uint32_t colour, const char* text, int length) {
+                const std::size_t size = std::strlen(text) + 1;
+                const openrac::StackFrame frame(*m, static_cast<std::uint32_t>(size));
+                std::memcpy(m->memory().pointer(frame.address()), text, size);
+                other(x, y, colour, static_cast<int>(frame.address()), length);
+            };
+        }
+    }
     const auto msg = mod.required_function<int (*)(int)>(n.msg_string);
     g.msg_string = [msg](int id) { return static_cast<std::uint32_t>(msg(id)); };
     const auto tween = mod.required_function<unsigned long long (*)(unsigned int, unsigned int, float)>(n.fast_tween_color);
@@ -360,7 +290,7 @@ void load(openrac::Mod& mod) {
     g_mod = &mod;
     connect_game(mod, ntsc);
     read_settings(mod);
-    load_art(mod);
+    make_art(mod);
 
     mod.hook<rac1::Level_UpdatePlay>([](auto original) {
         connect();
@@ -406,9 +336,9 @@ void load(openrac::Mod& mod) {
         mod.on_settings([] { read_settings(*g_mod); });
     }
     mod.info(std::string(kName) + ": the spiral on Triangle (Going Commando's pause, Prey Menu's spiral)" +
-             (g_art.any ? "" : "; its pictures were not found"));
+             (g_art.all ? "" : "; the port refused its pictures"));
 }
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.1.2", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.2.0", load)

@@ -62,6 +62,7 @@ struct Text {
     int x, y;
     std::uint32_t colour;
     std::string text;
+    gc::TextSize size = gc::TextSize::Normal;
 };
 
 // The fake game.
@@ -88,6 +89,7 @@ struct Fake {
     int swaps = 0;
     std::vector<float> stretches;  // time_stretch's calls
     std::vector<int> images, destroyed;  // the overlay pictures made and let go
+    bool white_glyphs = false;           // the last one made was white (its shape in its alpha)
     int image_next = 500;
     float stretch = 1.0f;
     std::int32_t last_mode = 0;
@@ -535,9 +537,15 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
         CHECK_EQ(rec, kRecord);
         g_fake->frames_drawn.push_back(frame);
     };
-    g.font_print_center = [](int x, int y, std::uint32_t colour, const char* text, int length) {
-        g_fake->texts.push_back({x, y, colour, length < 0 ? std::string(text) : std::string(text, static_cast<std::size_t>(length))});
+    auto print = [](gc::TextSize size) {
+        return [size](int x, int y, std::uint32_t colour, const char* text, int length) {
+            g_fake->texts.push_back(
+                {x, y, colour, length < 0 ? std::string(text) : std::string(text, static_cast<std::size_t>(length)), size});
+        };
     };
+    g.font_print_center = print(gc::TextSize::Normal);
+    g.font_print_center_small = print(gc::TextSize::Small);
+    g.font_print_center_large = print(gc::TextSize::Large);
     g.msg_string = [](int id) -> std::uint32_t {
         char name[64];
         if (id == 0x110) {
@@ -566,6 +574,11 @@ void set_up(Fake& f, bool ntsc, bool pause, std::uint32_t exe_shift = 0) {
             ink += rgba[i * 4 + 3] > 128 ? 1 : 0;
         }
         CHECK(width > 0 && height > 0 && ink > 0);
+        bool white = true;
+        for (int i = 0; i < width * height; ++i) {
+            white = white && rgba[i * 4] == 255 && rgba[i * 4 + 1] == 255 && rgba[i * 4 + 2] == 255;
+        }
+        g_fake->white_glyphs = white;
         g_fake->images.push_back(++g_fake->image_next);
         return g_fake->image_next;
     };
@@ -769,15 +782,14 @@ void test_items() {
     // The opening's line lists them in order.
     open_hud(f);
     CHECK(f.logged("the wheel opens with 14 items: 0x10 0x18 0xA 0x15 0xF 0x14 0x13 0xE 0x9 0x12 0xB 0x11 0xD 0xC"));
-    // Every item has its glyph (a picture made from its icon; the cell its ground's tint) but 0x0C,
-    // whose icon's bank is not linked: the game's own icon for it.
+    // Every item has its glyph (a picture made from its icon, white: the look colours it) but 0x0C,
+    // whose icon's bank is not linked: the game's own icon for it. The hand gadgets' grid's items
+    // are gadgets (0x0C, 0x16, 0x1A...), the weapons grid's weapons.
     for (const spiral::Item& it : gc::shim().wheel().items()) {
         CHECK((it.glyph != 0) == (it.id != 0x0C));
-        CHECK(it.tinted == (it.id != 0x0C));
-        if (it.tinted) {
-            CHECK(it.tint[2] > it.tint[0]);  // the fake's blue ground
-        }
+        CHECK(it.gadget == (std::find(std::begin(kGadgetCellItems), std::end(kGadgetCellItems), it.id) != std::end(kGadgetCellItems)));
     }
+    CHECK(f.white_glyphs);
     CHECK(f.logged("(frame 13, 32x32): not a glyph") == false);
     // Each quick select item is drawn where the game's ring has it (slot i at 90 - 45 * i).
     for (int slot = 0; slot < 8; ++slot) {
@@ -861,9 +873,9 @@ void test_stick_points_where_it_is_pushed() {
                 const int slot = selected(f);
                 const int sign = clockwise ? -1 : 1;
                 const float drawn = static_cast<float>(slot * sign * 30) + start;
-                for (const spiral::Sprite& sp : gc::shim().picture().frame.sprites) {
-                    if (sp.art == spiral::Art::Sector && sp.grey > 0.0f) {
-                        CHECK(slot >= 0 && std::fabs(std::remainder(sp.angle_deg - drawn, 360.0f)) < 0.01f);
+                for (const spiral::Slot& sl : gc::shim().picture().frame.slots) {
+                    if (sl.selected) {
+                        CHECK(slot >= 0 && std::fabs(std::remainder(sl.angle_deg - drawn, 360.0f)) < 0.01f);
                     }
                 }
                 const float lit = drawn;
@@ -1051,43 +1063,69 @@ void test_draw() {
         const spiral::Item& item = gc::shim().wheel().items()[static_cast<std::size_t>(frame.icons[i].item)];
         CHECK(item.id == 0x0C && f.sprites[i].frame == fake_frame(item.icon, 0));
     }
+    // The glyphs are the slots' (drawn by the overlay), the selected one's the item's.
+    const spiral::Frame shown = gc::shim().picture().frame;
     bool pointed = false;
-    for (const spiral::Sprite& sp : gc::shim().picture().frame.sprites) {
-        if (sp.art != spiral::Art::Glyph) {
+    for (const spiral::Slot& sl : shown.slots) {
+        if (sl.empty) {
             continue;
         }
-        const float box = spiral::kSize * spiral::kGlyphSquare * (1.0f - 2.0f * spiral::kGlyphPadding);
-        CHECK(sp.w <= box * 1.5f + 1e-4f && sp.h <= box * 1.5f + 1e-4f);  // within its loop's scale
-        const float r = std::sqrt(sp.x * sp.x + sp.y * sp.y);
-        if (std::fabs(r - spiral::kSize * spiral::kRadius) < 1e-3f && std::fabs(std::max(sp.w, sp.h) - box) < 1e-3f) {
-            pointed = true;  // the pointed-at one: on the radius, the box's size
+        const spiral::Item& item = gc::shim().wheel().items()[static_cast<std::size_t>(sl.index)];
+        CHECK_EQ(sl.glyph, item.glyph);
+        if (sl.selected) {
+            pointed = item.id == 0x12 && sl.glyph != 0 && sl.push == 10.0f;
         }
     }
     CHECK(pointed);
-    // No ammo: the name alone, above the middle, in Going Commando's white.
-    CHECK_EQ(f.texts.size(), 1u);
-    CHECK(f.texts[0].text == "Suck");
-    CHECK_EQ(f.texts[0].x, 256);
-    CHECK(f.texts[0].y < 208 && f.texts[0].y > 208 - 30);
-    CHECK_EQ(f.texts[0].colour, 0x80f0f0f0u);
+    // The quick select numbers in the small font, one a badge; no ammo: the name alone in the
+    // normal font, above the middle, in the pause menu's blue over its dark copy a unit down and
+    // right.
+    std::vector<Text> small, normal, large;
+    for (const Text& t : f.texts) {
+        (t.size == gc::TextSize::Small ? small : t.size == gc::TextSize::Normal ? normal : large).push_back(t);
+    }
+    CHECK_EQ(small.size(), shown.badges.size());
+    for (const Text& t : small) {
+        CHECK(t.text.size() == 1 && t.text[0] >= '1' && t.text[0] <= '8' && t.colour == 0x80E4E4E4u);
+    }
+    CHECK(large.empty());
+    CHECK_EQ(normal.size(), 2u);
+    if (normal.size() == 2) {
+        CHECK(normal[0].text == "Suck" && normal[1].text == "Suck");
+        CHECK(normal[0].x == 257 && normal[0].y == normal[1].y + 1 && normal[0].colour == 0x80000000u);
+        CHECK_EQ(normal[1].x, 256);
+        CHECK(normal[1].y < 208 - 8 && normal[1].y > 208 - 40);
+        CHECK_EQ(normal[1].colour, gc::kMenuBlue);
+    }
 
     // An ammo weapon: its name, and "12/40" below the middle.
     dpad_to(f, wheel_index(0x11));
     for (int i = 0; i < 10; ++i) {
         play(f, 0x10);
     }
+    auto lines = [&f](gc::TextSize size) {
+        std::vector<Text> out;
+        for (const Text& t : f.texts) {
+            if (t.size == size) {
+                out.push_back(t);
+            }
+        }
+        return out;
+    };
     f.texts.clear();
     gc::shim().selector_draw(kRecord);
-    CHECK_EQ(f.texts.size(), 2u);
-    if (f.texts.size() == 2) {
-        CHECK(f.texts[0].text == "Pyro-citor");
-        CHECK(f.texts[1].text == "12/40" && f.texts[1].y > 208);
+    CHECK(lines(gc::TextSize::Normal).size() == 2u && lines(gc::TextSize::Normal)[1].text == "Pyro-citor");
+    const std::vector<Text> ammo = lines(gc::TextSize::Large);
+    CHECK_EQ(ammo.size(), 2u);
+    if (ammo.size() == 2) {
+        CHECK(ammo[1].text == "12/40" && ammo[1].y + gc::kLargeTextHeight / 2 > 208 && ammo[1].colour == gc::kMenuBlue);
     }
     // No ammo left: red.
     f.wr<std::int32_t>(f.d.ammo + 4 * 0x11, 0);
     f.texts.clear();
     gc::shim().selector_draw(kRecord);
-    CHECK(f.texts.size() == 2 && f.texts[1].text == "0/40" && f.texts[1].colour == 0x804040ffu);
+    CHECK(lines(gc::TextSize::Large).size() == 2u && lines(gc::TextSize::Large)[1].text == "0/40" &&
+          lines(gc::TextSize::Large)[1].colour == gc::kAmmoOut);
     // A gold weapon: its glyph from the gold icon frame (4), as the Quick Select page draws it; the
     // same pictures again on the next opening (kept for the level).
     f.wr<std::uint8_t>(f.d.gold + 0x11, 1);

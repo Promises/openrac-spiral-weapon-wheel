@@ -57,7 +57,8 @@ set(gc_copied
   src/gc/hero_update_hit_streak_effect.c
   src/gc/gfx_render_frame_extra_layers.c
   src/gc/func_0029CE38.c)
-set(gc_layer src/gc/rac1_shim.cpp src/gc/rac1_spiral.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp)
+set(gc_layer src/gc/rac1_shim.cpp src/gc/rac1_spiral.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp
+  src/spiral/paint.cpp)
 set(gc_copied_options -w)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   list(APPEND gc_copied_options -Wno-int-conversion -Wno-incompatible-pointer-types)
@@ -81,24 +82,17 @@ set_source_files_properties(src/gc/hero_update_button_hold_timers.c PROPERTIES
 openrac_add_mod(spiral_weapon_wheel MANIFEST openrac-mod.json SOURCES src/mod.cpp ${gc_layer} ${gc_copied})
 target_compile_features(spiral_weapon_wheel PRIVATE cxx_std_17)
 target_include_directories(spiral_weapon_wheel PRIVATE src)
-# stb_image (src/third_party, public domain or MIT) reads the art's PNGs: its own warnings are off.
-set_source_files_properties(src/mod.cpp PROPERTIES COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-Wno-unused-function>")
-
 # The notices of what is copied go in the package (and so the archive, which carries the files
-# named LICENSE* beside the manifest), and the art (assets/, the manifest's "assets"), which is
-# Prey Menu's under its author's permissions, not the GPL (THIRD_PARTY_NOTICES.md).
+# named LICENSE* beside the manifest). The wheel's pictures are made as the mod loads (paint.hpp):
+# no art is shipped.
 get_target_property(spiral_weapon_wheel_package spiral_weapon_wheel OPENRAC_MOD_PACKAGE_DIR)
 configure_file(THIRD_PARTY_NOTICES.md "${spiral_weapon_wheel_package}/LICENSE.THIRD_PARTY_NOTICES.md" COPYONLY)
-file(GLOB spiral_art CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/spiral-wheel/*.png")
-foreach(picture ${spiral_art})
-  get_filename_component(picture_name "${picture}" NAME)
-  configure_file("${picture}" "${spiral_weapon_wheel_package}/assets/spiral-wheel/${picture_name}" COPYONLY)
-endforeach()
 
 # The spiral's math against Prey Menu's formulas, and the translation layer with the copied code on
 # a fake game (ctest; the workflow runs them on every platform).
 enable_testing()
-add_executable(spiral_test src/spiral_test.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp)
+add_executable(spiral_test src/spiral_test.cpp src/spiral/spiral.cpp src/spiral/wheel.cpp src/spiral/arrange.cpp src/spiral/glyph.cpp
+  src/spiral/paint.cpp)
 target_compile_features(spiral_test PRIVATE cxx_std_17)
 add_test(NAME spiral COMMAND spiral_test)
 add_executable(spiral_weapon_wheel_test src/spiral_weapon_wheel_test.cpp ${gc_layer} ${gc_copied})

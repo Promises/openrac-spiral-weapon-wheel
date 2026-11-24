@@ -15,6 +15,8 @@
 #include "spiral/arrange.hpp"
 #include "spiral/glyph.hpp"
 #include "spiral/spiral.hpp"
+#include "spiral/look.hpp"
+#include "spiral/paint.hpp"
 #include "spiral/wheel.hpp"
 
 namespace {
@@ -235,6 +237,7 @@ void test_wheel_frame() {
         it.icon = 100 + i;
         it.hot = i < 8 ? i + 1 : 0;
         it.equipped = i == 3;
+        it.gadget = i == 5;
         items.push_back(it);
     }
     spiral::Look look;
@@ -248,48 +251,224 @@ void test_wheel_frame() {
     CHECK(w.anim() == 1.0f);
     const spiral::Frame f = w.frame();
     CHECK(f.selected == 3);
-    int sectors = 0, borders = 0, eq = 0, hot = 0, eq_hot = 0, badges = 0, pointers = 0;
-    for (const spiral::Sprite& s : f.sprites) {
-        sectors += s.art == spiral::Art::Sector;
-        borders += s.art == spiral::Art::Border;
-        eq += s.art == spiral::Art::BorderEq;
-        hot += s.art == spiral::Art::BorderHot;
-        eq_hot += s.art == spiral::Art::BorderEqHot;
-        pointers += s.art == spiral::Art::Pointer;
-        if (s.art == spiral::Art::Badge) {
-            ++badges;
-            CHECK(s.grey == 0.0f && s.badge >= 1 && s.badge <= 8);  // black numbers
-        }
+    // The design's pixels at a 720 pixel screen; its middle 8 above the screen's.
+    CHECK(near(f.unit, 1.0f / 720.0f) && near(f.centre_y, -8.0f / 720.0f));
+    CHECK(near(f.name_y, (-8.0f - 23.0f) / 720.0f) && near(f.detail_y, (-8.0f + 18.5f) / 720.0f));
+    // 14 items: 24 slots in two loops, the pointer's the first: its 12 at radius 284 down by 11 a
+    // slot, the 4 before it (the spiral's last, blanks) and the 3 after it (items 12 and 13, a blank)
+    // fading; the selected one drawn last, pushed 10 out.
+    CHECK(near(w.anchor(), 0.0f));
+    CHECK(f.slots.size() == 19u);
+    CHECK(f.slots.back().selected && f.slots.back().index == 3 && near(f.slots.back().push, 10.0f));
+    int selected = 0;
+    for (const spiral::Slot& s : f.slots) {
+        const int k = s.index >= 0 ? s.index : s.index + 24;
+        const int from_first = k >= 20 ? k - 24 : k;  // -4 .. 14
+        CHECK(near(s.radius, 284.0f - 11.0f * static_cast<float>(from_first)));
+        CHECK(near(s.opacity, from_first >= 0 && from_first < 12 ? 1.0f
+                              : from_first < 0 ? std::min(spiral::look::kBefore[-from_first - 1], 0.6f)
+                                               : spiral::look::kAfter[from_first - 12]));
+        CHECK(s.empty == (s.index < 0 || s.index >= 14));
+        CHECK(s.gadget == (s.index == 5));
+        CHECK(s.badge == (s.index >= 0 && s.index < 8 ? s.index + 1 : 0));
+        selected += s.selected;
+        CHECK(s.push == (s.selected ? 10.0f : 0.0f));
     }
-    // 14 items: two loops of 24 slots; the visible ones each have a sector, the items a border.
-    CHECK(sectors > 14 && pointers == 1);
-    CHECK(eq_hot == 1 && eq == 0 && hot + eq_hot == badges && badges <= 8);
-    CHECK(borders + eq + hot + eq_hot <= 15);  // the items and "None"
-    // The pointed-at sector is lit, the others black.
-    int lit = 0;
-    for (const spiral::Sprite& s : f.sprites) {
-        lit += s.art == spiral::Art::Sector && s.grey > 0.0f;
+    CHECK(selected == 1);
+    // The outer first: the radii go down but for the selected one.
+    for (std::size_t i = 1; i + 1 < f.slots.size(); ++i) {
+        CHECK(f.slots[i].radius < f.slots[i - 1].radius);
     }
-    CHECK(lit == 1);
-    // The icons: on the radius, the pointed-at one full size.
-    bool found = false;
+    // No glyphs: each item's own icon at its panel's middle, 0.64 of the thickness (0.7 selected).
+    CHECK(f.icons.size() == 14u);
     for (const spiral::Icon& icon : f.icons) {
-        if (icon.item == 3) {
-            found = true;
-            CHECK(near(std::sqrt(icon.x * icon.x + icon.y * icon.y), spiral::kSize * spiral::kRadius));
-            CHECK(near(icon.size, spiral::kSize * spiral::kIcon));
+        const spiral::Slot* slot = nullptr;
+        for (const spiral::Slot& s : f.slots) {
+            slot = s.index == icon.item ? &s : slot;
         }
+        CHECK(slot != nullptr);
+        if (slot == nullptr) {
+            continue;
+        }
+        const float r = slot->radius + slot->push;
+        CHECK(near(std::hypot(icon.x, icon.y - f.centre_y) * 720.0f, r, 1e-2f));
+        CHECK(near(icon.size * 720.0f, 0.33f * slot->radius * (slot->selected ? 0.7f : 0.64f), 1e-3f));
+        CHECK(near(icon.alpha, slot->opacity));
     }
-    CHECK(found);
+    // The badges: the quick select's eight, 2 in from the outer edge, 7.6 degrees clockwise.
+    CHECK(f.badges.size() == 8u);
+    for (const spiral::Badge& b : f.badges) {
+        const spiral::Slot* slot = nullptr;
+        for (const spiral::Slot& s : f.slots) {
+            slot = s.badge == b.number ? &s : slot;
+        }
+        CHECK(slot != nullptr);
+        if (slot == nullptr) {
+            continue;
+        }
+        const float outer = slot->radius * 1.165f + slot->push - 2.0f;
+        const float x = b.x * 720.0f, y = (b.y - f.centre_y) * 720.0f;
+        CHECK(near(std::hypot(x, y), outer, 1e-2f));
+        const float deg = std::atan2(-y, x) * 180.0f / spiral::kPi;
+        CHECK(near(std::remainder(deg - (slot->angle_deg - 7.6f), 360.0f), 0.0f, 1e-3f));
+    }
     // The d-pad's step: one slot on, onto the next item's middle.
     CHECK(w.step(1) && w.selected() == 4);
     CHECK(w.step(-2) && w.selected() == 2);
+    // Into the second loop: the spiral eases there (its time constant 0.06 s), the loop's first slot
+    // then at 284; the first loop is the one before it, fading.
+    for (int i = 0; i < 10; ++i) {
+        w.step(1);
+    }
+    CHECK(w.selected() == 12 && near(w.anchor_target(), 12.0f));
+    w.advance(0.03f);
+    CHECK(w.anchor() > 3.0f && w.anchor() < 9.0f);
+    w.advance(1.0f);
+    CHECK(near(w.anchor(), 12.0f));
+    for (const spiral::Slot& s : w.frame().slots) {
+        if (s.index == 12) {
+            CHECK(near(s.radius, 284.0f));
+        }
+        if (s.index == 11) {
+            CHECK(near(s.radius, 295.0f) && near(s.opacity, 0.55f));
+        }
+    }
+    // Back into the first loop (with two loops either way round is as far): the spiral turns back,
+    // the way the pointer went, item 11 gliding in from the loop before to the first loop's last.
+    CHECK(w.step(-1) && w.selected() == 11 && near(w.anchor_target(), 0.0f));
+    w.advance(0.03f);
+    CHECK(w.anchor() > 3.0f && w.anchor() < 9.0f);
+    for (const spiral::Slot& s : w.frame().slots) {
+        if (s.index == 11) {
+            CHECK(s.radius < 295.0f && s.radius > 163.0f && s.selected);
+        }
+    }
+    w.advance(1.0f);
+    CHECK(near(w.anchor(), 0.0f));
     // A smaller wheel: everything scales.
     look.scale = 0.5f;
     spiral::Wheel half;
     half.open(items, look);
     half.advance(1.0f);
-    CHECK(near(half.frame().sprites.back().w, spiral::kInfoWidth * 0.5f));
+    CHECK(near(half.frame().unit, 0.5f / 720.0f));
+    // The depth setting: the radius step, 11 at its default and below (the screen is full), smaller
+    // above it.
+    spiral::Options o;
+    CHECK(near(spiral::radius_step(o), 11.0f));
+    o.depth = 0.0f;
+    CHECK(near(spiral::radius_step(o), 11.0f));
+    o.depth = 1.0f;
+    CHECK(spiral::radius_step(o) < 8.0f && spiral::radius_step(o) >= 5.0f);
+    // The opacity between whole slots: linear.
+    CHECK(near(spiral::slot_opacity(-0.5f, true), (1.0f + 0.55f) / 2.0f));
+    CHECK(near(spiral::slot_opacity(14.5f, true), 0.09f) && spiral::slot_opacity(15.0f, true) == 0.0f);
+    CHECK(spiral::slot_opacity(-5.0f, true) == 0.0f && spiral::slot_opacity(11.0f, false) == 1.0f);
+    // Fewer than 12 items: one loop, each slot once, no fading.
+    std::vector<spiral::Item> few(items.begin(), items.begin() + 5);
+    spiral::Wheel ring;
+    ring.open(few, spiral::Look{});
+    ring.advance(1.0f);
+    const spiral::Frame rf = ring.frame();
+    CHECK(rf.slots.size() == 12u);
+    for (const spiral::Slot& s : rf.slots) {
+        CHECK(s.opacity == (s.empty ? 0.6f : 1.0f));
+    }
+}
+
+// The panels as quads (paint.hpp): what each slot, the middle and the pointer are drawn with.
+void test_paint() {
+    std::vector<spiral::Item> items(14);
+    for (int i = 0; i < 14; ++i) {
+        items[static_cast<std::size_t>(i)].id = 0x09 + i;
+        items[static_cast<std::size_t>(i)].hot = i < 8 ? i + 1 : 0;
+    }
+    items[2].equipped = true;
+    items[2].glyph = 71;  // the selected one: a weapon
+    items[2].glyph_width = items[2].glyph_height = 100;
+    items[4].glyph = 72;  // a gadget, 100 x 50
+    items[4].gadget = true;
+    items[4].glyph_width = 100;
+    items[4].glyph_height = 50;
+    spiral::Wheel w;
+    w.open(items, spiral::Look{});
+    w.advance(1.0f);
+    const spiral::Frame f = w.frame();
+    const std::vector<spiral::Quad> quads = spiral::paint(f);
+    int pointers = 0, badges = 0;
+    std::vector<const spiral::Quad*> glyphs;
+    float min_v = 1.0f, max_v = 0.0f;
+    bool washed_weapon = false, washed_gadget = false, washed_selected = false, yellow_frame = false;
+    for (const spiral::Quad& q : quads) {
+        pointers += q.art == spiral::Art::Pointer;
+        badges += q.art == spiral::Art::Badge;
+        if (q.art == spiral::Art::Glyph) {
+            glyphs.push_back(&q);
+        }
+        if (q.art == spiral::Art::Scan) {
+            for (int k = 0; k < 4; ++k) {
+                min_v = std::min(min_v, q.uv[2 * k + 1]);
+                max_v = std::max(max_v, q.uv[2 * k + 1]);
+            }
+        }
+        auto is = [&q](const spiral::look::Rgb& c, float alpha) {
+            return near(q.rgba[0], c.r / 255.0f) && near(q.rgba[1], c.g / 255.0f) && near(q.rgba[2], c.b / 255.0f) &&
+                   near(q.rgba[3], alpha);
+        };
+        washed_weapon |= q.art == spiral::Art::White && is(spiral::look::kWashWeapon, 0.30f);
+        washed_gadget |= q.art == spiral::Art::White && is(spiral::look::kWashGadget, 0.30f);
+        washed_selected |= q.art == spiral::Art::White && is(spiral::look::kWashWeapon, 0.45f);
+        yellow_frame |= q.art == spiral::Art::White && is(spiral::look::kFrameSelected[3].colour, 1.0f);
+    }
+    CHECK(pointers == 1 && badges == 8);
+    CHECK(washed_weapon && washed_gadget && washed_selected && yellow_frame);
+    // The scanlines' places stay inside their picture.
+    CHECK(min_v > 0.0f && max_v < 1.0f);
+    // Each glyph twice, its shadow first (dark, 1.5 across and 2.5 down), then in its colour: the
+    // gadget's light green at 0.64 of the thickness, the selected weapon's highlight at 0.7.
+    CHECK(glyphs.size() == 4u);
+    if (glyphs.size() == 4u) {
+        for (int i = 0; i < 4; i += 2) {
+            const spiral::Quad& shadow = *glyphs[static_cast<std::size_t>(i)];
+            const spiral::Quad& glyph = *glyphs[static_cast<std::size_t>(i + 1)];
+            CHECK(shadow.image == glyph.image);
+            CHECK(near(shadow.rgba[0], 7.0f / 255.0f) && near(shadow.rgba[2], 13.0f / 255.0f));
+            CHECK(near((shadow.xy[0] - glyph.xy[0]) * 720.0f, 1.5f, 1e-3f) && near((shadow.xy[1] - glyph.xy[1]) * 720.0f, 2.5f, 1e-3f));
+        }
+        const spiral::Quad& gadget = *glyphs[1];
+        const spiral::Quad& weapon = *glyphs[3];  // the selected one is drawn last
+        CHECK(gadget.image == 72 && weapon.image == 71);
+        CHECK(near(gadget.rgba[1], 0xE4 / 255.0f) && near(weapon.rgba[0], 0xE2 / 255.0f) && near(weapon.rgba[2], 0x4E / 255.0f));
+        const float r4 = 284.0f - 11.0f * 4.0f, r2 = 284.0f - 11.0f * 2.0f;
+        CHECK(near((gadget.xy[2] - gadget.xy[0]) * 720.0f, 0.64f * 0.33f * r4, 1e-2f));
+        CHECK(near((gadget.xy[5] - gadget.xy[1]) * 720.0f, 0.64f * 0.33f * r4 / 2.0f, 1e-2f));
+        CHECK(near((weapon.xy[2] - weapon.xy[0]) * 720.0f, 0.70f * 0.33f * r2, 1e-2f));
+    }
+    // Every corner on the screen near the wheel (the largest radius with its frame, 5 more).
+    for (const spiral::Quad& q : quads) {
+        for (int k = 0; k < 4; ++k) {
+            CHECK(std::hypot(q.xy[2 * k], q.xy[2 * k + 1] - f.centre_y) * 720.0f < 284.0f + 44.0f + 0.165f * 328.0f + 10.0f);
+        }
+    }
+    // The pictures: the scanlines a 3 pixel period (10 rows of 4000 over 1200 pixels), the light
+    // part 1.4 of it; the badge grey graded down with a dark edge; the pointer's tip at its top.
+    const spiral::Picture scan = spiral::make_art(spiral::Art::Scan);
+    CHECK(scan.height == spiral::kScanRows && scan.width == 2);
+    auto row = [&scan](int y) { return scan.rgba[static_cast<std::size_t>(y) * 2 * 4]; };
+    CHECK(row(0) == 0x1C && row(3) == 0x1C && row(5) == 0x0D && row(9) == 0x0D && row(10) == 0x1C);
+    CHECK(row(4) > 0x0D && row(4) < 0x1C);  // 0.67 of row 4 is lit
+    const spiral::Picture badge = spiral::make_art(spiral::Art::Badge);
+    CHECK(badge.width == 26 * 4 && badge.height == 20 * 4);
+    auto at = [](const spiral::Picture& p, int x, int y, int c) {
+        return p.rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(p.width) + static_cast<std::size_t>(x)) * 4 +
+                      static_cast<std::size_t>(c)];
+    };
+    CHECK(at(badge, 52, 12, 0) > at(badge, 52, 68, 0));  // lighter at the top
+    CHECK(at(badge, 52, 4, 3) == 255 && at(badge, 52, 4, 0) < 0x30);  // the edge
+    CHECK(at(badge, 0, 0, 3) == 0);
+    const spiral::Picture pointer = spiral::make_art(spiral::Art::Pointer);
+    CHECK(at(pointer, pointer.width / 2, pointer.height / 2, 3) == 255);
+    CHECK(at(pointer, pointer.width / 2, pointer.height / 2, 0) == 0xE2);  // filled yellow
+    CHECK(at(pointer, 0, 0, 3) == 0 && at(pointer, pointer.width - 1, 0, 3) == 0);  // the tip is narrow
 }
 
 // The game's quick select as the home ring: its eight items at the directions of its own ring
@@ -405,13 +584,12 @@ void test_home_ring() {
         w.advance(1.0f);
         CHECK(w.selected() == 9);
         CHECK(!w.step(-1) && w.selected() == 8 && !w.is_item(8));
-        int borders = 0, lit = 0;
-        for (const spiral::Sprite& sp : w.frame().sprites) {
-            borders += sp.art == spiral::Art::Border || sp.art == spiral::Art::BorderEq || sp.art == spiral::Art::BorderHot ||
-                       sp.art == spiral::Art::BorderEqHot;
-            lit += sp.art == spiral::Art::Sector && sp.grey > 0.0f;
+        int filled = 0, lit = 0;
+        for (const spiral::Slot& sl : w.frame().slots) {
+            filled += !sl.empty;
+            lit += sl.selected;
         }
-        CHECK(borders == 4 && lit == 0);  // the 4 items, no "None"
+        CHECK(filled == 4 && lit == 0);  // the 4 items, no "None"
         CHECK(!w.is_item(-1));
     }
 }
@@ -515,14 +693,7 @@ void test_glyphs() {
         }
         CHECK(!spiral::make_glyph(flat).ok);
     }
-    // The cell's shade: the same hue, darker and a little greyer.
-    {
-        float out[3];
-        spiral::shade(blue, spiral::kCellValue, spiral::kCellSaturation, out);
-        CHECK(out[2] > out[0] && out[2] < 221.0f / 255.0f * 0.6f && out[2] - out[0] < (221.0f - 110.0f) / 255.0f);
-    }
-    // In the wheel: a glyph is a sprite fitted inside the sector's square by its larger side, and the
-    // cell takes the shaded tint; the game's icon is not drawn for it.
+    // In the wheel: a glyph is the slot's, the game's icon not drawn for it.
     {
         std::vector<spiral::Item> items(3);
         for (int i = 0; i < 3; ++i) {
@@ -533,29 +704,18 @@ void test_glyphs() {
         items[1].glyph = 77;
         items[1].glyph_width = 100;
         items[1].glyph_height = 50;
-        items[1].tinted = true;
-        std::copy(blue, blue + 3, items[1].tint);
-        spiral::Look look;
         spiral::Wheel w;
-        w.open(items, look);
+        w.open(items, spiral::Look{});
         w.advance(1.0f);
         const spiral::Frame f = w.frame();
         CHECK(f.icons.size() == 2u);  // items 0 and 2: the game's own icons
-        bool glyph = false, tinted = false;
-        for (const spiral::Sprite& sp : f.sprites) {
-            if (sp.art == spiral::Art::Glyph) {
-                glyph = true;
-                const float box = spiral::kSize * spiral::kGlyphSquare * (1.0f - 2.0f * spiral::kGlyphPadding);
-                CHECK(sp.image == 77 && near(sp.w, box) && near(sp.h, box / 2.0f));
-            }
-            if (sp.art == spiral::Art::Sector && sp.coloured) {
-                tinted = true;
-                float want[3];
-                spiral::shade(blue, spiral::kCellValue, spiral::kCellSaturation, want);
-                CHECK(near(sp.rgb[2], want[2]));
+        bool glyph = false;
+        for (const spiral::Slot& sl : f.slots) {
+            if (sl.index == 1) {
+                glyph = sl.glyph == 77 && sl.glyph_width == 100 && sl.glyph_height == 50;
             }
         }
-        CHECK(glyph && tinted);
+        CHECK(glyph);
     }
 }
 
@@ -567,6 +727,7 @@ int main() {
     test_depth_and_fading();
     test_stick_and_opening();
     test_wheel_frame();
+    test_paint();
     test_home_ring();
     test_glyphs();
     std::printf("%d checks, %d failed\n", g_checks, g_failures);

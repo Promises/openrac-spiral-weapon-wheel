@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // The spiral weapon wheel, game-agnostic: the items it shows, the pointer the stick turns
-// (spiral.hpp), and what is drawn where, as "Prey Menu" lays it out (PreyMenu.xml; spiral.hpp
-// says whose and from where). A game's layer (src/gc/rac1_shim.*) fills the items, feeds the stick,
-// draws the pictures (the mod's overlay) and the icons and text (the game's own), and equips the
-// pick. Sizes and places are in the screen's heights (1 is the screen's height), from its middle,
-// y down.
+// (spiral.hpp: "Prey Menu"'s spiral, whose and from where), and what is drawn where, as the user's
+// design lays it out (look.hpp: a continuous spiral of menu panels). A game's layer
+// (src/gc/rac1_shim.*) fills the items, feeds the stick, draws the panels (the mod's overlay, by
+// paint.hpp) and the icons and text (the game's own), and equips the pick. Places are in the
+// screen's heights (1 is the screen's height), from its middle, y down.
 #pragma once
 
 #include <cstdint>
@@ -27,65 +27,71 @@ struct Item {
     int glyph = 0;
     int glyph_width = 0;
     int glyph_height = 0;
-    // Its icon's ground colour, the cell's tint; none: the cell is Prey Menu's black.
-    bool tinted = false;
-    std::uint8_t tint[3] = {0, 0, 0};
+    // A gadget (the hand gadgets' grid), else a weapon: its slot's wash and its glyph's colour.
+    bool gadget = false;
 };
 
-// The pictures of PreyMenu.xml (textures/interface/PreyMenu/), each drawn centred on the wheel.
-enum class Art {
-    Sector,       // sector.dds: the slot's backing
-    Border,       // border.dds: an item's frame
-    BorderEq,     // borderEq.dds: the equipped item's
-    BorderHot,    // borderHot.dds: an item on a hotkey (here: on the game's quick select)
-    BorderEqHot,  // borderEqHot.dds: both
-    Pointer,      // pointer.dds
-    Info,         // info.dds: the line under the name
-    Badge,        // hotkeys/<n>.dds: the hotkey's number (here: the quick select's place)
-    Glyph,        // an item's glyph (Item::glyph), the overlay picture `image`
+// One slot as drawn (look.hpp): a menu panel bent into a sector of the spiral.
+struct Slot {
+    int index = 0;           // the item (an index into the wheel's items), or a blank's index
+    bool empty = false;      // no item: a blank or a hole
+    bool gadget = false;     // its item is a gadget (else a weapon)
+    bool selected = false;   // the pointer is on it
+    float angle_deg = 0;     // its middle, degrees counter-clockwise from 3 o'clock
+    float radius = 0;        // to the panel's middle, the design's pixels (before the push)
+    float push = 0;          // pushed out by, the design's pixels
+    float opacity = 1;
+    // Its glyph (Item::glyph) and that picture's size; 0: none (the game's icon is drawn instead).
+    int glyph = 0;
+    int glyph_width = 0;
+    int glyph_height = 0;
+    int badge = 0;           // its quick select number, 1 to 8; 0 none
 };
 
-// A picture to draw: centred at (x, y) from the wheel's middle (0, 0 for the wheel's own), `w` by
-// `h` screen heights, turned `angle_deg` counter-clockwise, its colour `grey` (0 to 1: the XML's
-// brightness / 255; 0 is black) at `alpha` (0 to 1).
-struct Sprite {
-    Art art = Art::Sector;
-    int badge = 0;  // Art::Badge: 1 to 8
-    int image = 0;  // Art::Glyph: the overlay picture
-    float x = 0, y = 0, w = 0, h = 0;
-    float angle_deg = 0;
-    float grey = 1;
-    // A colour in place of the grey (0 to 1 each): a tinted cell.
-    bool coloured = false;
-    float rgb[3] = {1, 1, 1};
-    float alpha = 1;
-};
-
-// An item's icon: centred at (x, y), `size` screen heights square, at `alpha`.
+// An item's icon, the game's own, where its slot has no glyph: centred at (x, y), `size` screen
+// heights square, at `alpha`.
 struct Icon {
     int item = 0;  // the index into the wheel's items
     float x = 0, y = 0, size = 0;
     float alpha = 1;
 };
 
-// What a frame draws, in the order drawn (later over earlier).
+// A quick select number on its badge: the badge's middle at (x, y), at `alpha`.
+struct Badge {
+    int number = 0;
+    float x = 0, y = 0;
+    float alpha = 1;
+};
+
+// What a frame draws. Places are screen heights from the screen's middle, y down; the slots'
+// radii and the look's sizes are the design's pixels, times `unit`.
 struct Frame {
-    std::vector<Sprite> sprites;
+    std::vector<Slot> slots;  // in the order drawn: the outer first, the selected last
     std::vector<Icon> icons;
-    // The pointed-at item (an index into the items), -1 "None", below -1 a blank; where the name
-    // goes (above the info bar) and the line below it (the ammo), and the text's height.
+    std::vector<Badge> badges;
+    float unit = 0;           // screen heights a design pixel: the size setting and the opening's zoom
+    float centre_y = 0;       // the wheel's middle below the screen's (negative: above)
+    float pointer_deg = 0;    // where the pointer points
+    // The pointed-at item (an index into the items), below 0 a blank; the middles of its name's
+    // line and of the line under it (the ammo).
     int selected = -1;
     float name_y = 0;
     float detail_y = 0;
-    float text_height = 0;
 };
 
-// The look: the mod's settings (General: fScale and the spiral's), and PreyMenu.xml's sizes in its
-// HUD units (960 the screen's height).
+// The look: the mod's settings (the size, and the spiral's start, direction and depth).
 struct Look {
     Options spiral;
-    float scale = 1.0f;  // fScale
+    float scale = 1.0f;  // 1: the design's size (its 720 pixels a screen's height)
 };
+
+// The radius step between slots for the depth setting (Prey Menu's fDepth): the design's 11 pixels
+// at the default 0.75, otherwise Prey Menu's per-slot shrink (1 - shallowness) in proportion, held
+// to 5 to 11 (the design's loops already fill the screen).
+float radius_step(const Options& o);
+// A slot's opacity `k` slots on from the first of the loop shown (look.hpp: 1 in the loop, the
+// loops either side fading), in between whole slots linearly; `spiral` false: 1 for the one loop.
+float slot_opacity(float k, bool spiral);
 
 class Wheel {
 public:
@@ -96,14 +102,14 @@ public:
     bool is_open() const { return m_open; }
 
     // UpdatePointer.gek, once a tick: the stick (screen space, y down), within `deadzone` none.
-    // True when the pointed-at slot changed (the mod plays its scroll sound for an item or "None").
+    // True when the pointed-at slot changed to an item (the mod's scroll sound).
     bool steer(float x, float y, float deadzone);
     // One slot on (+1) or back (-1), as the stick would turn it; the pointer on that slot's middle.
     bool step(int slots);
-    // The opening's zoom, `seconds` on.
+    // The opening's zoom and the spiral's move to the pointer's loop, `seconds` on.
     void advance(float seconds);
 
-    // The pointed-at item (an index into items()), -1 "None", below -1 a blank.
+    // The pointed-at item (an index into items()), below 0 a blank.
     int selected() const;
     // Whether slot `index` holds an item (not a blank or a hole: arrange.hpp).
     bool is_item(int index) const;
@@ -111,10 +117,16 @@ public:
     // "None" slot, one before it, is a blank here: the mod has no "None").
     Options spiral_options() const;
     const std::vector<Item>& items() const { return m_items; }
+    const Look& look() const { return m_look; }
     float input() const { return m_input; }
-    // Where the pointer picture points, degrees counter-clockwise from 3 o'clock.
+    // Where the pointer points, degrees counter-clockwise from 3 o'clock.
     float pointer_deg() const;
     float anim() const { return m_anim; }
+    // The first slot of the loop the spiral shows as its own, in slots from item 0 (0 up to the
+    // spiral's slots): the pointer's loop, eased to as the pointer moves into another.
+    float anchor() const;
+    // The loop's first slot the anchor eases to: the pointer's loop's.
+    float anchor_target() const;
 
     // What to draw now.
     Frame frame() const;
@@ -125,34 +137,15 @@ private:
     float m_input = 0;
     Stick m_stick;
     float m_anim = 1;
+    float m_anchor = 0;  // unwrapped: the loops the spiral has turned since the opening
+    float m_loop = 0;    // unwrapped: the loop's first slot it eases to
     bool m_open = false;
+    float target_loop() const;
 };
 
-// PreyMenu.xml's sizes, in screen heights (its HUD is 960 units tall).
-constexpr float kHud = 960.0f;
-constexpr float kSize = 640.0f / kHud;            // _Prey+Size
-constexpr float kRadius = 0.41666666666f;        // _Prey+Radius, of the size
-constexpr float kRadiusHotkey = 0.47f;           // _Prey+RadiusHotkey, of the size
-constexpr float kIcon = 0.13333333333f;          // the icon's width, of the sector's
-constexpr float kBadge = 20.0f / kHud;           // _Prey+SizeHotkey
-constexpr float kBadgeTurn = 11.5f;              // the hotkey's _Angle: _AngleDeg - 11.5
-constexpr float kInfoWidth = 320.0f / kHud;      // InfoBar
-constexpr float kInfoHeight = 5.0f / kHud;
-constexpr float kTextHeight = 22.0f / kHud;      // the name's line (the mod's font 1 at zoom 100)
-constexpr float kOpenSeconds = 0.1f;             // SetUIFloatGradual _Prey+Anim 0.001 1 0.1
-// The XML's colours: <brightness> / 255 and <alpha> / 255.
-constexpr float kSectorAlpha = 165.0f / 255.0f;
-constexpr float kSectorHover = 100.0f / 255.0f;
-constexpr float kBorderGrey = 175.0f / 255.0f;
-constexpr float kPointerGrey = 200.0f / 255.0f;
-constexpr float kInfoGrey = 200.0f / 255.0f;
-// The mod's: an item's glyph fits the largest square inside its sector at the icon's radius
-// (sector.dds spans 0.331 to 0.498 of the size, +-15 degrees: 2 * (0.498 - 0.4167) = 0.163 of the
-// size), 13 % of it clear each side, by its larger side; the cell is its icon's ground colour, its
-// value at 55 % and saturation at 75 % (the pointed-at cell: 85 % and 90 %).
-constexpr float kGlyphSquare = 0.163f;
-constexpr float kGlyphPadding = 0.13f;
-constexpr float kCellValue = 0.55f, kCellSaturation = 0.75f;
-constexpr float kCellHoverValue = 0.85f, kCellHoverSaturation = 0.9f;
+// PreyMenu.xml's opening: SetUIFloatGradual _Prey+Anim 0.001 1 0.1.
+constexpr float kOpenSeconds = 0.1f;
+// The spiral's move to another loop: eased, its time constant (the mod's).
+constexpr float kLoopSeconds = 0.06f;
 
 }  // namespace spiral

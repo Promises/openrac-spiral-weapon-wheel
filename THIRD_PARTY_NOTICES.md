@@ -6,9 +6,10 @@ Commando's decompilation, and `src/gc/rac1_spiral.cpp`, which follows two of its
 under that project's license, the GPL version 3 (it names no later version, so they are
 GPL-3.0-only). Each file says which in its `SPDX-License-Identifier` line.
 
-**The art is not under the GPL.** The pictures in `assets/spiral-wheel/` are Prey Menu's, by
-KerosenileArsonist, used under its author's Nexus permissions (below), which forbid use in anything
-sold. The GPL covers the code only, not these files.
+There is **no art** in the mod (since 1.2.0): its pictures are drawn by its own code as it loads
+(`src/spiral/paint.cpp`, after the user's design), and its glyphs are made from the player's own
+game as it runs. Up to 1.1.2 it shipped Prey Menu's art (below); that is no longer in the mod or
+this repository's current tree.
 
 ## Prey Menu (Fallout: New Vegas), by KerosenileArsonist
 
@@ -19,26 +20,10 @@ sold. The GPL covers the code only, not these files.
   sold (for money, on the Steam Workshop or other platforms) is not allowed; earning donation
   points is allowed.
 
-**The art** (© KerosenileArsonist, from Prey Menu, <https://www.nexusmods.com/newvegas/mods/94499>,
-used under the author's Nexus permissions: free to use, modify and convert with credit; not for use
-in anything sold). Converted from the mod's DDS textures (`textures/interface/PreyMenu/`) to PNG at
-their own sizes, unchanged otherwise:
-
-| File here | Prey Menu's |
-|---|---|
-| `assets/spiral-wheel/sector.png` | `sector.dds` (1024 x 1024) |
-| `assets/spiral-wheel/border.png` | `border.dds` (1024 x 1024) |
-| `assets/spiral-wheel/borderEq.png` | `borderEq.dds` (1024 x 1024) |
-| `assets/spiral-wheel/borderHot.png` | `borderHot.dds` (1024 x 1024) |
-| `assets/spiral-wheel/borderEqHot.png` | `borderEqHot.dds` (1024 x 1024) |
-| `assets/spiral-wheel/pointer.png` | `pointer.dds` (1024 x 1024) |
-| `assets/spiral-wheel/info.png` | `info.dds` (512 x 8) |
-| `assets/spiral-wheel/hotkey1.png` ... `hotkey8.png` | `hotkeys/1.dds` ... `hotkeys/8.dds` (32 x 32) |
-| `docs/mockup.png` | a picture of the wheel made from the files above |
-
 **The spiral's design** (the same credit and permissions: modification and conversion with credit).
-`src/spiral/spiral.cpp` and `src/spiral/wheel.cpp` port the spiral's logic from the mod's menu and
-scripts, each function naming the trait or script it follows:
+`src/spiral/spiral.cpp` and `src/spiral/wheel.cpp` port the spiral's logic (the pointer and the
+slots' angles; since 1.2.0 the sizes, fades and art are the user's design, not Prey Menu's) from
+the mod's menu and scripts, each function naming the trait or script it follows:
 `menus/prefabs/PreyMenu/PreyMenu.xml` (the pointer's index, its wrap and angle; each slot's angle,
 distance from the pointer, size, fade and highlight; the art's sizes, radii and colours),
 `NVSE/plugins/scripts/ln_PreyMenu.txt` (the direction's sign and the depth's shallowness),
@@ -52,8 +37,8 @@ check the port against them.
 
 `src/third_party/stb_image.h`: stb_image v2.34 by Sean Barrett and contributors
 (<https://github.com/nothings/stb>, commit `6b5799bae8a1fe3792691ef4b72ae26434c3e799`), unchanged.
-It reads the art's PNGs. Public domain, or the MIT License (its own notice, at the file's end, gives
-both).
+Kept in the tree for reading PNGs; 1.2.0 does not use it. Public domain, or the MIT License (its
+own notice, at the file's end, gives both).
 
 ## Prey (2017)
 

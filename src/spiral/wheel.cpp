@@ -2,7 +2,7 @@
 //
 // The spiral weapon wheel (wheel.hpp).
 #include "wheel.hpp"
-#include "glyph.hpp"
+#include "look.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +25,69 @@ void Wheel::open(std::vector<Item> items, const Look& look) {
     m_stick = Stick{};
     m_anim = 0.001f;
     m_open = true;
+    m_loop = 0.0f;
+    m_loop = target_loop();
+    m_anchor = m_loop;
+}
+
+float radius_step(const Options& o) {
+    const float shrink = 1.0f - shallowness(o);
+    const float ours = 1.0f - shallowness(Options{});
+    return std::clamp(look::kRadiusStep * shrink / ours, 5.0f, look::kRadiusStep);
+}
+
+float slot_opacity(float k, bool spiral) {
+    if (!spiral) {
+        return k > -1.0f && k < static_cast<float>(kPerLoop) ? 1.0f : 0.0f;
+    }
+    // At whole slots: 1 in the loop (0 to 11), the 4 before it and the 3 after it fading, 0 past
+    // them; linear between.
+    auto at = [](int i) {
+        if (i >= 0 && i < kPerLoop) {
+            return 1.0f;
+        }
+        if (i < 0 && i >= -4) {
+            return look::kBefore[-i - 1];
+        }
+        if (i >= kPerLoop && i < kPerLoop + 3) {
+            return look::kAfter[i - kPerLoop];
+        }
+        return 0.0f;
+    };
+    const float f = std::floor(k);
+    const float t = k - f;
+    const int i = static_cast<int>(f);
+    return at(i) * (1.0f - t) + at(i + 1) * t;
+}
+
+// The slots the spiral has (pointer.total), and an index taken into 0 up to them.
+namespace {
+int wrap_index(int index, int total) { return total > 0 ? ((index % total) + total) % total : 0; }
+float wrap_into(float v, float from, float total) { return v - std::floor((v - from) / total) * total; }
+}  // namespace
+
+// The loop's first slot the pointer is in, counted on from the last one (unwrapped): the pointed-at
+// slot a whole loop or more past the last loop's first, or before it, moves it on or back by whole
+// loops, so the spiral turns the way the pointer went (with two loops, either way is as far).
+float Wheel::target_loop() const {
+    const Pointer p = pointer(static_cast<int>(m_items.size()), m_input, spiral_options());
+    if (!p.spiral) {
+        return 0.0f;
+    }
+    const float total = static_cast<float>(p.total);
+    const float k = wrap_into(static_cast<float>(wrap_index(p.selected, p.total)) - m_loop, -5.0f, total);
+    const float loop = static_cast<float>(kPerLoop);
+    return m_loop + std::floor(k / loop) * loop;
+}
+
+float Wheel::anchor_target() const {
+    const float total = static_cast<float>(pointer(static_cast<int>(m_items.size()), m_input, spiral_options()).total);
+    return total > 0.0f ? wrap_into(target_loop(), 0.0f, total) : 0.0f;
+}
+
+float Wheel::anchor() const {
+    const float total = static_cast<float>(pointer(static_cast<int>(m_items.size()), m_input, spiral_options()).total);
+    return total > 0.0f ? wrap_into(m_anchor, 0.0f, total) : 0.0f;
 }
 
 float Wheel::pointer_deg() const {
@@ -96,6 +159,10 @@ void Wheel::advance(float seconds) {
             m_anim = 1.0f;
         }
     }
+    // The spiral eases to the pointer's loop, the way the pointer went.
+    m_loop = target_loop();
+    const float d = m_loop - m_anchor;
+    m_anchor = std::fabs(d) < 0.01f ? m_loop : m_anchor + d * (1.0f - std::exp(-seconds / kLoopSeconds));
 }
 
 Frame Wheel::frame() const {
@@ -103,111 +170,75 @@ Frame Wheel::frame() const {
     const int n = static_cast<int>(m_items.size());
     const Options o = spiral_options();
     const Pointer p = pointer(n, m_input, o);
-    // _Prey+Size = 640 * Scale * Anim (HUD units).
-    const float size = kSize * m_look.scale * m_anim;
+    f.unit = m_look.scale * m_anim / look::kDesignHeight;
+    f.centre_y = look::kCentreY * f.unit;
+    f.pointer_deg = p.angle_deg;
     f.selected = p.selected;
+    f.name_y = f.centre_y + look::kNameY * f.unit;
+    f.detail_y = f.centre_y + look::kAmmoY * f.unit;
+    const float step = radius_step(m_look.spiral);
+    const float total = static_cast<float>(p.total);
+    // Each slot k on from the loop shown's first (the anchor): the 4 before it as negative k, the
+    // loops wrapping (a spiral's slots are a loop of `total`).
+    std::vector<std::pair<float, Slot>> drawn;
     for (const Tile& t : tiles(n, p, o)) {
-        if (!t.visible) {
+        const float at = static_cast<float>(wrap_index(t.index, p.total)) - anchor();
+        const float k = p.spiral ? wrap_into(at, -5.0f, total) : wrap_into(at, -0.5f, total);
+        const float fade = slot_opacity(k, p.spiral);
+        if (fade <= 0.0f) {
             continue;
         }
-        const float s = size * t.scale;
-        // A hole (arrange.hpp: a first-loop slot no item took) is drawn as a blank.
-        const Item* item = t.index >= 0 ? &m_items[static_cast<std::size_t>(t.index)] : nullptr;
+        const Item* item = t.index >= 0 && t.index < n ? &m_items[static_cast<std::size_t>(t.index)] : nullptr;
         if (item != nullptr && item->id == 0) {
-            item = nullptr;
+            item = nullptr;  // a hole (arrange.hpp): a first-loop slot no item took
         }
-        // No "None" here: its slot (-1) is a blank like the others.
-        const bool blank = item == nullptr;
-        // Sector: alpha 165 * AlphaMult, brightness 100 when hovered (else 0: black), turned to
-        // _AngleRad; (the mod's) an item's own ground colour, darkened, when it has one.
-        Sprite sector;
-        sector.art = Art::Sector;
-        sector.w = sector.h = s;
-        sector.angle_deg = t.angle_deg;
-        sector.grey = t.hover && !blank ? kSectorHover : 0.0f;
-        if (item != nullptr && item->tinted) {
-            sector.coloured = true;
-            shade(item->tint, t.hover ? kCellHoverValue : kCellValue, t.hover ? kCellHoverSaturation : kCellSaturation,
-                  sector.rgb);
+        Slot s;
+        s.index = t.index;
+        s.empty = item == nullptr;
+        s.gadget = item != nullptr && item->gadget;
+        s.selected = item != nullptr && t.hover;
+        s.angle_deg = t.angle_deg;
+        s.radius = look::kFirstRadius - step * k;
+        s.push = s.selected ? look::kPush : 0.0f;
+        s.opacity = s.empty ? std::min(fade, look::kEmpty) : fade;
+        if (item != nullptr) {
+            s.glyph = item->glyph;
+            s.glyph_width = item->glyph_width;
+            s.glyph_height = item->glyph_height;
+            s.badge = item->hot;
         }
-        sector.alpha = kSectorAlpha * t.alpha;
-        f.sprites.push_back(sector);
-        if (blank) {
+        drawn.push_back({s.selected ? 1e9f : k, s});
+    }
+    // The outer first (the design's order), the selected last.
+    std::stable_sort(drawn.begin(), drawn.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& [k, s] : drawn) {
+        f.slots.push_back(s);
+        if (s.empty) {
             continue;
         }
-        // Border: not a blank's; the file by _Hotkey and _Equipped (BorderFile_0..3), brightness
-        // 175, alpha 255 * AlphaMult.
-        const bool hot = item != nullptr && item->hot > 0;
-        const bool eq = item != nullptr && item->equipped;
-        Sprite border;
-        border.art = hot ? (eq ? Art::BorderEqHot : Art::BorderHot) : (eq ? Art::BorderEq : Art::Border);
-        border.w = border.h = s;
-        border.angle_deg = t.angle_deg;
-        border.grey = kBorderGrey;
-        border.alpha = t.alpha;
-        f.sprites.push_back(border);
-        if (item == nullptr) {
-            continue;
-        }
-        // Icon: the sector's width * 0.1333, at _Prey+Radius * _Scale along _AngleDeg; (the mod's)
-        // an item's glyph instead, fitted inside its sector.
-        const float a = t.angle_deg * kPi / 180.0f;
-        const float ix = std::cos(a) * size * kRadius * t.scale;
-        const float iy = -std::sin(a) * size * kRadius * t.scale;
-        if (item->glyph != 0 && item->glyph_width > 0 && item->glyph_height > 0) {
-            const float box = s * kGlyphSquare * (1.0f - 2.0f * kGlyphPadding);
-            const float larger = static_cast<float>(std::max(item->glyph_width, item->glyph_height));
-            Sprite glyph;
-            glyph.art = Art::Glyph;
-            glyph.image = item->glyph;
-            glyph.x = ix;
-            glyph.y = iy;
-            glyph.w = box * static_cast<float>(item->glyph_width) / larger;
-            glyph.h = box * static_cast<float>(item->glyph_height) / larger;
-            glyph.alpha = t.alpha;
-            f.sprites.push_back(glyph);
-        } else {
+        const float a = s.angle_deg * kPi / 180.0f;
+        const float middle = (s.radius + s.push) * f.unit;
+        // The game's own icon where there is no glyph: the glyph's square.
+        if (s.glyph == 0 || s.glyph_width <= 0 || s.glyph_height <= 0) {
             Icon icon;
-            icon.item = t.index;
-            icon.size = s * kIcon;
-            icon.x = ix;
-            icon.y = iy;
-            icon.alpha = t.alpha;
+            icon.item = s.index;
+            icon.size = look::kThickness * s.radius * (s.selected ? look::kGlyphSelected : look::kGlyph) * f.unit;
+            icon.x = std::cos(a) * middle;
+            icon.y = f.centre_y - std::sin(a) * middle;
+            icon.alpha = s.opacity;
             f.icons.push_back(icon);
         }
-        if (hot) {
-            // Hotkey: _AngleDeg - 11.5 at _Prey+RadiusHotkey * _Scale, SizeHotkey * _Scale, black
-            // (red, green and blue 0), the border's alpha.
-            const float b = (t.angle_deg - kBadgeTurn) * kPi / 180.0f;
-            Sprite badge;
-            badge.art = Art::Badge;
-            badge.badge = item->hot;
-            badge.w = badge.h = kBadge * m_look.scale * m_anim * t.scale;
-            badge.x = std::cos(b) * size * kRadiusHotkey * t.scale;
-            badge.y = -std::sin(b) * size * kRadiusHotkey * t.scale;
-            badge.grey = 0.0f;
-            badge.alpha = t.alpha;
-            f.sprites.push_back(badge);
+        if (s.badge > 0) {
+            const float outer = s.radius * (1.0f + look::kThickness * 0.5f) + s.push - look::kBadgeIn;
+            const float b = (s.angle_deg - look::kBadgeTurn) * kPi / 180.0f;
+            Badge badge;
+            badge.number = s.badge;
+            badge.x = std::cos(b) * outer * f.unit;
+            badge.y = f.centre_y - std::sin(b) * outer * f.unit;
+            badge.alpha = s.opacity;
+            f.badges.push_back(badge);
         }
     }
-    // Pointer: brightness 200, the wheel's size, turned to its rotateangle.
-    Sprite pointer_sprite;
-    pointer_sprite.art = Art::Pointer;
-    pointer_sprite.w = pointer_sprite.h = size;
-    pointer_sprite.angle_deg = p.angle_deg;
-    pointer_sprite.grey = kPointerGrey;
-    f.sprites.push_back(pointer_sprite);
-    // InfoBar: 320 x 5 at the middle, brightness 200; the name above it, the second line below
-    // (the mod's category line).
-    Sprite info;
-    info.art = Art::Info;
-    info.w = kInfoWidth * m_look.scale * m_anim;
-    info.h = kInfoHeight * m_look.scale * m_anim;
-    info.grey = kInfoGrey;
-    f.sprites.push_back(info);
-    f.text_height = kTextHeight * m_look.scale * m_anim;
-    f.name_y = -info.h * 0.5f - f.text_height * 1.2f;
-    f.detail_y = info.h * 0.5f + f.text_height * 0.2f;
     return f;
 }
 

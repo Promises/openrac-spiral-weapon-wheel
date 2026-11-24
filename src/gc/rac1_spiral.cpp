@@ -9,8 +9,8 @@
 // once fade[0] has run down (the pending item, item 0x18's rule, the usage statistics, the ammo
 // held to the most), mode 7 moved on or the request cleared, the record closed. What it selects
 // and draws is the spiral of "Prey Menu" (src/spiral/: the stick turns the pointer around the
-// loops; the art the mod's overlay draws under the HUD, the icons and text the game's own HUD
-// calls draw here).
+// loops; the panels the mod's overlay draws under the HUD, the fallback icons and the text the
+// game's own HUD calls draw here).
 //
 // The mod's own, marked in the comments: the items (every owned hand item, not the quick select's
 // eight), "None" as the wrench, the stick's rest, the d-pad stepping one slot, Circle cancelling,
@@ -73,7 +73,7 @@ std::vector<spiral::Item> Shim::collect_items() {
         return out;
     }
     const std::int32_t in_hand = m.read<std::int32_t>(a.hero + kHeroItem);
-    auto take = [&](std::uint32_t table, int count) {
+    auto take = [&](std::uint32_t table, int count, bool gadgets) {
         for (int i = 0; i < count; ++i) {
             const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
             const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
@@ -83,6 +83,7 @@ std::vector<spiral::Item> Shim::collect_items() {
             }
             spiral::Item item;
             item.id = id;
+            item.gadget = gadgets;
             item.icon = m.read<std::uint16_t>(cell + kCellIcon);
             item.equipped = id == in_hand;
             for (std::uint32_t slot = 0; slot < 8; ++slot) {
@@ -94,8 +95,8 @@ std::vector<spiral::Item> Shim::collect_items() {
             out.push_back(item);
         }
     };
-    take(a.weapon_cells, kWeaponCells);
-    take(a.gadget_cells, kGadgetCells);
+    take(a.weapon_cells, kWeaponCells, false);
+    take(a.gadget_cells, kGadgetCells, true);
     // The game's quick select is the home ring (arrange.hpp): slot i of its eight at the direction
     // draw_hud_item_selector_panel draws it (games/rac1/decomp
     // src/overlays/shared/weapon_hud_and_counters.c:1348-1353: FastAddRots(2 * i * pi / count - pi,
@@ -208,7 +209,12 @@ void Shim::capture_glyph(CachedGlyph& entry, std::uint16_t icon, Capture when) {
         report("rejected", g.reason);
         return;
     }
-    const int made = game.create_image(g.picture.width, g.picture.height, g.picture.rgba.data());
+    // White, its shape in the alpha: the look colours it (look.hpp: blue, green, the highlight).
+    std::vector<std::uint8_t> white = g.picture.rgba;
+    for (std::size_t i = 0; i + 3 < white.size(); i += 4) {
+        white[i] = white[i + 1] = white[i + 2] = 255;
+    }
+    const int made = game.create_image(g.picture.width, g.picture.height, white.data());
     if (made == 0) {
         report("rejected", "the port refused the picture");
         return;
@@ -219,8 +225,6 @@ void Shim::capture_glyph(CachedGlyph& entry, std::uint16_t icon, Capture when) {
     entry.image = made;
     entry.width = g.picture.width;
     entry.height = g.picture.height;
-    entry.tinted = true;
-    std::copy(g.tint, g.tint + 3, entry.tint);
     entry.from_menu = when == Capture::Menu;
     report("captured and valid", "");
 }
@@ -275,8 +279,6 @@ void Shim::attach_glyph(spiral::Item& item) {
     item.glyph = entry.image;
     item.glyph_width = entry.width;
     item.glyph_height = entry.height;
-    item.tinted = entry.tinted;
-    std::copy(entry.tint, entry.tint + 3, item.tint);
 }
 
 void Shim::forget_glyphs() {
@@ -694,7 +696,8 @@ void Shim::spiral_update(std::uint8_t* record) {
 }
 
 // The record's draw (in the world's picture, the game's 2D): the items' icons on the spiral and the
-// pointed-at item's name and ammo, with the game's own sprites and font. The art is the overlay's.
+// pointed-at item's name and ammo, with the game's own sprites and font. The panels are the
+// overlay's.
 int Shim::spiral_draw(std::uint8_t* record) {
     const Memory& m = game.memory;
     const Memory rec{record};
@@ -713,22 +716,32 @@ int Shim::spiral_draw(std::uint8_t* record) {
         game.draw_hud_sprite(game.get_icon_frame(item.icon, gold ? 4 : 0), game_x(icon.x) - w / 2, game_y(icon.y) - h / 2, w, h,
                              alpha);
     }
-    // The name above the info bar and the ammo below, in Going Commando's colours (white, the ammo
-    // red when it is out), faded in with the selection.
+    // The quick select numbers on their badges (the overlay's), in the game's small font.
+    for (const spiral::Badge& badge : f.badges) {
+        const char text[2] = {static_cast<char>('0' + badge.number), 0};
+        const std::uint32_t colour = tween_colour(0x00E4E4E4u, 0x80E4E4E4u, badge.alpha * open);
+        game.font_print(TextSize::Small, game_x(badge.x), game_y(badge.y) - kSmallTextHeight / 2, colour, text);
+    }
+    // The name and the ammo in the middle, in the pause menu's blue (the ammo red when it is out),
+    // each over its dark copy a unit down and right (the game's own shadow, hud.c's), faded in with
+    // the selection.
     if (m_wheel.is_item(f.selected)) {
         const float opacity = open * pick;
-        const std::uint32_t white = tween_colour(0x00F0F0F0u, 0x80F0F0F0u, opacity);
+        auto line = [&](TextSize size, int height, float y, std::uint32_t colour, const std::string& text) {
+            const std::uint32_t c = tween_colour(colour & 0x00FFFFFFu, colour, opacity);
+            const std::uint32_t shadow = tween_colour(0u, colour & 0xFF000000u, opacity);
+            const int top = game_y(y) - height / 2;
+            game.font_print(size, game_x(0.0f) + 1, top + 1, shadow, text.c_str());
+            game.font_print(size, game_x(0.0f), top, c, text.c_str());
+        };
         const std::string& name = m_names[static_cast<std::size_t>(f.selected)];
         if (!name.empty()) {
-            game.font_print_center(game_x(0.0f), game_y(f.name_y), white, name.c_str(), -1);
+            line(TextSize::Normal, kNormalTextHeight, f.name_y, kMenuBlue, name);
         }
-        {
-            bool empty = false;
-            const std::string ammo = item_ammo(m_wheel.items()[static_cast<std::size_t>(f.selected)].id, empty);
-            if (!ammo.empty()) {
-                const std::uint32_t colour = empty ? tween_colour(0x004040FFu, 0x804040FFu, opacity) : white;
-                game.font_print_center(game_x(0.0f), game_y(f.detail_y), colour, ammo.c_str(), -1);
-            }
+        bool empty = false;
+        const std::string ammo = item_ammo(m_wheel.items()[static_cast<std::size_t>(f.selected)].id, empty);
+        if (!ammo.empty()) {
+            line(TextSize::Large, kLargeTextHeight, f.detail_y, empty ? kAmmoOut : kMenuBlue, ammo);
         }
     }
     return rec.read<std::int32_t>(kRecordWidth);

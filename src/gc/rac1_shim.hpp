@@ -120,6 +120,18 @@ constexpr std::uint32_t kModalWorldDrawn = 0x88;
 // What the layer calls in the game. mod.cpp fills it from the SDK (the game's functions by name,
 // its stack for pointers to locals); the tests from a fake. The math entries are optional: without
 // one the layer uses a faithful C stand-in.
+// The game's three fonts (FontPrintCenterSmall, FontPrintCenter, FontPrintCenterLarge), and the
+// height of a line of each in the game's 2D units, to centre one on a place: the normal one's 16
+// (the port's "16 pixels a glyph"); the small and large ones' are estimates.
+enum class TextSize { Small, Normal, Large };
+constexpr int kSmallTextHeight = 12;
+constexpr int kNormalTextHeight = 16;
+constexpr int kLargeTextHeight = 20;
+// The pause menu's text colour (pause.c's FontPrintCenter calls: 0x80FFA888, the game's blue), and
+// an ammo line that is out (Going Commando's red).
+constexpr std::uint32_t kMenuBlue = 0x80FFA888u;
+constexpr std::uint32_t kAmmoOut = 0x804040FFu;
+
 struct Game {
     Memory memory;
     Disc disc{};
@@ -144,6 +156,18 @@ struct Game {
     std::function<void(std::uint32_t, int, int, int, std::uint32_t, int)> hud_frame;
     // FontPrintCenter(x, y, colour, text, length): mod.cpp puts the text on the game's stack.
     std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center;
+    // FontPrintCenterSmall and FontPrintCenterLarge, the same way (unset: FontPrintCenter's).
+    std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center_small;
+    std::function<void(int, int, std::uint32_t, const char*, int)> font_print_center_large;
+    // The text centred across at x, its top at y, in the game's font of that size.
+    void font_print(TextSize size, int x, int y, std::uint32_t colour, const char* text) const {
+        const auto& f = size == TextSize::Small && font_print_center_small   ? font_print_center_small
+                        : size == TextSize::Large && font_print_center_large ? font_print_center_large
+                                                                             : font_print_center;
+        if (f) {
+            f(x, y, colour, text, -1);
+        }
+    }
     std::function<std::uint32_t(int)> msg_string;
     std::function<std::uint32_t(std::uint32_t, std::uint32_t, float)> fast_tween_color;
     // hud_screen_position(record, &x, &y): mod.cpp passes x and y on the game's stack.
@@ -383,8 +407,6 @@ private:
         int frame = 0;
         int image = 0;  // 0: none yet (the game's own icon is drawn)
         int width = 0, height = 0;
-        bool tinted = false;
-        std::uint8_t tint[3] = {0, 0, 0};
         bool from_menu = false;  // captured in the pause menu, where the pages are certain
         int menu_tried = -1;     // the pause menu (m_menus) it was last tried in
     };
