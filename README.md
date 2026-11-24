@@ -411,8 +411,9 @@ The tests:
   GPL-3.0-or-later.
 - **The glyphs** (`assets/glyphs/`) are original drawings by Henning Berge, **not** under the GPL.
   The licence they are offered under is to be decided (`assets/glyphs/LICENSE-glyphs`). Nothing in
-  the mod is taken from the game: no game-derived art is shipped. `docs/wheel.png`,
-  `docs/icon.png` and `docs/categories.png` are drawn by the mod's own code with these glyphs.
+  the mod is taken from the game: no game-derived art is shipped. `docs/wheel.png` and
+  `docs/categories.png` are drawn by the mod's own code with these glyphs; `docs/icon.png` (the hub
+  icon) is Henning Berge's own design, made with them.
 - **`docs/banner.png`** is a screenshot of the mod running in the game, used as the mod hub's banner.
   It is only in the repository for the hub listing: it is **not** part of the mod's package.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the details. The package carries it as
