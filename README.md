@@ -11,6 +11,8 @@ it loads. Its glyphs are original drawings by Henning Berge (`assets/glyphs/`, u
 terms: see below). An item without a drawing gets a glyph made from your own game's disc data
 while the mod runs.
 
+**[Watch it in game on YouTube](https://youtu.be/TsFeHlWv1F8)**
+
 ![The wheel, a mock-up](docs/mockup.png)
 
 *A mock-up drawn by the mod's own painter (`src/spiral/paint.cpp`) with its own glyphs, through its
