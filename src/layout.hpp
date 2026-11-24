@@ -80,12 +80,19 @@ constexpr std::uint32_t kRecordHandle = 0x64u;
 constexpr std::uint32_t kRecordSlide = 0x6Cu;
 constexpr std::uint32_t kRecordFades = 0x70u;
 constexpr std::uint32_t kRecordSelected = 0x74u;
-// item_info_table (menu_item_info): 0x4C a record, the same layout as item_defs; +0x08 the
-// equipment slot an item takes (the pause menu's grid: menu_system.equipped[slot] = id, 0 the hand,
-// the slot the quick select's items are in; games/rac1/decomp src/game/ui/pause.c:1789-1807 and
-// 7096: equipped[0] is the hand's preview).
-constexpr std::uint32_t kItemInfoSlot = 0x08u;
-constexpr std::int32_t kHandSlot = 0;
+// The pause menu's Quick Select page: its two grids of cells (MenuGridCell, include/structs/menu.h:
+// 10 bytes, +0 the icon, +2 its first frame, +4 the kind (0 an item, owned by item_available[id]),
+// +6 the item), the weapons' 15 (pause_item_candidate_entries, the NTSC decomp's
+// pause_weapon_menu_slots) and the hand gadgets' 6 (pause_hand_gadget_cells, gadget_menu_slots_row0).
+// draw_menu_item_grid shows a cell's item when it is owned (games/rac1/decomp src/game/ui/pause.c:2964)
+// and update_menu_item_slots puts the highlighted cell's item on the quick select when it is
+// (pause.c:2304-2341): those are the items the player can put on the quick select.
+constexpr std::uint32_t kCellStride = 10u;
+constexpr std::uint32_t kCellIcon = 0x0u;
+constexpr std::uint32_t kCellKind = 0x4u;
+constexpr std::uint32_t kCellItem = 0x6u;
+constexpr int kWeaponCells = 15;
+constexpr int kGadgetCells = 6;
 // The wrench: the hand's item with no weapon (hero_update_transitions' quick swap: item 8 in hand
 // swaps to the last weapon).
 constexpr std::int32_t kWrench = 8;
@@ -116,7 +123,8 @@ struct Disc {
     std::uint32_t game_mode;          // g_game_mode (mode_freeze_init's and update_mode_freeze's)
     std::uint32_t frame_scale;        // frame_scale, scale_ticks' factor (float)
     std::uint32_t item_available;     // item_available: owned, a byte per item
-    std::uint32_t item_info;          // item_info_table: 0x4C a record (its slot)
+    std::uint32_t weapon_cells;       // the Quick Select page's weapons grid, 15 cells
+    std::uint32_t gadget_cells;       // its hand gadgets grid, 6 cells
     // --- Level 0's data ---
     std::uint32_t item_defs;
     std::uint32_t item_price;
@@ -165,10 +173,11 @@ inline Disc disc_for(bool ntsc) {
         d.event_frames = 0x0015EEA4u;
         d.game_mode = 0x0015F604u;
         d.frame_scale = 0x0015ED60u;
-        // games/rac1/decomp config/names_ntsc.tsv: item_available at US 0x0013D4C0, menu_item_info
-        // (item_info_table) at US 0x001863D0.
+        // games/rac1/decomp config/names_ntsc.tsv: item_available at US 0x0013D4C0,
+        // pause_item_candidate_entries at US 0x001CF120, pause_hand_gadget_cells at US 0x001CEC20.
         d.item_available = 0x0013D4C0u;
-        d.item_info = 0x001863D0u;
+        d.weapon_cells = 0x001CF120u;
+        d.gadget_cells = 0x001CEC20u;
         d.item_defs = 0x00179AC0u;
         d.item_price = 0x001C40B0u;
         d.slot_tables = 0x0015FAC0u;
@@ -211,10 +220,11 @@ inline Disc disc_for(bool ntsc) {
         d.event_frames = 0x0015EFA4u;
         d.game_mode = 0x0015F6E8u;
         d.frame_scale = 0x0015EE60u;
-        // games/rac1/decomp include/names/executable.h: item_available D_0013D5C8, item_info_table
-        // D_001864D0.
+        // games/rac1/decomp include/names/executable.h: item_available D_0013D5C8,
+        // pause_item_candidate_entries D_001CF4A0, pause_hand_gadget_cells D_001CEFA0.
         d.item_available = 0x0013D5C8u;
-        d.item_info = 0x001864D0u;
+        d.weapon_cells = 0x001CF4A0u;
+        d.gadget_cells = 0x001CEFA0u;
         d.item_defs = 0x00179BC0u;
         d.item_price = 0x001C43B0u;
         d.slot_tables = 0x0015FB78u;

@@ -206,7 +206,7 @@ void Shim::connect(int level) {
          {&Disc::hero, &Disc::pad, &Disc::slot_items, &Disc::ammo, &Disc::gold, &Disc::usage_stats,
           &Disc::mode_freeze_info, &Disc::bolts,
           &Disc::quick_swap_item, &Disc::last_weapon, &Disc::level_index, &Disc::event_frames, &Disc::game_mode,
-          &Disc::frame_scale}) {
+          &Disc::frame_scale, &Disc::item_available, &Disc::weapon_cells, &Disc::gadget_cells}) {
         l.at.*f = exe(d.*f);
     }
     if (level >= 0) {
@@ -681,6 +681,10 @@ void Shim::update_play(const std::function<void()>& original) {
 void Shim::trace_request(int before, bool held, bool swap_flag) {
     const int after = gc_shim_hud_flag_b;
     if (before == 0 && after == 0) {
+        return;
+    }
+    // Once done (3), the request has had its line: the ticks after it are the open wheel's.
+    if (before == 3) {
         return;
     }
     if (before == 0) {

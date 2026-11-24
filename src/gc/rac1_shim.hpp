@@ -265,9 +265,9 @@ public:
     // (rac1_spiral.cpp).
     void spiral_update(std::uint8_t* record);
     int spiral_draw(std::uint8_t* record);
-    // The items the wheel offers: every owned hand item (item_available, item_info_table's slot 0),
-    // the wrench left out ("None" is it), in item order; each one's quick select place and whether
-    // it is in hand.
+    // The items the wheel offers: what the pause menu's Quick Select page lets the player put on the
+    // quick select (its weapons grid, then its hand gadgets grid, the owned items of their cells:
+    // layout.hpp), in that order; each one's quick select place and whether it is in hand.
     std::vector<spiral::Item> collect_items() const;
     // An item's name (the gold name for a gold weapon) and its ammo line ("" for none).
     std::string item_name(std::int32_t id) const;

@@ -59,6 +59,10 @@ int game_y(float y) { return static_cast<int>(std::lround(kScreenHeight * 0.5f +
 
 }  // namespace
 
+// The items the player can put on the quick select, in the Quick Select page's order: its weapons
+// grid, then its hand gadgets grid (layout.hpp: the cells' tables, draw_menu_item_grid's and
+// update_menu_item_slots' rule), each cell's item when it is an item (kind 0) and owned. Nothing of
+// the Items page (packs, helmets, boots, the Sonic Summoner, the Persuader...) is in them.
 std::vector<spiral::Item> Shim::collect_items() const {
     const Memory& m = game.memory;
     const Disc& a = m_level.at;
@@ -67,27 +71,29 @@ std::vector<spiral::Item> Shim::collect_items() const {
         return out;
     }
     const std::int32_t in_hand = m.read<std::int32_t>(a.hero + kHeroItem);
-    for (std::int32_t id = 1; id < static_cast<std::int32_t>(kWeapons); ++id) {
-        const std::uint32_t u = static_cast<std::uint32_t>(id);
-        // (the mod's) Owned, and an item of the hand (item_info_table's slot 0), the wrench left out.
-        if (id == kWrench || m.read<std::uint8_t>(a.item_available + u) == 0 ||
-            m.read<std::int32_t>(a.item_info + u * kItemDefStride + kItemInfoSlot) != kHandSlot) {
-            continue;
-        }
-        spiral::Item item;
-        item.id = id;
-        item.icon = m.read<std::uint16_t>(a.item_defs + u * kItemDefStride + kItemDefIcon);
-        item.equipped = id == in_hand;
-        for (std::uint32_t slot = 0; slot < 8; ++slot) {
-            if (m.read<std::int32_t>(a.slot_items + 4 * slot) == id) {
-                item.hot = static_cast<int>(slot) + 1;
-                break;
+    auto take = [&](std::uint32_t table, int count) {
+        for (int i = 0; i < count; ++i) {
+            const std::uint32_t cell = table + static_cast<std::uint32_t>(i) * kCellStride;
+            const std::int32_t id = m.read<std::int16_t>(cell + kCellItem);
+            if (m.read<std::int16_t>(cell + kCellKind) != 0 || id <= 0 || id >= static_cast<std::int32_t>(kWeapons) ||
+                m.read<std::uint8_t>(a.item_available + static_cast<std::uint32_t>(id)) == 0) {
+                continue;
             }
-        }
-        if (item.icon != 0) {
+            spiral::Item item;
+            item.id = id;
+            item.icon = m.read<std::uint16_t>(cell + kCellIcon);
+            item.equipped = id == in_hand;
+            for (std::uint32_t slot = 0; slot < 8; ++slot) {
+                if (m.read<std::int32_t>(a.slot_items + 4 * slot) == id) {
+                    item.hot = static_cast<int>(slot) + 1;
+                    break;
+                }
+            }
             out.push_back(item);
         }
-    }
+    };
+    take(a.weapon_cells, kWeaponCells);
+    take(a.gadget_cells, kGadgetCells);
     return out;
 }
 
@@ -268,6 +274,15 @@ void Shim::spiral_update(std::uint8_t* record) {
         m_cancelled = false;
         m_stick_logged = 0;
         write_i32(record, kSelected, m_wheel.selected());
+        if (game.info) {
+            std::string line = "the wheel opens with " + std::to_string(m_wheel.items().size()) + " items:";
+            for (const spiral::Item& item : m_wheel.items()) {
+                char id[16];
+                std::snprintf(id, sizeof id, " 0x%X", static_cast<unsigned>(item.id));
+                line += id;
+            }
+            game.info(line.c_str());
+        }
     }
     m_wheel.advance(1.0f / 60.0f);
 
@@ -347,6 +362,21 @@ void Shim::spiral_update(std::uint8_t* record) {
     if (m_committing) {
         if (fade[0] != 0) {
             --fade[0];
+        }
+        if (fade[0] == 0 && game.info) {
+            char line[200];
+            const std::int32_t in_hand = Memory{gc_shim_hero}.read<std::int32_t>(kGcHeroItem);
+            if (m_cancelled || selected < -1) {
+                std::snprintf(line, sizeof line, "cancelled (%s; 0x%X in hand)", m_cancelled ? "Circle" : "let go on a blank",
+                              static_cast<unsigned>(in_hand));
+            } else {
+                const std::int32_t pick = selected >= 0 ? m_wheel.items()[static_cast<std::size_t>(selected)].id : kWrench;
+                const std::string name = selected >= 0 ? m_names[static_cast<std::size_t>(selected)] : item_name(kWrench);
+                std::snprintf(line, sizeof line, "picked item 0x%X (%s), equipped 0x%X%s", static_cast<unsigned>(pick),
+                              name.c_str(), static_cast<unsigned>(pick),
+                              pick == in_hand ? " (already in hand)" : "");
+            }
+            game.info(line);
         }
         if (fade[0] == 0 && !m_cancelled && selected >= -1) {
             Memory hero{gc_shim_hero};

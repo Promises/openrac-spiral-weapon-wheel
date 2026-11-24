@@ -13,7 +13,8 @@ are Ratchet & Clank's own.*
 
 - **Hold Triangle.** The game slows down for a moment, then holds (Going Commando's pause, with no
   freeze dialog and no dimming).
-- **The spiral.** Every weapon and gadget you own lies on a spiral, twelve to a loop. Turn the stick
+- **The spiral.** Everything you can put on your quick select (the weapons and gadgets of the pause
+  menu's Quick Select page, in its order) lies on a spiral, twelve to a loop. Turn the stick
   around and the pointer goes round and round through the loops: items you have passed shrink
   inward and fade, and the ones ahead come out. The d-pad steps one item at a time.
 - **What it shows.** The item in hand has the thick corners. Items on your quick select have a
@@ -83,8 +84,10 @@ Ratchet & Clank PAL and NTSC-U.
     - each slot's angle, size (`0.9 + 0.0666 * depth` to the power of its distance from the
       pointer) and fade (full within six slots, gone at twelve);
     - the art's sizes and colours.
-- **The items** are every owned item of the hand, in item order: Ratchet & Clank's `item_available`,
-  and the equipment slot the pause menu reads from `item_info_table`.
+- **The items** are those of the pause menu's Quick Select page: the owned items of its weapons
+  grid (15 cells), then of its hand gadgets grid (6 cells), read from the game's own tables
+  (`pause_item_candidate_entries`, `pause_hand_gadget_cells`), shown and assigned when owned as the
+  page does (`draw_menu_item_grid`, `update_menu_item_slots`). Nothing of the Items page.
 - **The pictures** are drawn under the game's HUD by the mod's overlay (interface 1.40). The icons
   and text are drawn on top, through the game's own HUD calls.
 - **The slow-down** uses the port's slow motion (`time_stretch`). The game's time scale goes down
@@ -95,7 +98,7 @@ Ratchet & Clank PAL and NTSC-U.
 | Behaviour | From |
 |---|---|
 | The spiral: 12 a loop, the pointer turning with the stick, the wrap, sizes, fades, the art's states, the settings and their defaults | Prey Menu's scripts and menu |
-| Every owned weapon and gadget, like Prey's favourites | the mod's own choice |
+| What the Quick Select page can assign, in its order, like Prey's favourites | the mod's own choice; the rule is the game's |
 | The quick select's items marked with their number, as Prey Menu marks hotkeys | the mod's own choice |
 | "None" is the wrench | the mod's own choice (Prey Menu's "None" unequips) |
 | The slow-down, then the pause | Prey's wheel as seen in its footage; the ramp is the mod's own (Prey's time scaler eases to a target over a duration) |
@@ -111,6 +114,8 @@ The game's log (`openrac-rac1-*.log`, lines `[mod spiral-weapon-wheel]`) shows:
 - at load and in each level, whether the hook points, the quick select's functions and the
   pictures were found;
 - one line per Triangle press, giving why the wheel did not open or the trace of the hold;
+- at each opening, the items on the spiral in order; the stick's first turns (as read, its
+  direction, the slot); and the pick ("picked item 0x.. (name), equipped 0x..") or "cancelled";
 - one line per double-tap swap;
 - a warning if the pause ever had to be ended by its watchdog.
 
@@ -129,7 +134,7 @@ The tests:
   evaluates them, over millions of pointer angles. It covers both directions, start angles, depths
   and item counts, plus the stick, the opening and the layout.
 - `src/spiral_weapon_wheel_test.cpp` runs the layer, the copied code and the wheel on a fake game:
-  - the items offered, the selection through the loops, the d-pad and the picks (an item, item 0x18,
+  - the items offered (none of the Items page), the selection through the loops, the d-pad and the picks (an item, item 0x18,
     "None", a blank, the item in hand, Circle);
   - the toggle mode and the draw;
   - the slow-down into the pause and the ease back;

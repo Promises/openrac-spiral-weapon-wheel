@@ -131,9 +131,11 @@ rac2-decomp functions do: `request_begin_slot` and `request_end_slot` (mode 4 en
 - The translation layer reimplements, after it: the quick swap of `hero_update_transitions`
   (`src/overlays/shared/hero_item_input_and_hud.c`:152-168) and its Triangle conditions (110-116),
   and `scale_ticks`. It follows the field layouts of `include/structs/hero.h` and `pad.h` in
-  `src/layout.hpp` and `src/gc/rac1_shim.hpp`, and reads the items owned (`item_available`) and each
-  item's equipment slot (`item_info_table` + 8, as the pause menu's grid reads it:
-  `src/game/ui/pause.c`:1789-1807; the NTSC-U addresses from `config/names_ntsc.tsv`). No code is
+  `src/layout.hpp` and `src/gc/rac1_shim.hpp`, and reads the items owned (`item_available`) and the
+  pause menu's Quick Select page's grids (`pause_item_candidate_entries`, `pause_hand_gadget_cells`:
+  their cells, `include/structs/menu.h` MenuGridCell; shown and assigned when owned, as
+  `draw_menu_item_grid` and `update_menu_item_slots` do, `src/game/ui/pause.c`:2964 and 2304-2341;
+  the NTSC-U addresses from `config/names_ntsc.tsv`). No code is
   copied from it.
 
 ## The OpenRAC mod SDK
