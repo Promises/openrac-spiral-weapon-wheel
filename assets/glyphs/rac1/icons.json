@@ -2,7 +2,7 @@
   "format": 1,
   "name": "Spiral Weapon Wheel glyphs",
   "author": "Henning Berge",
-  "license": "Henning Berge, licence to be decided (LICENSE-glyphs)",
+  "license": "GPL-2.0-or-later (LICENSE-glyphs)",
   "icons": [
     {
       "game": "rac1",

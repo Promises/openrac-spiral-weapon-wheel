@@ -156,6 +156,6 @@ Texture-pack pictures (`<data>/texture_packs/`) are not used by the wheel. That 
 
 ## What the wheel does not ship
 
-The built-in glyphs are original drawings (see `assets/glyphs/LICENSE-glyphs`). The mod ships
+The built-in glyphs are original drawings, GPL-2.0-or-later (see `assets/glyphs/LICENSE-glyphs`). The mod ships
 nothing taken from the game. Its fallback glyphs are made from the player's own disc data while it
 runs.

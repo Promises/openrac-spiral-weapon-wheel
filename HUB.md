@@ -84,7 +84,7 @@ By Henning Berge.
 - The pause and the quick select's timing are **Going Commando's quick select**, from OpenRAC's
   [rac2-decomp](https://github.com/OpenRAC/rac2-decomp).
 
-Licence: the code is GPL-3.0; the glyphs are not, and their licence is still to be decided (details
+Licence: the code is GPL-3.0; the glyphs are GPL-2.0-or-later (details
 in the [README](README.md#license) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 ## Feedback

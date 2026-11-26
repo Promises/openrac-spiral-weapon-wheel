@@ -406,8 +406,9 @@ The tests:
 - **The code** is under the GNU General Public License version 3 ([LICENSE](LICENSE)). The files
   copied from rac2-decomp, and `src/gc/rac1_spiral.cpp`, are GPL-3.0-only. The mod's own files are
   GPL-3.0-or-later.
-- **The glyphs** (`assets/glyphs/`) are original drawings by Henning Berge, **not** under the GPL.
-  The licence they are offered under is to be decided (`assets/glyphs/LICENSE-glyphs`). Nothing in
+- **The glyphs** (`assets/glyphs/`) are original drawings by Henning Berge, under the GNU General
+  Public License version 2 or any later version (GPL-2.0-or-later, `assets/glyphs/LICENSE-glyphs`).
+  Nothing in
   the mod is taken from the game: no game-derived art is shipped. `docs/wheel.png` and
   `docs/categories.png` are drawn by the mod's own code with these glyphs; `docs/icon.png` (the hub
   icon) is Henning Berge's own design, made with them.

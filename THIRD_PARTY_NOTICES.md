@@ -13,9 +13,10 @@ that is no longer in the mod or in this repository's current tree.
 ## The glyphs, by Henning Berge
 
 `assets/glyphs/rac1/*.svg` and `assets/glyphs/rac1/icons.json` are original drawings by Henning
-Berge, made for this mod. They are not traced from or derived from the game's pictures. **They are
-not under the GPL.** The licence they are offered under is to be decided:
-`assets/glyphs/LICENSE-glyphs` (carried in the package beside them) says so.
+Berge, made for this mod. They are not traced from or derived from the game's pictures. They are
+licensed under the **GNU General Public License version 2 or (at your option) any later version**
+(GPL-2.0-or-later), separately from the code: `assets/glyphs/LICENSE-glyphs` (carried in the
+package beside them) has the notice and the GPL-2.0 text.
 
 ## Prey Menu (Fallout: New Vegas), by KerosenileArsonist
 

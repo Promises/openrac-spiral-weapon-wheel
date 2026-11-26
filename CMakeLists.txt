@@ -85,7 +85,7 @@ target_include_directories(spiral_weapon_wheel PRIVATE src)
 # The notices of what is copied go in the package (and so the archive, which carries the files
 # named LICENSE* beside the manifest). The wheel's panels are made as the mod loads (paint.hpp);
 # its own glyphs, the user's original drawings, are an icon pack in assets/glyphs/ (the manifest's
-# "assets"), under their own terms (assets/glyphs/LICENSE-glyphs), not the GPL.
+# "assets"), under their own terms: GPL-2.0-or-later (assets/glyphs/LICENSE-glyphs).
 get_target_property(spiral_weapon_wheel_package spiral_weapon_wheel OPENRAC_MOD_PACKAGE_DIR)
 configure_file(THIRD_PARTY_NOTICES.md "${spiral_weapon_wheel_package}/LICENSE.THIRD_PARTY_NOTICES.md" COPYONLY)
 file(GLOB spiral_glyphs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/glyphs/rac1/*")
