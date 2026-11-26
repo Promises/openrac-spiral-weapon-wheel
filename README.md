@@ -111,22 +111,22 @@ their own taste. No dependency on this mod is needed; without the wheel the fold
 | Spiral motion | Continuous | *Continuous*: the spiral follows the pointer (Prey Menu's way). Outward, the first loop (the quick select's) holds still while the pointer is on it, so all of it shows whole; past it the pointer sits in the middle of the ring, the 6 slots either side whole and fading beyond. *Loop steps*: the pointer's loop is shown whole, and the spiral eases to the next loop as the pointer crosses into it. Changed live. |
 | Spiral depth | 0.75 | How far in each slot is from the one before: the design's 11 pixels (of 720) at 0.75 and below, less above it, down to 5 at 1. |
 | Click sound | off | A sound as the pointer moves to another item (Ratchet & Clank's quick select is silent; this is a stand-in). |
-| Debug: preview (temporary) | Off | For testing the look: *Gold Visibomb Gun*, *All weapons gold* draw those as gold; *Everything* shows every Quick Select weapon and gadget, owned or not, and the ten gold weapons as entries of their own. The wheel only: letting go on a preview entry picks nothing. Removed before a release. |
 
 ## Requirements
 
-**OpenRAC with mod interface 1.40 and three hook points**, none of them in a release yet:
+**An OpenRAC launcher with mod interface 1.41.** Until a stable launcher has it, that is the
+launcher's dev channel, in a build made after #865 was merged (26 November 2026). The mod needs,
+all merged into OpenRAC's develop but in no release yet:
 
-- the overlay pictures and the layer under the HUD:
+- the overlay pictures and the layer under the HUD (interface 1.41):
   [OpenRAC#865](https://github.com/OpenRAC/OpenRAC/pull/865);
 - the hook points `rac1.level.update_play`, `rac1.freeze.update` and `rac1.freeze.draw`:
   [OpenRAC#863](https://github.com/OpenRAC/OpenRAC/pull/863);
 - and, so the Field of View stays as it is while the world holds,
   [OpenRAC#862](https://github.com/OpenRAC/OpenRAC/pull/862).
 
-A game without them refuses the mod and says why. Until they are merged, `sdk.lock` pins the SDK of
-the branch `spiral-wheel-test` of [Promises/OpenRAC](https://github.com/Promises/OpenRAC), which
-merges the three.
+A game without them refuses the mod and says why. `sdk.lock` pins the SDK of OpenRAC's develop at
+the commit that merged #865 (`7bc001c7c`, SDK 1.41.0), until a release has it.
 
 Ratchet & Clank PAL and NTSC-U.
 
@@ -196,11 +196,10 @@ Ratchet & Clank PAL and NTSC-U.
 - **The order** (1.4.6): the game's quick select first, in its numbers' order: quick select 1 at
   index 0 (on the start angle), 2 at index 1, and so on. An empty quick select slot is skipped
   (the next number takes its place), so there are no gaps. Then the rest in the providers' order:
-  the Quick Select page's weapons grid, its gadgets grid, the registered items, other providers'
-  (and, with the debug preview's Everything, the preview entries among them). 1.0.3 to 1.4.5 put
-  each quick select item at the first loop's slot nearest its direction on the game's ring
-  instead; with the slots growing per slot, the late ones read as an outer ring, so that was
-  dropped. The wheel opens on the item in hand; the first push of an opening points at the first
+  the Quick Select page's weapons grid, its gadgets grid, the registered items, other providers'.
+  1.0.3 to 1.4.5 put each quick select item at the first loop's slot nearest its direction on the
+  game's ring instead; with the slots growing per slot, the late ones read as an outer ring, so
+  that was dropped. The wheel opens on the item in hand; the first push of an opening points at the first
   loop's slot in the stick's direction (onto the nearest item if that slot has none); after it the
   stick turns the pointer as Prey Menu's does, and the d-pad steps through the items in index
   order.
@@ -234,7 +233,7 @@ Ratchet & Clank PAL and NTSC-U.
   providers. Another one (a later SDK's list of items) is one more provider, with no change to the
   wheel. Nothing is capped: any number of items, any item ids, as many loops as it takes.
 - **The pictures** (the panels and the glyphs) are drawn under the game's HUD by the mod's overlay
-  (interface 1.40). The text, and any icon drawn as the game's sprite, are drawn on top, through
+  (interface 1.41). The text, and any icon drawn as the game's sprite, are drawn on top, through
   the game's own HUD calls. The game draws all three of its fonts 16 units a glyph; the middle's
   lines (a gold weapon's label, the name, the ammo) are such lines 6 apart (the design's gap),
   centred in the disc as one block, each fitted to the disc's chord at it by the game's own measure
@@ -320,7 +319,6 @@ fails by name.
 | Gold detection, the icon packs, the disc's HUD set | 1.1.0 / 1.3.0 | `test_icon_sources` |
 | Glyphs from memory without disc data, checked | 1.1.2 | `test_glyph_capture` |
 | The gold label, the middle's text fit and wrap hints | 1.4.1 to 1.4.3 | `test_gold_label`, `test_text_fit` |
-| The debug preview's Everything: every item, the gold entries, a preview entry picks nothing (temporary) | 1.4.5 | `test_everything` |
 | The panel textures | 1.4.0 | `test_panel_art` |
 | The logging | 1.0.0 | `regression_logging` |
 | PAL and NTSC | 1.0.0 | `regression_pal_ntsc` |
@@ -333,18 +331,10 @@ linking blanks for 14, 23, 30 and 35 items (`test_full_ring`), both motions, the
 
 ## Remove before release
 
-Temporary things that must not ship. A tag's build fails while any is still there: its CI runs
-`tools/no_debug_settings.cmake` as a test, which fails on a manifest setting named `debug_...`.
-
-- The setting **"Debug: preview (temporary)"** (`debug_preview`: Off / Gold Visibomb Gun / All
-  weapons gold / Everything). It draws weapons as gold, or (Everything) every Quick Select weapon
-  and gadget, owned or not, plus a gold entry after each of the ten weapons with a gold version,
-  on the wheel only, to check the look and the layout in game. It writes nothing and gives nothing;
-  letting go on a preview entry picks nothing. Remove it from `openrac-mod.json`, along with
-  `DebugPreview`, `kVisibombGun` and `kGoldWeapons` (`src/gc/rac1_shim.hpp`), their uses
-  (`Shim::shows_gold`, `Shim::collect_items`, `quick_select_items` and `registered_items`'
-  `everything`, `read_settings` in `src/mod.cpp`), `spiral::Item::preview` with
-  `Shim::preview_entry`, and `test_everything`.
+Temporary things (a test setting, say) must not ship. A tag's build fails while one is still there:
+its CI runs `tools/no_debug_settings.cmake` as a test, which fails on a manifest setting named
+`debug_...` (`-DSPIRAL_RELEASE=ON` runs it locally), and `regression_defaults` checks the same on
+every build. There are none now: 1.5.0 removed 1.4.5's "Debug: preview (temporary)".
 
 ## Build
 

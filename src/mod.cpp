@@ -11,7 +11,7 @@
 // spiral (src/spiral/, game-agnostic): every owned weapon and gadget of the hand, the stick turning
 // the pointer around the loops. Its look is the user's design (src/spiral/look.hpp: Ratchet &
 // Clank's menu panels bent around the spiral), drawn by the mod's overlay under the game's HUD
-// (interface 1.40's pictures and OPENRAC_OVERLAY_UNDER_HUD) from pictures it makes as it loads
+// (interface 1.41's pictures and OPENRAC_OVERLAY_UNDER_HUD) from pictures it makes as it loads
 // (src/spiral/paint.cpp; no art is shipped); the items' fallback icons and the text are the
 // game's own, drawn through the quick select's HUD record. Before the pause the game slows down for a moment (the port's
 // time_stretch), as Prey's wheel eases time down.
@@ -27,7 +27,7 @@
 //   rac1.hud.quick_select.draw
 //   rac1.menu.item_grid.draw        the pause menu's item grid: the items' glyphs captured from the
 //                                   HUD's icons while its pages are certain
-// The first three need OpenRAC with those hook points; the pictures need mod interface 1.40.
+// The first three need OpenRAC with those hook points; the pictures need mod interface 1.41.
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -227,12 +227,6 @@ void read_settings(openrac::Mod& mod) {
     w.look.spiral.depth = static_cast<float>(mod.setting<double>("depth"));
     w.look.continuous = mod.setting<std::string>("spiral_motion") != "loop_steps";
     w.look.outward = mod.setting<std::string>("spiral_grows") != "inward";
-    // TEMPORARY (remove before release): the debug preview, the wheel's look only.
-    const std::string preview = mod.setting<std::string>("debug_preview");
-    w.debug_preview = preview == "gold_visibomb_gun"  ? gc::DebugPreview::GoldVisibombGun
-                      : preview == "all_weapons_gold" ? gc::DebugPreview::AllWeaponsGold
-                      : preview == "everything"       ? gc::DebugPreview::Everything
-                                                      : gc::DebugPreview::Off;
     w.toggle = mod.setting<std::string>("mode") == "toggle";
     w.ramp_frames = ramp_frames(mod.setting<std::string>("slowdown"));
     w.ease_back = mod.setting<bool>("ease_back");
@@ -420,7 +414,7 @@ void load(openrac::Mod& mod) {
         throw openrac::Error("this mod knows the PAL and NTSC-U discs only");
     }
     if (!mod.has_overlay_images()) {
-        throw openrac::Error("this mod needs OpenRAC with mod interface 1.40 (pictures in a mod's overlay)");
+        throw openrac::Error("this mod needs OpenRAC with mod interface 1.41 (pictures in a mod's overlay)");
     }
     g_mod = &mod;
     connect_game(mod, ntsc);
@@ -476,4 +470,4 @@ void load(openrac::Mod& mod) {
 
 }  // namespace
 
-OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.4.6", load)
+OPENRAC_MOD_CPP("spiral-weapon-wheel", "1.5.0", load)

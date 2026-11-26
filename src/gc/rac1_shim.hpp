@@ -228,22 +228,8 @@ struct LevelAddresses {
 
 // The wheel's settings (the mod's): the spiral's look, hold or toggle, the slow-down and its ease
 // back.
-// TEMPORARY (remove before release: README "Remove before release"): the debug setting that
-// previews the look on the wheel only (Shim::shows_gold, Shim::collect_items): the Visibomb Gun or
-// every weapon drawn gold; or Everything, every Quick Select weapon and gadget, owned or not, and a
-// gold entry after each weapon the game sells a gold version of. Nothing of the game's is written,
-// and a preview entry is never picked.
-enum class DebugPreview { Off, GoldVisibombGun, AllWeaponsGold, Everything };
-constexpr std::int32_t kVisibombGun = 0x0D;  // the first preview's one weapon
-// The weapons with a gold version: the gold weapon case's table, slot to item
-// (gold_weapon_case_item_ids_by_slot, level 1's overlay: US 0x001DEB10, PAL 0x001DEDE0; read from
-// the NTSC disc, ten then zeros): the Tesla Claw, Bomb Glove, Devastator, Pyrocitor, Mine Glove,
-// Blaster, Morph-o-Ray, Glove of Doom, Decoy Glove and Suck Cannon.
-constexpr std::int32_t kGoldWeapons[10] = {0x13, 0x0A, 0x0B, 0x10, 0x11, 0x0F, 0x15, 0x14, 0x19, 0x09};
-
 struct WheelOptions {
     spiral::Look look;
-    DebugPreview debug_preview = DebugPreview::Off;
     bool toggle = false;
     int ramp_frames = kRampShort;
     bool ease_back = false;
@@ -349,8 +335,6 @@ public:
     std::string item_name(std::int32_t id, bool gold) const;
     // Whether the player owns item `id`'s gold version (gold_weapon_purchased).
     bool owns_gold(std::int32_t id) const;
-    // Whether the wheel draws item `id` gold: owned so, or the debug preview's.
-    bool shows_gold(std::int32_t id) const;
     // The middle's text (rac1_spiral.cpp): the room for a line at `y` (game units across), and the
     // lines (label, name, ammo) as they are drawn.
     int centre_room(const spiral::Frame& f, float y) const;
@@ -480,8 +464,8 @@ private:
     void load_level_icons(int level);
 
     std::vector<ItemProvider> m_item_providers;
-    void quick_select_items(std::vector<spiral::Item>& out, bool everything) const;
-    void registered_items(std::vector<spiral::Item>& out, bool everything) const;
+    void quick_select_items(std::vector<spiral::Item>& out) const;
+    void registered_items(std::vector<spiral::Item>& out) const;
     // The game's menu panel's pictures (look.hpp), made once a level at the wheel's first opening:
     // the effect textures from game memory, the vignette from the disc's HUD set.
     spiral::PanelArt m_panel_art;
@@ -496,10 +480,6 @@ private:
     bool m_in_menu = false;      // the item grid drew since the last tick in play
     CachedGlyph& glyph_entry(int frame);
     int icon_frame(std::uint16_t icon, bool gold) const;
-    // Whether slot `index` is a debug preview's entry (spiral::Item::preview): never picked.
-    bool preview_entry(int index) const {
-        return m_wheel.is_item(index) && m_wheel.items()[static_cast<std::size_t>(index)].preview;
-    }
     void capture_glyph(CachedGlyph& entry, std::uint16_t icon, Capture when);
     void attach_glyph(spiral::Item& item);
     void forget_glyphs();

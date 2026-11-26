@@ -24,7 +24,7 @@ if(NOT OpenRACMod_DIR)
     endif()
   endif()
 endif()
-find_package(OpenRACMod 1.40 REQUIRED)
+find_package(OpenRACMod 1.41 REQUIRED)
 
 # Windows: GitHub's windows-2025 image pairs a Visual Studio whose C++ library asks for a newer Clang
 # than the clang-cl it ships (STL1000), depending on the image a run gets. The library's own switch

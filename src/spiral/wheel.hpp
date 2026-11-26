@@ -38,11 +38,8 @@ struct Item {
     } colours;
     // An icon pack's hint where the name may break (icon_packs.hpp: "wrap"), "" none.
     std::string wrap;
-    // Drawn as its gold version (the layer's: owned, or a debug preview's).
+    // Drawn as its gold version (the layer's: the player owns it).
     bool gold = false;
-    // A debug preview's entry (an item not owned, or a gold version shown beside its weapon): drawn
-    // and stepped to like any item, never picked (letting go on it picks nothing).
-    bool preview = false;
 };
 
 // One slot as drawn (look.hpp): a menu panel bent into a sector of the spiral.

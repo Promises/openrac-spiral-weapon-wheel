@@ -50,11 +50,13 @@ name and ammo show in the round middle panel, and the health meter hides while t
 
 ## Requirements
 
-- **OpenRAC with mod interface 1.40 and three new hook points, none of them in a release yet**
+- **An OpenRAC launcher with mod interface 1.41**: the dev channel until a stable launcher has it.
+  It brings the overlay pictures and three new hook points
   ([OpenRAC#865](https://github.com/OpenRAC/OpenRAC/pull/865),
   [OpenRAC#863](https://github.com/OpenRAC/OpenRAC/pull/863), and
   [OpenRAC#862](https://github.com/OpenRAC/OpenRAC/pull/862) so the Field of View stays as it is
-  while the world holds). A game without them refuses the mod and says why.
+  while the world holds), merged but in no release yet. A game without them refuses the mod and
+  says why.
 - **Ratchet & Clank**, PAL and NTSC-U.
 - No other mods needed.
 
